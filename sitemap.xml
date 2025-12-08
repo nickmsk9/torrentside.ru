@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="gss.xsl"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.google.com/schemas/sitemap/0.84 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+
+<url><loc>http://torrentside.ru/browse.php</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>
+<url><loc>http://torrentside.ru/</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>
+<url><loc>http://torrentside.ru/details.php?id=1</loc><lastmod>2025-07-16T09:46:04+03:00</lastmod><changefreq>daily</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=5</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=6</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=7</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=8</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=10</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=11</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=13</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=14</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=15</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=16</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=20</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=23</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=24</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=26</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=27</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=28</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=31</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+<url><loc>http://torrentside.ru/browse.php?cat=32</loc><lastmod>2025-07-17T13:21:13+03:00</lastmod><changefreq>hourly</changefreq><priority>0.5</priority></url>
+</urlset>

@@ -1,0 +1,105 @@
+[2025-10-02 16:40:43] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\browse.php(716): stdfoot()
+#2 {main}
+
+[2025-10-02 16:41:33] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\browse.php(716): stdfoot()
+#2 {main}
+
+[2025-10-02 16:41:34] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\browse.php(716): stdfoot()
+#2 {main}
+
+[2025-10-02 16:41:34] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\browse.php(716): stdfoot()
+#2 {main}
+
+[2025-10-03 08:29:50] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\browse.php(716): stdfoot()
+#2 {main}
+
+[2025-10-03 09:42:53] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 09:42:55] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 09:42:56] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 09:42:57] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 09:45:13] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 09:45:14] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 09:46:51] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:18:30] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:19:25] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:19:58] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:20:07] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:28:50] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:31:24] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:31:25] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:31:25] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+
+[2025-10-03 10:31:25] UNCAUGHT EXCEPTION: Call to a member function assign() on null in C:\OSPanel\domains\torrentside.ru\styles\include\foot.php:140
+#0 C:\OSPanel\domains\torrentside.ru\include\functions.php(1354): require_once()
+#1 C:\OSPanel\domains\torrentside.ru\index.php(641): stdfoot()
+#2 {main}
+

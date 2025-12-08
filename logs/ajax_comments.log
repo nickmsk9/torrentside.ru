@@ -1,0 +1,2 @@
+{"ts":"2025-10-06T12:48:19+03:00","level":"info","message":"AJAX entry","ip":"127.0.0.1","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2025-10-06T12:48:19+03:00","level":"info","message":"Comment added","ip":"127.0.0.1","uid":1,"uri":"/addcomment.php","ctx":{"tid":1}}

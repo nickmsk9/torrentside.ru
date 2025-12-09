@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>Доступ запрещен (403)</title>
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -31,3 +32,4 @@
     </div>
 </body>
 </html>
+

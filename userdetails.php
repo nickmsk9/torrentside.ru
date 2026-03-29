@@ -133,10 +133,7 @@ stdhead("Просмотр профиля {$safeUsername}");
 
 // ====================== Начало блока профиля ======================
 begin_frame(
-    "Профиль пользователя "
-    . get_user_class_color($user['class'], $safeUsername)
-    . get_user_icons($user, true)
-    . " " . $country
+    "Профиль пользователя"
 );
 
 // --- Статус (стили оставлены как есть) ---
@@ -207,6 +204,9 @@ $status = ($status !== '')
 </style>
 
 <div class="bubble">
+  <div style="margin:0 0 8px;font-size:14px;line-height:1.25;">
+    <?= get_user_class_color($user['class'], $safeUsername) ?><?= get_user_icons($user, true) ?> <?= $country ?>
+  </div>
   <div class="rounded">
     <blockquote><p><?= $status ?></p></blockquote>
   </div>

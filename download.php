@@ -3,8 +3,6 @@ require_once "include/bittorrent.php";
 require_once "include/benc.php";
 
 dbconn();
-loggedinorreturn();
-parked();
 
 /* ===================== helpers ===================== */
 
@@ -56,8 +54,12 @@ function tracker_urls_with_passkey(array $urls, string $passkey): array {
     $out = [];
     foreach ($urls as $u) {
         if (!is_string($u) || $u === '') continue;
-        $sep = (str_contains($u, '?') ? '&' : '?');
-        $out[] = $u . $sep . 'passkey=' . $passkey;
+        if (preg_match('#^https?://#i', $u)) {
+            $sep = (str_contains($u, '?') ? '&' : '?');
+            $out[] = $u . $sep . 'passkey=' . $passkey;
+        } else {
+            $out[] = $u;
+        }
     }
     return array_values(array_unique($out));
 }
@@ -74,6 +76,23 @@ if (@ini_get('output_handler') === 'ob_gzhandler' && @ob_get_length() !== false)
 $id         = (int)($_GET['id'] ?? 0);
 $nameParam  = trim((string)($_GET['name'] ?? ''));
 $wantMagnet = isset($_GET['magnet']) && (int)$_GET['magnet'] === 1;
+$passkeyParam = trim((string)($_GET['passkey'] ?? ''));
+
+if (!$CURUSER && $passkeyParam !== '' && preg_match('/^[a-f0-9]{32,64}$/i', $passkeyParam)) {
+    $userRes = sql_query("
+        SELECT id, username, passhash, passkey, parked, enabled
+        FROM users
+        WHERE passkey = " . sqlesc($passkeyParam) . "
+        LIMIT 1
+    ") or sqlerr(__FILE__, __LINE__);
+    $userRow = mysqli_fetch_assoc($userRes);
+    if ($userRow && (($userRow['enabled'] ?? 'yes') === 'yes')) {
+        $CURUSER = $userRow;
+    }
+}
+
+loggedinorreturn();
+parked();
 
 if ($id <= 0 || $nameParam === '') {
     stderr($tracker_lang['error'], $tracker_lang['invalid_id']);
@@ -137,22 +156,28 @@ if (empty($trackerPool) && defined('BASEURL')) {
 }
 
 $trackerWithKey = tracker_urls_with_passkey($trackerPool, $CURUSER['passkey']);
+$httpTrackersWithKey = array_values(array_filter($trackerWithKey, static function(string $url): bool {
+    return (bool)preg_match('#^https?://#i', $url);
+}));
 
 /* ===================== MAGNET branch ===================== */
 
 if ($wantMagnet) {
     $hex = ih_to_hex($t['info_hash']);
-    $b32 = base32_from_hex($hex);
+    $exactSource = DEFAULTBASEURL . '/download.php?id=' . $id
+        . '&name=' . rawurlencode($nameParam)
+        . '&passkey=' . rawurlencode((string)$CURUSER['passkey']);
 
-    // Два xt для максимальной совместимости
     $parts = [
         'magnet:?xt=urn:btih:' . $hex,
-        'xt=urn:btih:' . $b32,
         'dn=' . rawurlencode($nameParam),
+        'xs=' . rawurlencode($exactSource),
+        'as=' . rawurlencode($exactSource),
+        'ws=' . rawurlencode($exactSource),
     ];
 
-    // Трекеры (до 20)
-    foreach (array_slice($trackerWithKey, 0, 20) as $tr) {
+    // Для magnet важнее отдать только валидные HTTP(S)-трекеры с passkey.
+    foreach (array_slice($httpTrackersWithKey ?: $trackerWithKey, 0, 10) as $tr) {
         $parts[] = 'tr=' . rawurlencode($tr);
     }
 

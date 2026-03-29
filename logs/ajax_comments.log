@@ -1,2 +1,68 @@
 {"ts":"2025-10-06T12:48:19+03:00","level":"info","message":"AJAX entry","ip":"127.0.0.1","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
 {"ts":"2025-10-06T12:48:19+03:00","level":"info","message":"Comment added","ip":"127.0.0.1","uid":1,"uri":"/addcomment.php","ctx":{"tid":1}}
+{"ts":"2026-03-29T14:59:54+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"edit_comment","cid":15,"tid":1}}
+{"ts":"2026-03-29T14:59:54+00:00","level":"info","message":"Edit form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":15,"tid":1}}
+{"ts":"2026-03-29T14:59:57+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"save_comment","cid":15,"tid":1}}
+{"ts":"2026-03-29T14:59:57+00:00","level":"info","message":"Comment saved","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":15,"tid":1}}
+{"ts":"2026-03-29T15:00:02+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"edit_comment","cid":19,"tid":1}}
+{"ts":"2026-03-29T15:00:02+00:00","level":"info","message":"Edit form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":19,"tid":1}}
+{"ts":"2026-03-29T15:00:04+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"save_comment","cid":19,"tid":1}}
+{"ts":"2026-03-29T15:00:04+00:00","level":"info","message":"Comment saved","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":19,"tid":1}}
+{"ts":"2026-03-29T15:01:52+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":2}}
+{"ts":"2026-03-29T15:01:52+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":2}}
+{"ts":"2026-03-29T15:02:13+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":2}}
+{"ts":"2026-03-29T15:02:13+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":2}}
+{"ts":"2026-03-29T15:07:24+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":2}}
+{"ts":"2026-03-29T15:07:24+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":2}}
+{"ts":"2026-03-29T15:07:26+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":2}}
+{"ts":"2026-03-29T15:07:26+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":2}}
+{"ts":"2026-03-29T15:16:54+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:16:54+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":0}}
+{"ts":"2026-03-29T15:17:07+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"comment_quote","cid":26,"tid":1}}
+{"ts":"2026-03-29T15:17:07+00:00","level":"info","message":"Quote prepared","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":26,"tid":1}}
+{"ts":"2026-03-29T15:17:09+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:17:09+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":0}}
+{"ts":"2026-03-29T15:19:07+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":25,"tid":1}}
+{"ts":"2026-03-29T15:19:07+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":25,"tid":1}}
+{"ts":"2026-03-29T15:19:07+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":25,"tid":1}}
+{"ts":"2026-03-29T15:19:07+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":25,"tid":1}}
+{"ts":"2026-03-29T15:19:12+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:19:12+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":25}}
+{"ts":"2026-03-29T15:19:16+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:16+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:16+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:16+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:23+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:19:23+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":34}}
+{"ts":"2026-03-29T15:19:44+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:44+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:44+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:44+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":34,"tid":1}}
+{"ts":"2026-03-29T15:19:47+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:19:47+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":34}}
+{"ts":"2026-03-29T15:19:51+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":37,"tid":1}}
+{"ts":"2026-03-29T15:19:51+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":37,"tid":1}}
+{"ts":"2026-03-29T15:19:51+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":37,"tid":1}}
+{"ts":"2026-03-29T15:19:51+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":37,"tid":1}}
+{"ts":"2026-03-29T15:19:54+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:19:54+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":37}}
+{"ts":"2026-03-29T15:20:08+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:20:08+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":0}}
+{"ts":"2026-03-29T15:20:17+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":38,"tid":1}}
+{"ts":"2026-03-29T15:20:17+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":38,"tid":1}}
+{"ts":"2026-03-29T15:20:17+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":38,"tid":1}}
+{"ts":"2026-03-29T15:20:17+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":38,"tid":1}}
+{"ts":"2026-03-29T15:26:09+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:26:09+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":0}}
+{"ts":"2026-03-29T15:27:40+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":38,"tid":1}}
+{"ts":"2026-03-29T15:27:40+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":38,"tid":1}}
+{"ts":"2026-03-29T15:27:40+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":38,"tid":1}}
+{"ts":"2026-03-29T15:27:40+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":38,"tid":1}}
+{"ts":"2026-03-29T15:27:42+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:27:42+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":38}}
+{"ts":"2026-03-29T15:29:10+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":15,"tid":1}}
+{"ts":"2026-03-29T15:29:10+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":15,"tid":1}}
+{"ts":"2026-03-29T15:29:10+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"reply_form","cid":15,"tid":1}}
+{"ts":"2026-03-29T15:29:10+00:00","level":"info","message":"Reply form shown","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"cid":15,"tid":1}}
+{"ts":"2026-03-29T15:29:14+00:00","level":"info","message":"AJAX entry","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"do":"add_comment","cid":0,"tid":1}}
+{"ts":"2026-03-29T15:29:14+00:00","level":"info","message":"Comment added","ip":"185.85.0.29","uid":1,"uri":"/addcomment.php","ctx":{"tid":1,"parent_id":15}}

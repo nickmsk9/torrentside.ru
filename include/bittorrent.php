@@ -43,12 +43,16 @@ $isBot =
 // Определяем, что мы НЕ в announce.php
 $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
 $isAnnounce = (substr($script, -12) === '/announce.php' || $script === '/announce.php');
+$isDownloadWithPasskey =
+    ((substr($script, -13) === '/download.php' || $script === '/download.php'))
+    && !empty($_GET['passkey'])
+    && preg_match('/^[a-f0-9]{32,64}$/i', (string)$_GET['passkey']);
 
 // Имя куки завязываем на IP (как было)
 $cookieName = md5('837sgsa' . ($_SERVER['REMOTE_ADDR'] ?? '0'));
 
 // Если нет куки, не бот и не announce — включаем простую защиту с автопостом
-if (empty($_COOKIE[$cookieName]) && !$isAnnounce && !$isBot) {
+if (empty($_COOKIE[$cookieName]) && !$isAnnounce && !$isBot && !$isDownloadWithPasskey) {
 
     // Если пришли со скрытым полем — ставим куку и редиректим обратно
     if (isset($_POST[$cookieName])) {

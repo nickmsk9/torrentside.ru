@@ -4,6 +4,46 @@ require_once 'classes/rating.class.php';
 
 gzip();
 
+function details_cache_get(string $key) {
+    global $memcached;
+
+    if (function_exists('mc_get')) {
+        return mc_get($key);
+    }
+
+    if (isset($memcached) && $memcached instanceof Memcached) {
+        return $memcached->get($key);
+    }
+
+    return false;
+}
+
+function details_cache_set(string $key, $value, int $ttl = 300): void {
+    global $memcached;
+
+    if (function_exists('mc_set')) {
+        mc_set($key, $value, $ttl);
+        return;
+    }
+
+    if (isset($memcached) && $memcached instanceof Memcached) {
+        $memcached->set($key, $value, $ttl);
+    }
+}
+
+function details_render_descr_html(int $torrentId, string $descr): string {
+    $hash = md5($descr);
+    $key = "details:descr:v1:t{$torrentId}:{$hash}";
+    $cached = details_cache_get($key);
+    if (is_string($cached) && $cached !== '') {
+        return $cached;
+    }
+
+    $html = format_comment($descr);
+    details_cache_set($key, $html, 600);
+    return $html;
+}
+
 // Определение BitTorrent-клиента по HTTP_USER_AGENT и peer_id
 function getagent(string $httpagent, string $peer_id = ""): string {
     // Проверка по HTTP_USER_AGENT
@@ -147,24 +187,22 @@ $id = 0 + (int)$_GET["id"];
 if (!isset($id) || !$id)
         die();
 
-$res = sql_query("SELECT torrents.seeders,torrents.modded, torrents.modby, torrents.modname, torrents.karma, torrents.leechers, torrents.info_hash, torrents.free, torrents.filename, UNIX_TIMESTAMP() - UNIX_TIMESTAMP(torrents.last_action) AS lastseed,torrents.name, torrents.owner, torrents.save_as, torrents.descr, torrents.visible, torrents.size, torrents.added, torrents.views, torrents.hits, torrents.times_completed, torrents.id, torrents.type, torrents.tags, torrents.numfiles, torrents.image1,torrents.image2,torrents.image3,torrents.image4,torrents.image5, categories.name AS cat_name,categories.id AS cat_id, users.username " . ($CURUSER ? ", (SELECT COUNT(*) FROM karma WHERE type='torrent' AND value = torrents.id AND user = $CURUSER[id]) AS canrate" : "") . "   FROM torrents LEFT JOIN categories ON torrents.category = categories.id LEFT JOIN users ON torrents.owner = users.id  WHERE torrents.id = $id")
-        or sqlerr(__FILE__, __LINE__);
+$res = sql_query("
+    SELECT
+        torrents.id,
+        torrents.name,
+        torrents.owner,
+        torrents.descr,
+        torrents.filename,
+        torrents.free,
+        torrents.image1,
+        torrents.seeders,
+        torrents.leechers
+    FROM torrents
+    WHERE torrents.id = {$id}
+    LIMIT 1
+") or sqlerr(__FILE__, __LINE__);
 $row = mysqli_fetch_array($res);
-
-
-// безопасные дефолты
-$uid     = isset($CURUSER['id']) ? (int)$CURUSER['id'] : 0;
-$ownerId = isset($row['owner'])  ? (int)$row['owner']  : 0;
-
-$owned = 0;
-$moderator = 0;
-
-if (get_user_class() >= UC_MODERATOR) {
-    $owned = 1;
-    $moderator = 1;
-} elseif ($uid > 0 && $ownerId > 0 && $uid === $ownerId) {
-    $owned = 1;
-}
 
  
 // Заголовок (имя — безопасно)
@@ -201,6 +239,7 @@ if (!$row) {
 $owned   = (get_user_class() >= UC_MODERATOR || ($uid > 0 && $uid === $ownerId)) ? 1 : 0;
 $spacer  = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
 $name    = htmlspecialchars((string)($row['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+$descrHtml = details_render_descr_html($torrentId, (string)($row['descr'] ?? ''));
 
 // Кнопки "предыдущий/следующий" + название
 $namer =
@@ -290,8 +329,7 @@ print('<span class="tab" id="screen">Скриншоты</span>');
 print('<span class="tab" id="skill">Похожие раздачи</span>');
 print('<span id="loading"></span>');
 print('<div id="body" torrent="' . $torrentId . '">');
-$op = format_comment((string)($row['descr'] ?? ''));
-print($op);
+print($descrHtml);
 print('</div>'); // #body
 print('</div>'); // #tabs
 print('</td></tr>');
@@ -303,8 +341,11 @@ print('</table>'); // ВАЖНО: без лишнего </p>
 <?php
 $torr   = htmlspecialchars($row['name'] ?? $row['filename'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $fname  = (string)($row['filename'] ?? $row['name'] ?? ('torrent-' . $torrentId . '.torrent'));
-$dUrl   = 'download.php?id=' . $torrentId . '&amp;name=' . rawurlencode($fname);
-$mUrl   = $dUrl . '&amp;magnet=1';
+$dUrl   = htmlspecialchars('download.php?id=' . $torrentId . '&name=' . rawurlencode($fname), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+$mUrl   = htmlspecialchars('download.php?id=' . $torrentId . '&name=' . rawurlencode($fname) . '&magnet=1', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+$seedersCount = (int)($row['seeders'] ?? 0);
+$leechersCount = (int)($row['leechers'] ?? 0);
+$hasActivePeers = ($seedersCount + $leechersCount) > 0;
 
 // если нужно бейдж «Скидка N%»
 $discountPct = $freePct; // используем то же число
@@ -317,8 +358,12 @@ $badgeSale  = 'display:inline-block;padding:6px 10px;margin:6px 0 10px 0;border:
 $left = ''
   . '<div>'
   .   '<a href="' . $dUrl . '" style="' . $btnTorrent . '">Скачать .torrent</a>'
-  .   '<a href="' . $mUrl . '" style="' . $btnMagnet  . '">Открыть magnet</a>'
+  .   ($hasActivePeers
+        ? '<a href="' . $mUrl . '" style="' . $btnMagnet  . '">Открыть magnet</a>'
+        : '<div style="' . $btnMagnet . 'opacity:.65;cursor:not-allowed;">Magnet недоступен</div>'
+    )
   .   ($discountPct !== null ? '<span style="' . $badgeSale . '">Скидка ' . (int)$discountPct . '%</span>' : '')
+  .   (!$hasActivePeers ? '<div style="margin-top:8px;color:#8a1f1f;">Magnet работает только при наличии активных пиров.</div>' : '')
   . '</div>';
 
 $right = ''
@@ -341,23 +386,43 @@ echo '</center>';
 echo '<script type="text/javascript" src="/js/comments.js"></script>' . "\n";
 echo '<a id="startcomments"></a>' . "\n"; // без лишнего <p>
 
+if (!function_exists('details_comments_supports_threads')) {
+    function details_comments_supports_threads(): bool {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+
+        $check = sql_query("SHOW COLUMNS FROM comments LIKE 'parent_id'");
+        if ($check && mysqli_num_rows($check) > 0) {
+            return $ready = true;
+        }
+
+        $alter = sql_query("
+            ALTER TABLE comments
+            ADD COLUMN parent_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER torrent,
+            ADD KEY idx_torrent_parent_added (torrent, parent_id, added)
+        ");
+
+        return $ready = (bool)$alter;
+    }
+}
+
 $id = (int)$id;
 $limited = 10;
+$commentsHaveThreads = details_comments_supports_threads();
 
 // Авторизация (мягко)
 $isLogged = isset($CURUSER) && is_array($CURUSER) && !empty($CURUSER['id']);
 $uid      = $isLogged ? (int)$CURUSER['id'] : 0;
 
 // --- Счётчик комментариев (с мягким кешем, если есть) ---
-$commentsCount = null;
-if (function_exists('mc_get')) {
-    $commentsCount = mc_get("comments:count:t{$id}");
-}
+$commentsCount = details_cache_get("comments:count:t{$id}");
 if (!is_int($commentsCount)) {
     $subres = $mysqli->query("SELECT COUNT(*) AS cnt FROM comments WHERE torrent = {$id}");
     $subrow = $subres ? $subres->fetch_assoc() : ['cnt' => 0];
     $commentsCount = (int)$subrow['cnt'];
-    if (function_exists('mc_set')) mc_set("comments:count:t{$id}", $commentsCount, 60);
+    details_cache_set("comments:count:t{$id}", $commentsCount, 60);
 }
 
 // Блок для AJAX
@@ -387,6 +452,7 @@ if ($commentsCount === 0) {
     $canrateCol = $isLogged
         ? ", (SELECT COUNT(*) FROM karma WHERE type = 'comment' AND value = c.id AND user = {$uid}) AS canrate"
         : "";
+    $parentCol = $commentsHaveThreads ? "c.parent_id AS parent_id" : "0 AS parent_id";
 
     // Получаем страницу комментариев
     $sql = "
@@ -400,6 +466,7 @@ if ($commentsCount === 0) {
             c.editedby,
             c.editedat,
             c.karma,
+            {$parentCol},
             u.avatar,
             u.warned,
             u.username,
@@ -416,7 +483,7 @@ if ($commentsCount === 0) {
         LEFT JOIN users AS u ON c.`user` = u.id
         LEFT JOIN users AS e ON c.editedby = e.id
         WHERE c.torrent = {$id}
-        ORDER BY c.id {$limit}";
+        ORDER BY " . ($commentsHaveThreads ? "CASE WHEN c.parent_id = 0 THEN c.id ELSE c.parent_id END, c.parent_id, c.id" : "c.id") . " {$limit}";
     $subres = $mysqli->query($sql) or sqlerr(__FILE__, __LINE__);
 
     $allrows = [];

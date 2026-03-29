@@ -57,14 +57,186 @@ function convert_enc(string $s, string $from, string $to): string {
     return $s;
 }
 
-/** Безопасный трим + очистка — для плейнтекста/BBCode */
+/** Безопасная нормализация — храним сырой BBCode, но убираем HTML и мусор */
 function clean_text(?string $s): string {
-    $s = trim((string)$s);
-    // NB: оставляем BBCode, но убираем HTML.
-    $s = strip_tags($s);
-    // HTML-экраним для вывода/хранения как HTML; если храните “сырой” BBCode в БД,
-    // можно убрать htmlspecialchars и полагаться на format_comment() при выводе.
-    return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+    $s = str_replace("\0", '', (string)$s);
+    $s = str_replace(["\r\n", "\r"], "\n", $s);
+    $s = trim($s);
+    return strip_tags($s);
+}
+
+function comments_supports_threads(): bool {
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    $check = sql_query("SHOW COLUMNS FROM comments LIKE 'parent_id'");
+    if ($check && mysqli_num_rows($check) > 0) {
+        return $ready = true;
+    }
+
+    $alter = sql_query("
+        ALTER TABLE comments
+        ADD COLUMN parent_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER torrent,
+        ADD KEY idx_torrent_parent_added (torrent, parent_id, added)
+    ");
+
+    return $ready = (bool)$alter;
+}
+
+function comment_editor_html(string $formName, string $textareaName, string $text = '', ?string $sendJs = null, ?string $cancelJs = null): string {
+    ob_start();
+    echo '<div class="comment-editor-ajax">';
+    echo '<form name="' . htmlspecialchars($formName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" method="post" action="#">';
+    textbbcode($formName, $textareaName, $text);
+    echo '<div style="margin-top:10px;text-align:right;">';
+    if ($sendJs !== null) {
+        echo '<a href="javascript:;" onclick="' . htmlspecialchars($sendJs, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" style="color:#1f5fa8 !important;font-size:11px;font-weight:700;">Сохранить</a>';
+    }
+    if ($cancelJs !== null) {
+        if ($sendJs !== null) {
+            echo '&nbsp;|&nbsp;';
+        }
+        echo '<a href="javascript:;" onclick="' . htmlspecialchars($cancelJs, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" style="color:#1f5fa8 !important;font-size:11px;font-weight:700;">Отмена</a>';
+    }
+    echo '</div>';
+    echo '</form>';
+    echo '</div>';
+    return (string)ob_get_clean();
+}
+
+function render_comments_block_html(int $torrentid): string {
+    global $CURUSER, $mysqli;
+
+    $limited = 10;
+    $isLogged = !empty($CURUSER['id']);
+    $userId = $isLogged ? (int)$CURUSER['id'] : 0;
+    $hasThreads = comments_supports_threads();
+
+    $countRes = sql_query("SELECT COUNT(*) FROM comments WHERE torrent = $torrentid");
+    [$commentsCount] = $countRes ? mysqli_fetch_row($countRes) : [0];
+    $commentsCount = (int)$commentsCount;
+
+    ob_start();
+    echo '<div id="comments_list" class="comments-list">' . "\n";
+
+    if ($commentsCount === 0) {
+        if ($isLogged) {
+            begin_frame("Комментарии");
+            echo '<form name="comment" id="comment" method="post" action="#">';
+            echo '<table style="margin-top:2px;" cellpadding="5" width="100%">';
+            echo '<tr><td align="center">';
+            textbbcode("comment", "text", '');
+            echo '</td></tr><tr><td align="center">';
+            echo '<input type="button" class="btn" value="Разместить комментарий" onclick="SE_SendComment(' . $torrentid . ')" id="send_comment" />';
+            echo '</td></tr></table>';
+            echo '</form>';
+            end_frame();
+        }
+
+        echo "</div>\n";
+        return (string)ob_get_clean();
+    }
+
+    [$pagertop, $pagerbottom, $limit] = pager($limited, $commentsCount, "details.php?id={$torrentid}&amp;", ['lastpagedefault' => 1]);
+    $canrateCol = $isLogged
+        ? ", (SELECT COUNT(*) FROM karma WHERE type = 'comment' AND value = c.id AND user = {$userId}) AS canrate"
+        : "";
+    $parentCol = $hasThreads ? "c.parent_id AS parent_id" : "0 AS parent_id";
+
+    $commentsSql = "
+        SELECT
+            c.id,
+            c.torrent AS torrentid,
+            c.ip,
+            c.text,
+            c.user,
+            c.added,
+            c.editedby,
+            c.editedat,
+            c.karma,
+            {$parentCol},
+            u.avatar,
+            u.warned,
+            u.username,
+            u.title,
+            u.class,
+            u.donor,
+            u.downloaded,
+            u.uploaded,
+            u.gender,
+            u.last_access,
+            e.username AS editedbyname
+            {$canrateCol}
+        FROM comments AS c
+        LEFT JOIN users AS u ON c.user = u.id
+        LEFT JOIN users AS e ON c.editedby = e.id
+        WHERE c.torrent = $torrentid
+        ORDER BY " . ($hasThreads ? "CASE WHEN c.parent_id = 0 THEN c.id ELSE c.parent_id END, c.parent_id, c.id" : "c.id") . " $limit
+    ";
+    $subres = $mysqli->query($commentsSql) or sqlerr(__FILE__, __LINE__);
+
+    $allrows = [];
+    while ($subres && ($subrow = $subres->fetch_assoc())) {
+        $allrows[] = $subrow;
+    }
+
+    echo '<table class="main" cellspacing="0" cellpadding="5" width="100%">';
+    echo '<tr><td>';
+    if (!empty($pagertop)) {
+        echo '<div class="pager-wrap pager-wrap--top">' . $pagertop . '</div>';
+    }
+    commenttable($allrows);
+    echo '</td></tr><tr><td>';
+    if (!empty($pagerbottom)) {
+        echo '<div class="pager-wrap pager-wrap--bottom">' . $pagerbottom . '</div>';
+    }
+    echo '</td></tr></table>';
+
+    if ($isLogged) {
+        begin_frame("Комментарии");
+        echo '<form name="comment" id="comment" method="post" action="#">';
+        echo '<table style="margin-top:2px;" cellpadding="5" width="100%">';
+        echo '<tr><td align="center">';
+        textbbcode("comment", "text", '');
+        echo '</td></tr><tr><td align="center">';
+        echo '<input type="button" class="btn" value="Разместить комментарий" onclick="SE_SendComment(' . $torrentid . ')" id="send_comment" />';
+        echo '</td></tr></table>';
+        echo '</form>';
+        end_frame();
+    }
+
+    echo "</div>\n";
+    return (string)ob_get_clean();
+}
+
+function comments_collect_delete_ids(int $torrentid, int $commentid): array {
+    if (!comments_supports_threads()) {
+        return [$commentid];
+    }
+
+    $res = sql_query("SELECT id, parent_id FROM comments WHERE torrent = $torrentid");
+    $children = [];
+    while ($res && ($row = mysqli_fetch_assoc($res))) {
+        $parentId = (int)($row['parent_id'] ?? 0);
+        $children[$parentId][] = (int)$row['id'];
+    }
+
+    $queue = [$commentid];
+    $deleteIds = [];
+    while ($queue) {
+        $current = array_shift($queue);
+        if (isset($deleteIds[$current])) {
+            continue;
+        }
+        $deleteIds[$current] = true;
+        foreach ($children[$current] ?? [] as $childId) {
+            $queue[] = $childId;
+        }
+    }
+
+    return array_map('intval', array_keys($deleteIds));
 }
 
 // ---------- Заголовок ----------
@@ -107,15 +279,16 @@ switch ($do) {
                 $authorId = (int)($comment['author_id'] ?? 0);
 
                 if ((get_user_class() >= UC_MODERATOR) || ((int)$CURUSER['id'] === $authorId)) {
-                    $text    = htmlspecialchars((string)$comment['text'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+                    $text    = (string)$comment['text'];
                     $post_id = (int)$comment['post_id'];
                     $torrent = (int)$comment['torrent'];
-
-                    echo "<textarea name=\"edit_post\" id=\"edit_post\" style=\"width:100%;height:100px;\">{$text}</textarea>";
-                    echo "<br /><div style=\"float:right;margin-top:5px;\">";
-                    echo "<a href=\"javascript:;\" onClick=\"SE_SaveComment('{$post_id}','{$torrent}')\" style=\"font-size:9px;color:#999999;\">Сохранить изменения</a>&nbsp;|&nbsp;";
-                    echo "<a href=\"javascript:;\" onClick=\"SE_CommentCancel('{$post_id}','{$torrent}')\" style=\"font-size:9px;color:#999999;\">Закончить редактирование</a>";
-                    echo "</div>";
+                    echo comment_editor_html(
+                        "comment_edit_{$post_id}",
+                        "edit_post_{$post_id}",
+                        $text,
+                        "SE_SaveComment('{$post_id}','{$torrent}')",
+                        "SE_CommentCancel('{$post_id}','{$torrent}')"
+                    );
 
                     app_log('info', 'Edit form shown', ['cid' => $commentid, 'tid' => $torrentid]);
                 } else {
@@ -131,16 +304,21 @@ switch ($do) {
     // ---------------------------------------------------------------------
     case 'save_comment':
         $text = $_POST['text'] ?? '';
-        // Если проект живёт на cp1251 — раскомментируйте convert_enc:
-        // $text = convert_enc($text, 'UTF-8', 'Windows-1251');
         $text = clean_text($text);
 
         if ($text !== '' && $commentid > 0 && $torrentid > 0) {
-            $sql_ori  = "SELECT text FROM comments WHERE id = $commentid AND torrent = $torrentid LIMIT 1";
+            $sql_ori  = "SELECT text, user FROM comments WHERE id = $commentid AND torrent = $torrentid LIMIT 1";
             $res_ori  = sql_query($sql_ori) or sqlerr(__FILE__, __LINE__);
 
             if ($res_ori && mysqli_num_rows($res_ori) > 0) {
                 $ori_text = mysqli_fetch_assoc($res_ori);
+                $authorId = (int)($ori_text['user'] ?? 0);
+                if ((get_user_class() < UC_MODERATOR) && ((int)($CURUSER['id'] ?? 0) !== $authorId)) {
+                    app_log('warn', 'Save denied: no rights', ['cid' => $commentid, 'tid' => $torrentid]);
+                    http_response_code(403);
+                    echo 'forbidden';
+                    break;
+                }
 
                 $upd_sql = "
                     UPDATE comments
@@ -187,12 +365,25 @@ switch ($do) {
         }
         break;
 
+    case 'reply_form':
+        if ($commentid > 0 && $torrentid > 0 && !empty($CURUSER)) {
+            comments_supports_threads();
+            echo comment_editor_html(
+                "comment_reply_{$commentid}",
+                "reply_post_{$commentid}",
+                '',
+                "SE_SendReply('{$commentid}','{$torrentid}')",
+                "SE_ReplyCancel('{$commentid}')"
+            );
+            app_log('info', 'Reply form shown', ['cid' => $commentid, 'tid' => $torrentid]);
+        }
+        break;
+
     // ---------------------------------------------------------------------
     // Цитата комментария
     // ---------------------------------------------------------------------
     case 'comment_quote':
         $text = $_POST['text'] ?? '';
-        // $text = convert_enc($text, 'UTF-8', 'Windows-1251');
         $text = clean_text($text);
 
         if ($commentid > 0 && $torrentid > 0 && !empty($CURUSER)) {
@@ -207,10 +398,11 @@ switch ($do) {
 
             if ($res && mysqli_num_rows($res) > 0) {
                 $comment  = mysqli_fetch_assoc($res);
-                $username = htmlspecialchars((string)$comment['username'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
-                $old_text = htmlspecialchars((string)$comment['text'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+                $username = preg_replace('/[\]\r\n]+/u', '', (string)($comment['username'] ?? ''));
+                $old_text = clean_text((string)($comment['text'] ?? ''));
 
-                $new_text = "{$text}[quote={$username}]{$old_text}[/quote]";
+                $prefix = $text !== '' && !preg_match('/\n\s*\z/u', $text) ? "\n\n" : '';
+                $new_text = $text . $prefix . "[quote={$username}]{$old_text}[/quote]";
                 echo $new_text;
 
                 app_log('info', 'Quote prepared', ['cid' => $commentid, 'tid' => $torrentid]);
@@ -227,22 +419,34 @@ case 'add_comment':
 
     $text = $_POST['text'] ?? '';
     $text = clean_text($text);
+    $parentId = isset($_POST['parent_id']) && is_numeric($_POST['parent_id']) ? (int)$_POST['parent_id'] : 0;
+    $hasThreads = comments_supports_threads();
 
     if ($torrentid > 0 && $text !== '') {
         $user_id = (int)$CURUSER['id'];
         $ip      = sqlesc(getip());
         $added   = sqlesc(date('Y-m-d H:i:s'));
+        $parentSql = ($hasThreads && $parentId > 0) ? ", `parent_id`" : "";
+        $parentVal = ($hasThreads && $parentId > 0) ? ", $parentId" : "";
+        if ($hasThreads && $parentId > 0) {
+            $parentCheck = sql_query("SELECT id FROM comments WHERE id = $parentId AND torrent = $torrentid LIMIT 1");
+            if (!$parentCheck || mysqli_num_rows($parentCheck) === 0) {
+                $parentId = 0;
+                $parentSql = "";
+                $parentVal = "";
+            }
+        }
 
         $ins = "
-            INSERT INTO comments (`user`, `torrent`, `added`, `text`, `ori_text`, `ip`)
-            VALUES ($user_id, $torrentid, $added, " . sqlesc($text) . ", " . sqlesc($text) . ", $ip)
+            INSERT INTO comments (`user`, `torrent`, `added`, `text`, `ori_text`, `ip`{$parentSql})
+            VALUES ($user_id, $torrentid, $added, " . sqlesc($text) . ", " . sqlesc($text) . ", $ip{$parentVal})
         ";
         $ok1 = sql_query($ins);
         $ok2 = sql_query("UPDATE torrents SET comments = comments + 1 WHERE id = $torrentid");
 
         if ($ok1 && $ok2) {
-            app_log('info', 'Comment added', ['tid' => $torrentid]);
-            echo "<script>location.reload();</script>";
+            app_log('info', 'Comment added', ['tid' => $torrentid, 'parent_id' => $parentId]);
+            echo render_comments_block_html($torrentid);
         } else {
             app_log('error', 'Insert/update failed on add_comment', ['tid' => $torrentid]);
             http_response_code(500);
@@ -260,8 +464,6 @@ case 'add_comment':
     // Удаление комментария
     // ---------------------------------------------------------------------
     case 'delete_comment':
-        $limited = 10;
-
         if ($commentid > 0 && $torrentid > 0) {
             $sql = "
                 SELECT c.user AS user_id, u.class
@@ -274,7 +476,11 @@ case 'add_comment':
 
             $canDelete = $row && (get_user_class() >= UC_MODERATOR || (int)$CURUSER['id'] === (int)$row['user_id']);
             if ($canDelete) {
-                $ok = sql_query("DELETE FROM comments WHERE id = $commentid AND torrent = $torrentid");
+                $deleteIds = comments_collect_delete_ids($torrentid, $commentid);
+                $deleteList = implode(',', array_map('intval', $deleteIds));
+                $ok = $deleteList !== ''
+                    ? sql_query("DELETE FROM comments WHERE torrent = $torrentid AND id IN ($deleteList)")
+                    : false;
                 if (!$ok) {
                     app_log('error', 'Delete failed', ['cid' => $commentid, 'tid' => $torrentid]);
                     http_response_code(500);
@@ -282,87 +488,10 @@ case 'add_comment':
                     break;
                 }
 
-                $res_count = sql_query("SELECT COUNT(*) FROM comments WHERE torrent = $torrentid LIMIT 1");
-                [$count] = $res_count ? mysqli_fetch_row($res_count) : [0];
-
-                [$pagertop, $pagerbottom, $limit] = pager($limited, (int)$count, "details.php?id={$torrentid}&amp;", ['lastpagedefault' => 1]);
-                app_log('info', 'Comment deleted', ['cid' => $commentid, 'tid' => $torrentid, 'left' => (int)$count]);
-
-                if ((int)$count === 0) {
-                    print("<table style=\"margin-top: 2px;\" cellpadding=\"5\" width=\"100%\">");
-                    print("<tr><td class=\"colhead\" colspan=\"2\">");
-                    print("<div style=\"float: left;\"> :: Список комментариев</div>");
-                    print("<div style=\"float: right;\"><a href=\"#comments\" class=\"altlink_white\">Добавить комментарий</a></div>");
-                    print("</td></tr><tr><td align=\"center\">Комментариев нет. <a href=\"#comments\">Желаете добавить?</a></td></tr>");
-                    print("</table><br>");
-
-                    print("<table style=\"margin-top: 2px;\" cellpadding=\"5\" width=\"100%\">");
-                    print("<tr><td class=\"colhead\" colspan=\"2\"><a name=\"comments\">&nbsp;</a><b>:: Без комментариев</b></td></tr>");
-                    print("<tr><td align=\"center\">");
-                    print("<form name=\"comment\" id=\"comment\">");
-                    $text = $_POST['text'] ?? '';
-                    textbbcode("wall", "text", $text);
-                    print("</form></td></tr>");
-                    print("<tr><td align=\"center\" colspan=\"2\">");
-                    print("<input type=\"button\" class=\"btn\" value=\"Разместить комментарий\" onClick=\"SE_SendComment('{$torrentid}')\" id=\"send_comment\" />");
-                    print("</td></tr></table>");
-                } else {
-                    $user_id = isset($CURUSER['id']) ? (int)$CURUSER['id'] : 0;
-                    $karma_subquery = $user_id > 0
-                        ? ", (SELECT COUNT(*) FROM karma WHERE type='comment' AND value = c.id AND user = $user_id) AS canrate"
-                        : "";
-
-                    $comments_sql = "
-                        SELECT c.id, c.torrent AS torrentid, c.ip, c.text, c.user, c.added, c.editedby, c.editedat, c.karma,
-                               u.avatar, u.warned, u.username, u.title, u.class, u.donor, u.downloaded, u.uploaded,
-                               u.gender, u.last_access, e.username AS editedbyname
-                               $karma_subquery
-                        FROM comments AS c
-                        LEFT JOIN users AS u ON c.user = u.id
-                        LEFT JOIN users AS e ON c.editedby = e.id
-                        WHERE c.torrent = $torrentid
-                        ORDER BY c.id $limit
-                    ";
-                    $subres = sql_query($comments_sql) or sqlerr(__FILE__, __LINE__);
-
-                    $allrows = [];
-                    while ($subres && ($subrow = mysqli_fetch_assoc($subres))) {
-                        $allrows[] = $subrow;
-                    }
-
-                    print("<table class=\"main\" cellspacing=\"0\" cellpadding=\"5\" width=\"100%\">");
-                    print("<tr><td class=\"colhead\" align=\"center\">");
-                    print("<div style=\"float: left;\"> :: Список комментариев</div>");
-                    print("<div style=\"float: right;\"><a href=\"#comments\" class=\"altlink_white\">Добавить комментарий</a></div>");
-                    print("</td></tr>");
-                    print("<tr><td>$pagertop</td></tr>");
-                    print("<tr><td>");
-                    commenttable($allrows);
-                    print("</td></tr>");
-                    print("<tr><td>$pagerbottom</td></tr>");
-                    print("</table>");
-
-                   begin_frame("Добавить комментарий к торренту");
-
-print("<table style=\"margin-top: 2px;\" cellpadding=\"5\" width=\"100%\">");
-print("<tr><td align=\"center\">");
-
-print("<form name=\"comment\" id=\"comment\">");
-print("<table border=\"0\" cellpadding=\"5\"><tr><td class=\"clear\">");
-
-$text = $_POST['text'] ?? '';
-textbbcode("wall", "text", $text);
-
-print("</td></tr></table>");
-print("</form>");
-
-print("</td></tr><tr><td align=\"center\">");
-print("<input type=\"button\" class=\"btn\" value=\"Разместить комментарий\" onClick=\"SE_SendComment('{$torrentid}')\" id=\"send_comment\" />");
-print("</td></tr></table>");
-
-end_frame();
-
-                }
+                $deletedCount = count($deleteIds);
+                sql_query("UPDATE torrents SET comments = GREATEST(comments - $deletedCount, 0) WHERE id = $torrentid");
+                app_log('info', 'Comment deleted', ['cid' => $commentid, 'tid' => $torrentid, 'deleted_count' => $deletedCount]);
+                echo render_comments_block_html($torrentid);
             } else {
                 app_log('warn', 'Delete denied: no rights', ['cid' => $commentid, 'tid' => $torrentid]);
                 http_response_code(403);

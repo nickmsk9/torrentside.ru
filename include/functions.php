@@ -2246,7 +2246,7 @@ if (!function_exists('e')) {
 
 function commenttable(array $rows, string $redaktor = "comment"): void
 {
-    global $CURUSER, $avatar_max_width, $DEFAULTBASEURL; // ← добавили $DEFAULTBASEURL
+    global $CURUSER, $avatar_max_width, $DEFAULTBASEURL;
 
     // Безопасный эскейпер
     $esc = static function ($value, bool $double_encode = true): string {
@@ -2290,11 +2290,42 @@ function commenttable(array $rows, string $redaktor = "comment"): void
     $avatarW = (int)($avatar_max_width ?? 100);
     if ($avatarW <= 0) $avatarW = 100;
 
+    $rowsById = [];
+    $childrenByParent = [];
     foreach ($rows as $row) {
-        // Нормализация числовых полей
         $cid = (int)($row['id'] ?? 0);
+        if ($cid <= 0) {
+            continue;
+        }
+        $parentId = (int)($row['parent_id'] ?? 0);
+        $rowsById[$cid] = $row;
+        $childrenByParent[$parentId][] = $cid;
+    }
+
+    $renderComment = function (int $commentId, int $depth = 0) use (
+        &$renderComment,
+        $rowsById,
+        $childrenByParent,
+        $CURUSER,
+        $avatarW,
+        $esc,
+        $fallbackAvatarUrl,
+        $avatarUrlNormalize
+    ): void {
+        if (!isset($rowsById[$commentId])) {
+            return;
+        }
+
+        $row = $rowsById[$commentId];
+        // Нормализация числовых полей
+        $cid = $commentId;
         $tid = (int)($row['torrentid'] ?? 0);
         $uid = (int)($row['user'] ?? 0);
+        $parentId = (int)($row['parent_id'] ?? 0);
+        $indentPx = min($depth, 6) * 28;
+        $threadNodeStyle = $parentId > 0
+            ? "margin:12px 0 12px {$indentPx}px;padding-left:14px;"
+            : "margin:0 0 28px 0;";
 
         // Нормализация строк
         $usernameRaw = (string)($row['username'] ?? '[Аноним]');
@@ -2317,6 +2348,7 @@ function commenttable(array $rows, string $redaktor = "comment"): void
                            . "</span></p>\n";
         }
         ?>
+        <div class="comment-thread-node" style="<?= $threadNodeStyle ?>">
         <div class="c">
         <div class="c1"><div class="c2"><div class="c3"><div class="c4">
         <div class="c5"><div class="c6"><div class="c7"><div class="c8">
@@ -2348,7 +2380,16 @@ function commenttable(array $rows, string $redaktor = "comment"): void
                     </td>
                     <td width="100%" class="text"><?= $comment_text ?></td>
                 </tr>
-            </table><br>
+            </table>
+            <?php if ($parentId > 0): ?>
+                <div class="small" style="margin:8px 0 10px 0;color:#617892;font-weight:700;padding-left:2px;">
+                    <a href="#comm<?= $parentId ?>" style="color:#617892 !important;text-decoration:none;">
+                        Ответ на комментарий #<?= $parentId ?>
+                    </a>
+                </div>
+            <?php endif; ?>
+            <div id="comment_reply_box<?= $cid ?>"></div>
+            <br>
 
             <table border="0" cellpadding="0" cellspacing="0">
                 <tr>
@@ -2382,17 +2423,18 @@ function commenttable(array $rows, string $redaktor = "comment"): void
                                 </span>
                             </td>
                             <td align="right" class="r">
-                                <div class="author actions">
+                                <div id="comment_edit_panel<?= $cid ?>" class="author actions">
                                     <?php if ($CURUSER): ?>
-                                        [<a href="javascript:;" class="comment-quote" data-id="<?= $cid ?>" data-tid="<?= $tid ?>">Цитата</a>]
+                                        [<a href="javascript:;" class="comment-quote" data-id="<?= $cid ?>" data-tid="<?= $tid ?>" onclick="SE_CommentQuote(<?= $cid ?>, <?= $tid ?>); return false;" style="color:#ffffff !important;">Цитата</a>]
+                                        [<a href="javascript:;" class="comment-reply" data-id="<?= $cid ?>" data-tid="<?= $tid ?>" onclick="SE_OpenReply(<?= $cid ?>, <?= $tid ?>); return false;" style="color:#ffffff !important;">Ответить</a>]
                                         <?php if ((int)($CURUSER["id"] ?? 0) === $uid || get_user_class() >= UC_MODERATOR): ?>
-                                            [<a href="javascript:;" class="comment-edit" data-id="<?= $cid ?>" data-tid="<?= $tid ?>">Изменить</a>]
+                                            [<a href="javascript:;" class="comment-edit" data-id="<?= $cid ?>" data-tid="<?= $tid ?>" onclick="SE_EditComment(<?= $cid ?>, <?= $tid ?>); return false;" style="color:#ffffff !important;">Изменить</a>]
                                         <?php endif; ?>
                                         <?php if (!empty($row["editedby"]) && get_user_class() >= UC_MODERATOR): ?>
-                                            [<a href="javascript:;" class="comment-original" data-id="<?= $cid ?>" data-tid="<?= $tid ?>">Оригинал</a>]
+                                            [<a href="javascript:;" class="comment-original" data-id="<?= $cid ?>" data-tid="<?= $tid ?>" onclick="SE_ViewOriginal(<?= $cid ?>, <?= $tid ?>); return false;" style="color:#ffffff !important;">Оригинал</a>]
                                         <?php endif; ?>
                                         <?php if (get_user_class() >= UC_MODERATOR): ?>
-                                            [<a href="javascript:;" class="comment-delete" data-id="<?= $cid ?>" data-tid="<?= $tid ?>">Удалить</a>]
+                                            [<a href="javascript:;" class="comment-delete" data-id="<?= $cid ?>" data-tid="<?= $tid ?>" onclick="SE_DeleteComment(<?= $cid ?>, <?= $tid ?>); return false;" style="color:#ffffff !important;">Удалить</a>]
                                         <?php endif; ?>
                                     <?php else: ?>
                                         <i>[Аноним]</i>
@@ -2404,8 +2446,35 @@ function commenttable(array $rows, string $redaktor = "comment"): void
                 </div>
             </div></div></div>
 
-        </div></div></div></div></div></div></div></div></div><br>
+        </div></div></div></div></div></div></div></div></div>
+        </div>
         <?php
+        if (!empty($childrenByParent[$cid])) {
+            $childrenGuideOffset = max(10, $indentPx + 16);
+            echo '<div class="comment-thread-children" style="margin-top:10px;margin-left:' . (int)$childrenGuideOffset . 'px;padding-left:16px;border-left:4px solid rgba(92,118,154,.28);">';
+            foreach ($childrenByParent[$cid] as $childId) {
+                $renderComment((int)$childId, $depth + 1);
+            }
+            echo "</div>\n";
+        }
+
+        echo $depth === 0 ? "<div style=\"height:14px;\"></div>\n" : '';
+    };
+
+    $rootIds = $childrenByParent[0] ?? [];
+    foreach ($rootIds as $rootId) {
+        echo '<div class="comment-thread-root" style="margin:0 0 18px 0;">';
+        $renderComment((int)$rootId, 0);
+        echo "</div>\n";
+    }
+
+    foreach ($rowsById as $cid => $row) {
+        $parentId = (int)($row['parent_id'] ?? 0);
+        if ($parentId > 0 && !isset($rowsById[$parentId])) {
+            echo '<div class="comment-thread-root" style="margin:0 0 18px 0;">';
+            $renderComment((int)$cid, 0);
+            echo "</div>\n";
+        }
     }
 }
 

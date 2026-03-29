@@ -20,6 +20,26 @@ var SE_CommentLoadingBar =
     return !str || !String(str).trim();
   }
 
+  function getEditorText($ta) {
+    if (!$ta || !$ta.length) {
+      return '';
+    }
+
+    try {
+      if ($ta.sceditor) {
+        var inst = $ta.sceditor('instance');
+        if (inst) {
+          if (inst.updateOriginal) inst.updateOriginal();
+          return (inst.val ? inst.val() : $ta.val() || '').toString();
+        }
+      }
+    } catch (e) {
+      console.warn('SCEditor read error:', e);
+    }
+
+    return ($ta.val() || '').toString();
+  }
+
   function showLoader($el) {
     $el.empty().html(SE_CommentLoadingBar);
   }
@@ -60,8 +80,8 @@ var SE_CommentLoadingBar =
     cid = safeInt(cid);
     tid = safeInt(tid);
     var $box = $('#comment_text' + cid);
-    var $ta  = $('#edit_post');
-    var text = ($ta.val() || '').toString();
+    var $ta  = $('#edit_post_' + cid);
+    var text = getEditorText($ta);
 
     if (isBlank(text)) {
       alert('Комментарий не может быть пустым!');
@@ -102,7 +122,7 @@ w.SE_CommentQuote = function (cid, tid) {
     console.warn('SCEditor updateOriginal ошибка:', e);
   }
 
-  var current = ($ta.val() || '').toString();
+  var current = getEditorText($ta);
 
   ajaxHTML('/addcomment.php', { do: 'comment_quote', cid: cid, tid: tid, text: current }, null, function (resp) {
     // resp — уже готовый BBCode с [quote=...][/quote] от бэкенда
@@ -131,19 +151,8 @@ w.SE_CommentQuote = function (cid, tid) {
 
   w.SE_SendComment = function (tid) {
     tid = safeInt(tid);
-
-    // Синхронизация с SCEditor
-    try {
-      if ($('#text').sceditor) {
-        var inst = $('#text').sceditor('instance');
-        if (inst && inst.updateOriginal) inst.updateOriginal();
-      }
-    } catch (e) {
-      console.warn('SCEditor updateOriginal ошибка:', e);
-    }
-
     var $ta  = $('#text');
-    var text = ($ta.val() || '').toString();
+    var text = getEditorText($ta);
 
     if (isBlank(text)) {
       alert('Комментарий не может быть пустым!');
@@ -151,19 +160,45 @@ w.SE_CommentQuote = function (cid, tid) {
       return false;
     }
 
-    // Бэкенд сам делает reload на успех — но оставим страховку на случай изменения
-    $.ajax({
-      url: '/addcomment.php',
-      method: 'POST',
-      data: { do: 'add_comment', tid: tid, text: text },
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).done(function () {
-      // Сервер сейчас шлёт <script>location.reload()</script>, но если изменят — перезагрузим сами:
-      try { location.reload(); } catch (_) {}
-    }).fail(function (xhr, status, err) {
-      var msg = 'Ошибка отправки комментария: ' + (xhr.responseText || status || err);
-      console.error(msg, xhr);
-      alert(msg);
+    ajaxHTML('/addcomment.php', { do: 'add_comment', tid: tid, text: text }, $('#comments_list'), function () {
+      SE_BindCommentEvents();
+      try {
+        location.hash = 'startcomments';
+      } catch (_) {}
+    });
+  };
+
+  w.SE_OpenReply = function (cid, tid) {
+    cid = safeInt(cid);
+    tid = safeInt(tid);
+    var $box = $('#comment_reply_box' + cid);
+    ajaxHTML('/addcomment.php', { do: 'reply_form', cid: cid, tid: tid }, $box, function () {
+      SE_BindCommentEvents();
+    });
+  };
+
+  w.SE_ReplyCancel = function (cid) {
+    cid = safeInt(cid);
+    $('#comment_reply_box' + cid).empty();
+  };
+
+  w.SE_SendReply = function (cid, tid) {
+    cid = safeInt(cid);
+    tid = safeInt(tid);
+    var $ta = $('#reply_post_' + cid);
+    var text = getEditorText($ta);
+
+    if (isBlank(text)) {
+      alert('Ответ не может быть пустым!');
+      $ta.trigger('focus');
+      return false;
+    }
+
+    ajaxHTML('/addcomment.php', { do: 'add_comment', tid: tid, parent_id: cid, text: text }, $('#comments_list'), function () {
+      SE_BindCommentEvents();
+      try {
+        location.hash = 'comm' + cid;
+      } catch (_) {}
     });
   };
 
@@ -211,33 +246,40 @@ w.SE_CommentQuote = function (cid, tid) {
   };
 
   w.SE_BindCommentEvents = function () {
-    // Снимаем старые и вешаем заново
-    $jq('.karma-btn').off('click').on('click', function () {
+    var $doc = $jq(document);
+
+    $doc.off('click.seComments', '.karma-btn').on('click.seComments', '.karma-btn', function () {
       var id   = safeInt($jq(this).data('id'));
       var type = $jq(this).data('type');
       var act  = $jq(this).data('act');
       karma(id, type, act);
     });
 
-    $jq('.comment-quote').off('click').on('click', function () {
+    $doc.off('click.seComments', '.comment-quote').on('click.seComments', '.comment-quote', function () {
       var id  = safeInt($jq(this).data('id'));
       var tid = safeInt($jq(this).data('tid'));
       SE_CommentQuote(id, tid);
     });
 
-    $jq('.comment-edit').off('click').on('click', function () {
+    $doc.off('click.seComments', '.comment-edit').on('click.seComments', '.comment-edit', function () {
       var id  = safeInt($jq(this).data('id'));
       var tid = safeInt($jq(this).data('tid'));
       SE_EditComment(id, tid);
     });
 
-    $jq('.comment-original').off('click').on('click', function () {
+    $doc.off('click.seComments', '.comment-reply').on('click.seComments', '.comment-reply', function () {
+      var id  = safeInt($jq(this).data('id'));
+      var tid = safeInt($jq(this).data('tid'));
+      SE_OpenReply(id, tid);
+    });
+
+    $doc.off('click.seComments', '.comment-original').on('click.seComments', '.comment-original', function () {
       var id  = safeInt($jq(this).data('id'));
       var tid = safeInt($jq(this).data('tid'));
       SE_ViewOriginal(id, tid);
     });
 
-    $jq('.comment-delete').off('click').on('click', function () {
+    $doc.off('click.seComments', '.comment-delete').on('click.seComments', '.comment-delete', function () {
       var id  = safeInt($jq(this).data('id'));
       var tid = safeInt($jq(this).data('tid'));
       SE_DeleteComment(id, tid);

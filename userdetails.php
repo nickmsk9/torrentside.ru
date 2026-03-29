@@ -171,8 +171,8 @@ $status = ($status !== '')
     min-width: 0;
   }
   .profile-layout td.rowhead {
-    white-space: nowrap;
-    width: 1%;
+    white-space: normal;
+    overflow-wrap: break-word;
   }
   .profile-layout td.lol {
     white-space: normal;
@@ -185,7 +185,12 @@ $status = ($status !== '')
   .profile-layout .profile-right > table.mainp {
     margin-left: 0 !important;
     width: 100%;
-    table-layout: fixed;
+    table-layout: auto;
+  }
+  .profile-layout .profile-right > table.mainp td.rowhead {
+    width: 180px;
+    min-width: 180px;
+    max-width: 180px;
   }
 
   @media (max-width: 900px) {

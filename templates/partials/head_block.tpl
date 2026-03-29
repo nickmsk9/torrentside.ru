@@ -47,7 +47,13 @@
   /* --- меню: без отступов у UL, кликабельная зона по высоте --- */
   #stylefour ul { margin:0; padding:0; list-style:none; display:flex; flex-wrap:wrap; }
   #stylefour ul li { display:block; }
-  #stylefour a { display:block; padding:10px 12px; font-size:16px; -webkit-text-size-adjust:100%; }
+  #stylefour a {
+    display: block;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.1;
+    -webkit-text-size-adjust: 100%;
+  }
 
   /* --- сама «лента» шапки: страхуемся от 1px-щелей на iOS --- */
   #header-wrap {

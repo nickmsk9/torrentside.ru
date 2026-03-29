@@ -1,5 +1,6 @@
 <?php
 require_once 'include/bittorrent.php';
+require_once 'include/super_loto_lib.php';
 dbconn(false);
 loggedinorreturn();
 
@@ -14,43 +15,17 @@ const PRICE_MAX_GB = 1024;
 
 $action = $_POST['action'] ?? '';
 
-/**
- * Нормализуем и валидируем комбинацию формата "a.b.c.d.e"
- * Требования:
- *  - ровно 5 чисел
- *  - каждое число в диапазоне 1..36
- *  - все числа уникальны
- * Порядок сохраняем таким, как выбрал пользователь.
- * Возвращает "a.b.c.d.e" или '' при ошибке.
- */
-function normalize_combination(?string $raw): string {
-    $raw = trim((string)$raw);
-    if (!preg_match('/^\d{1,2}(?:\.\d{1,2}){4}$/', $raw)) {
-        return '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!super_loto_verify_csrf((string)($_POST['csrf_token'] ?? ''))) {
+        http_response_code(403);
+        echo 'Ошибка безопасности: неверный CSRF-токен. Обновите страницу и попробуйте снова.';
+        exit;
     }
-    $parts = explode('.', $raw);
-    if (count($parts) !== 5) {
-        return '';
-    }
-    $seen = [];
-    $nums = [];
-    foreach ($parts as $p) {
-        $n = (int)$p;
-        if ($n < 1 || $n > 36) { // диапазон игры 1..36
-            return '';
-        }
-        if (isset($seen[$n])) {   // уникальность
-            return '';
-        }
-        $seen[$n] = true;
-        $nums[] = (string)$n;     // убираем лидирующие нули
-    }
-    return implode('.', $nums);
 }
 
 if ($action === 'bay_ticket') {
     $user_id     = isset($CURUSER['id']) ? (int)$CURUSER['id'] : 0;
-    $combination = normalize_combination($_POST['combination'] ?? '');
+    $combination = super_loto_normalize_combination($_POST['combination'] ?? '');
     $priceGB     = (int)($_POST['price'] ?? 0);
 
     if ($user_id <= 0) {
@@ -88,13 +63,17 @@ if ($action === 'bay_ticket') {
             exit;
         }
 
-        // (Опционально) запрет дубликатов для активных билетов:
-        // $stmt = $mysqli->prepare('SELECT 1 FROM super_loto_tickets WHERE user_id = ? AND combination = ? AND active = 0 LIMIT 1');
-        // $stmt->bind_param('is', $user_id, $combination);
-        // $stmt->execute();
-        // $stmt->store_result();
-        // if ($stmt->num_rows > 0) { $stmt->close(); $mysqli->rollback(); echo 'Такая комбинация у вас уже есть.'; exit; }
-        // $stmt->close();
+        $stmt = $mysqli->prepare('SELECT 1 FROM super_loto_tickets WHERE user_id = ? AND combination = ? AND active = 0 LIMIT 1');
+        $stmt->bind_param('is', $user_id, $combination);
+        $stmt->execute();
+        $stmt->store_result();
+        if ($stmt->num_rows > 0) {
+            $stmt->close();
+            $mysqli->rollback();
+            echo 'У вас уже есть активный билет с такой комбинацией.';
+            exit;
+        }
+        $stmt->close();
 
         // 2) создаём билет (active = 0, чтобы он отображался в «Ваши билеты»)
         $stmt = $mysqli->prepare('
@@ -144,35 +123,38 @@ elseif ($action === 'load_tickets') {
     $stmt->execute();
     $res = $stmt->get_result();
 
-    echo '<table width="90%">
-            <tr height="30">
-                <td align="center" width="10%" class="colhead"><b>Nr.</b></td>
-                <td align="center" width="40%" class="colhead"><b>Комбинация</b></td>
-                <td align="center" width="30%" class="colhead"><b>Ставка</b></td>
-            </tr>';
+    if ($res->num_rows > 0) {
+        echo '<table width="90%">
+                <tr height="30">
+                    <td align="center" width="10%" class="colhead"><b>Nr.</b></td>
+                    <td align="center" width="40%" class="colhead"><b>Комбинация</b></td>
+                    <td align="center" width="30%" class="colhead"><b>Ставка</b></td>
+                </tr>';
 
-    $i = 0;
-    while ($t = $res->fetch_assoc()) {
-        $i++;
-        $nums = explode('.', (string)$t['combination']);
-        // На всякий случай гарантируем 5 ячеек
-        for ($k = 0; $k < 5; $k++) {
-            if (!isset($nums[$k])) $nums[$k] = '';
-        }
+        $i = 0;
+        while ($t = $res->fetch_assoc()) {
+            $i++;
+            $nums = explode('.', (string)$t['combination']);
+            for ($k = 0; $k < 5; $k++) {
+                if (!isset($nums[$k])) $nums[$k] = '';
+            }
 
-        echo '<tr>
-                <td align="center"><b>' . $i . '</b></td>
-                <td align="center">
-                    <table><tr>';
-        for ($k = 0; $k < 5; $k++) {
-            echo '<td width="14" height="19" style="padding:4" align="center" background="pic/super_loto/bg.png">' . $h($nums[$k]) . '</td>';
+            echo '<tr>
+                    <td align="center"><b>' . $i . '</b></td>
+                    <td align="center">
+                        <table><tr>';
+            for ($k = 0; $k < 5; $k++) {
+                echo '<td width="14" height="19" style="padding:4" align="center" background="pic/super_loto/bg.png">' . $h($nums[$k]) . '</td>';
+            }
+            echo        '</tr></table>
+                    </td>
+                    <td align="center">' . $h((int)$t['price']) . ' GB</td>
+                  </tr>';
         }
-        echo        '</tr></table>
-                </td>
-                <td align="center">' . $h((int)$t['price']) . ' GB</td>
-              </tr>';
+        echo '</table>';
+    } else {
+        echo '<div style="padding:8px 0;text-align:center;">У вас пока нет активных билетов.</div>';
     }
-    echo '</table>';
     $stmt->close();
 }
 // ———————————————————————————————————————————————————————
@@ -222,5 +204,7 @@ elseif ($action === 'load_stats') {
                     <td align="center">' . $h((int)$row['total_price']) . ' GB</td>
                   </tr>';
         }
+    } else {
+        echo '<tr><td colspan="4" align="center">Активных продаж сейчас нет.</td></tr>';
     }
 }

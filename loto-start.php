@@ -1,5 +1,6 @@
 <?php
 require_once "include/bittorrent.php";
+require_once "include/super_loto_lib.php";
 
 dbconn(true);
 loggedinorreturn();
@@ -11,25 +12,16 @@ if (get_user_class() < UC_SYSOP) {
 
 stdhead("Розыгрыш Супер Лото вручную");
 
-// ===== утилиты =====
-function loto_cfg_active(): int {
-    $res = sql_query("SELECT value FROM config WHERE config = 'active_super_loto'") or sqlerr(__FILE__, __LINE__);
-    $row = mysqli_fetch_assoc($res);
-    return isset($row['value']) ? (int)$row['value'] : 0;
-}
-
-function loto_active_tickets_count(): int {
-    $res = sql_query("SELECT COUNT(*) AS c FROM super_loto_tickets WHERE active = 0") or sqlerr(__FILE__, __LINE__);
-    $row = mysqli_fetch_assoc($res);
-    return isset($row['c']) ? (int)$row['c'] : 0;
-}
-
 // ===== обработка POST =====
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['type'] ?? '') === 'loto') {
+    if (!super_loto_verify_csrf((string)($_POST['csrf_token'] ?? ''))) {
+        stderr('Ошибка безопасности', 'Неверный CSRF-токен. Обновите страницу и попробуйте снова.');
+    }
+
     $force = isset($_POST['force']) ? (int)$_POST['force'] : 0;
 
-    $cfgActive   = loto_cfg_active();
-    $ticketsCnt  = loto_active_tickets_count();
+    $cfgActive   = super_loto_cfg_active();
+    $ticketsCnt  = super_loto_active_tickets_count();
 
     begin_frame("Розыгрыш Супер Лото");
 
@@ -41,13 +33,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['type'] ?? '') === 'loto') 
     }
 
     if ($cfgActive == 1 || $force === 1) {
-        // запускаем розыгрыш (скрипт розыгрыша должен сам всё сделать и логировать)
-        require_once "get_loto_winners.php";
-
-        // по вашей семантике после розыгрыша флаг = 0 (игра завершена)
-        sql_query("UPDATE config SET value = 0 WHERE config = 'active_super_loto'") or sqlerr(__FILE__, __LINE__);
-
-        stdmsg("Успех", "Супер Лото успешно разыграно!");
+        $result = super_loto_run_draw([
+            'strict_schedule' => false,
+            'log_file' => 'super_loto.log',
+        ]);
+        if ($result['ok']) {
+            stdmsg("Успех", "Супер Лото успешно разыграно!");
+        } else {
+            stdmsg("Информация", htmlspecialchars((string)$result['message'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+        }
     } else {
         stdmsg(
             "Информация",
@@ -61,13 +55,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['type'] ?? '') === 'loto') 
 }
 
 // ===== форма =====
-$cfgActive  = loto_cfg_active();
-$ticketsCnt = loto_active_tickets_count();
+$cfgActive  = super_loto_cfg_active();
+$ticketsCnt = super_loto_active_tickets_count();
+$csrf = super_loto_csrf_token();
 
 begin_frame("Розыгрыш Супер Лото");
 
 echo '
 <form method="post" action="loto-start.php" style="text-align:center;">
+  <input type="hidden" name="csrf_token" value="' . htmlspecialchars($csrf, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">
   <table class="main" border="0" cellspacing="5" cellpadding="5" align="center">
     <tr>
       <td colspan="2" style="padding:6px 0;">

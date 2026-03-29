@@ -1,25 +1,75 @@
 <?php
-  require "include/bittorrent.php";
-  dbconn(false);
-  loggedinorreturn();
-  stdhead("Супер Лото");
+require_once 'include/bittorrent.php';
+require_once 'include/super_loto_lib.php';
+dbconn(false);
+loggedinorreturn();
+stdhead('Супер Лото');
+
+$h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+$csrf = super_loto_csrf_token();
 ?>
 <script type="text/javascript" src="js/prototype.js"></script>
 <script type="text/javascript" src="js/ajax.js"></script>
 
 <?php begin_frame("Супер Лото 5 из 36"); ?>
-<br><br>
 <style type="text/css">
-  td.default  { color:#333333; }
-  td.marked   { color:#0099FF; font-weight:bold; }
-  td.default:hover { color:#0099FF; font-weight:bold; }
-  td.marked:hover  { color:#333333; font-weight:bold; }
+  .loto-shell{padding:8px 0 4px;font:inherit;color:inherit}
+  .loto-title{margin:0 0 12px;text-align:center;font:inherit;font-weight:700;color:inherit}
+  .loto-grid-wrap{
+    display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;
+    padding:10px 12px 6px;border-radius:10px;background:rgba(255,255,255,.18)
+  }
+  .loto-grid-box{padding:4px 0}
+  .loto-grid{border-collapse:separate;border-spacing:6px}
+  .loto-ball{
+    width:34px;height:34px;text-align:center;vertical-align:middle;cursor:pointer;
+    background:url("pic/super_loto/bg.png") center/cover no-repeat;color:#334155;
+    font:inherit;font-weight:700;line-height:1;
+    transition:transform .12s ease,color .12s ease,filter .12s ease
+  }
+  .loto-ball:hover{color:#195b92;transform:translateY(-1px);filter:brightness(1.03)}
+  .loto-ball.marked{background-image:url("pic/super_loto/marked_bg.png");color:#195b92}
+  .loto-picked{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+  .loto-picked-cell{
+    width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+    background:url("pic/super_loto/active_bg.png") center/cover no-repeat;
+    font:inherit;font-weight:700;line-height:1;color:#1f2937
+  }
+  .loto-side{max-width:420px;font:inherit;color:inherit}
+  .loto-note{line-height:1.6;color:inherit}
+  .loto-buy{margin-top:14px;padding-top:10px;border-top:1px solid rgba(0,0,0,.08)}
+  .loto-buy-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .loto-label{font-weight:700;color:inherit}
+  .loto-buy select,
+  .loto-buy input[type="button"]{
+    margin-top:0 !important;
+    font:inherit !important
+  }
+  .loto-buy select{
+    min-width:92px;height:30px;padding:4px 8px;border:1px solid #b9c6d3;border-radius:6px;
+    background:#fff;color:#31465b;box-shadow:none
+  }
+  .loto-buy input[type="button"]{
+    height:31px;padding:0 14px;border:1px solid #90a1b3;border-radius:6px;
+    background:linear-gradient(#fdfefe,#dfe7ee) !important;color:#31465b !important;
+    font-weight:700 !important;box-shadow:none !important;text-shadow:none !important
+  }
+  .loto-buy input[type="button"]:hover{background:linear-gradient(#ffffff,#d5dee7) !important}
+  .loto-buy input[type="button"]:disabled{opacity:.65;cursor:default}
+  #price_info{
+    display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border:1px solid #b9c6d3;
+    border-radius:6px;background:#f7fafc;color:#31465b;font-weight:700
+  }
+  .loto-empty{padding:8px 0;text-align:center;color:#6b7d92}
+  .loto-highlight{color:#b91c1c;font-weight:700}
+  #bay_result{display:block;margin-top:12px;font:inherit}
 </style>
 
 <script type="text/javascript">
   // ================== ЛОГИКА UI ==================
   var selected_numbers = 0;
   var isSubmitting = false; // защита от двойной отправки
+  var lotoCsrfToken = <?= json_encode($csrf, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 
   function show_price() {
     if (selected_numbers === 5) {
@@ -34,10 +84,10 @@
   function mark(el_id) {
     var number = $("number_" + el_id);
     if (!number) return;
+    var isMarked = number.hasClassName ? number.hasClassName("marked") : /(^|\s)marked(\s|$)/.test(number.className);
 
-    if (number.className === "default" && selected_numbers < 5) {
-      number.className = "marked";
-      number.style.background = "pic/super_loto/marked_bg.png";
+    if (!isMarked && selected_numbers < 5) {
+      number.className = "marked loto-ball";
       selected_numbers += 1;
 
       // кладём номер в первую пустую ячейку выбранных
@@ -48,9 +98,8 @@
         }
       }
     }
-    else if (number.className === "marked" && selected_numbers > 0) {
-      number.className = "default";
-      number.style.background = "pic/super_loto/bg.png";
+    else if (isMarked && selected_numbers > 0) {
+      number.className = "default loto-ball";
       selected_numbers -= 1;
 
       // удаляем этот номер из выбранных
@@ -80,6 +129,7 @@
     ajax.onShow('');
     ajax.requestFile = "super_loto_edit.php";
     ajax.setVar("action", "load_tickets");
+    ajax.setVar("csrf_token", lotoCsrfToken);
     ajax.method  = "POST";
     ajax.element = "user_tickets";
     ajax.sendAJAX("");
@@ -91,6 +141,7 @@
     ajax.onShow('');
     ajax.requestFile = "super_loto_edit.php";
     ajax.setVar("action", "load_stats");
+    ajax.setVar("csrf_token", lotoCsrfToken);
     ajax.method  = "POST";
     ajax.element = "tickets_statistics";
     ajax.sendAJAX("");
@@ -135,6 +186,7 @@
     ajax.setVar("action", "bay_ticket");
     ajax.setVar("combination", combination);
     ajax.setVar("price", price);
+    ajax.setVar("csrf_token", lotoCsrfToken);
     ajax.method  = "POST";
     ajax.element = "bay_result";
     ajax.onCompletion = function () {
@@ -160,50 +212,42 @@
     for (var i = 1; i <= 5; i++) { $("num_" + i).update(""); }
     for (var j = 1; j <= 36; j++) {
       var cell = $("number_" + j);
-      if (cell && cell.className === "marked") {
-        cell.className = "default";
-        cell.style.background = "pic/super_loto/bg.png";
+      var cellMarked = cell && (cell.hasClassName ? cell.hasClassName("marked") : /(^|\s)marked(\s|$)/.test(cell.className));
+      if (cellMarked) {
+        cell.className = "default loto-ball";
       }
     }
   }
 </script>
 
+<div class="loto-shell">
 <span id="bay_form">
-  <center><b>Выберите комбинацию из 5 номеров</b></center>
-  <br>
-  <table width="100%">
-    <tr>
-      <td style="border:none" width="45%" valign="top">
-        <table style="padding:15px;">
+  <div class="loto-title">Выберите комбинацию из 5 номеров</div>
+  <div class="loto-grid-wrap">
+      <div class="loto-grid-box" style="border:none" width="45%" valign="top">
+        <table class="loto-grid" style="padding:15px;">
           <tr>
           <?php
             $j = 0;
             for ($i = 1; $i <= 36; $i++) {
               $j++;
-              echo '<td width="30" height="30" align="center" style="cursor:pointer;" background="pic/super_loto/bg.png"
-                        id="number_'.$i.'" onClick="mark('.$i.')" class="default">'.$i.'</td>';
+              echo '<td width="30" height="30" align="center"
+                        id="number_'.$i.'" onClick="mark('.$i.')" class="default loto-ball">'.$i.'</td>';
               if ($j == 6) { echo '</tr><tr>'; $j = 0; }
             }
           ?>
           </tr>
         </table>
-      </td>
-      <td style="border:none" valign="top" align="left">
-        <table cellspacing="5">
-          <tr>
-            <td id="num_1" width="30" height="30" align="center" background="pic/super_loto/active_bg.png"
-                style="font-weight:bold; border:none; background-repeat:no-repeat; padding-top:7px"></td>
-            <td id="num_2" width="30" height="30" align="center" background="pic/super_loto/active_bg.png"
-                style="font-weight:bold; border:none; background-repeat:no-repeat; padding-top:7px"></td>
-            <td id="num_3" width="30" height="30" align="center" background="pic/super_loto/active_bg.png"
-                style="font-weight:bold; border:none; background-repeat:no-repeat; padding-top:7px"></td>
-            <td id="num_4" width="30" height="30" align="center" background="pic/super_loto/active_bg.png"
-                style="font-weight:bold; border:none; background-repeat:no-repeat; padding-top:7px"></td>
-            <td id="num_5" width="30" height="30" align="center" background="pic/super_loto/active_bg.png"
-                style="font-weight:bold; border:none; background-repeat:no-repeat; padding-top:7px"></td>
-          </tr>
-        </table>
-        <br>
+      </div>
+      <div class="loto-side" style="border:none" valign="top" align="left">
+        <div class="loto-picked">
+            <span id="num_1" class="loto-picked-cell"></span>
+            <span id="num_2" class="loto-picked-cell"></span>
+            <span id="num_3" class="loto-picked-cell"></span>
+            <span id="num_4" class="loto-picked-cell"></span>
+            <span id="num_5" class="loto-picked-cell"></span>
+        </div>
+        <div class="loto-note">
         Ваш выигрыш зависит от количества угаданных цифр:<br>
         <b>5 из 5 + поочередность</b> - 5000% от ставки<br>
         <b>5 из 5</b> - 1000% от ставки<br>
@@ -212,10 +256,12 @@
         <b>2 из 5</b> - 200% от ставки<br>
         <b>1 из 5</b> - 100% от ставки<br>
         <br /><br />
-        <b><big><font color="#FF0000">!</font></big> Розыгрыш проходит каждый день в 18 <sup>00</sup></b>
-        <br>
+        <span class="loto-highlight">Розыгрыш проходит каждый день в 18 <sup>00</sup></span>
+        </div>
+        <div class="loto-buy">
         <span id="ticket_price" style="display:none">
-          Ваша ставка:
+          <span class="loto-label">Ваша ставка:</span>
+          <span class="loto-buy-row">
           <select name="price" id="price" onChange="update_price_info()">
             <option value="1"  id="default_price">1 GB</option>
             <option value="2">2 GB</option>
@@ -230,27 +276,24 @@
           </select>
           <span id="price_info" style="cursor:pointer" onClick="show_price_select()"
                 title="Нажмите чтобы выбрать другую ставку"></span>
+          </span>
         </span>
-        <br><br><br>
+        <div class="loto-buy-row" style="margin-top:14px;">
         <input type="button" name="bay_ticket" value="Купить билет"
                onClick="bay_ticket()" id="bay_button" style="display:none">
-      </td>
-    </tr>
-  </table>
+        </div>
+        </div>
+      </div>
+  </div>
 </span>
 <span id="bay_result"></span>
-<br><br>
+</div>
 <?php end_frame(); ?>
 
 
 <?php begin_frame("Ваши билеты"); ?>
 <br><br>
 <?php
-  global $mysqli, $CURUSER;
-
-  // Экранирование
-  $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
   $uid = isset($CURUSER['id']) ? (int)$CURUSER['id'] : 0;
 
   // Берём только нужные поля
@@ -301,7 +344,7 @@
 <span id="user_ticket_info"></span>
 <?php
   } else {
-      echo '<span id="user_ticket_info">Вы ещё не купили ни одного лотерейного билета!</span>';
+      echo '<span id="user_ticket_info" class="loto-empty">Вы ещё не купили ни одного лотерейного билета.</span>';
       echo '<table width="90%" id="user_tickets"></table>';
   }
   $stmt->close();
@@ -380,9 +423,6 @@
 <?php begin_frame("Статистика выигрышных билетов"); ?>
 <br><br>
 <?php
-  // Экранируем вывод
-  $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
   // Палитра по количеству совпадений (win_num + jackpot)
   $color = [
       6 => 'green',
@@ -417,10 +457,19 @@
 
       // 2) Все победители этого розыгрыша, сортировка по значимости
       $wq = "
-          SELECT user_id, combination, price, win_num, jackpot
-          FROM super_loto_winners
-          WHERE date = '" . mysqli_real_escape_string($mysqli, $lastDateRaw) . "'
-          ORDER BY (win_num + jackpot) DESC, price DESC, winner_id ASC
+          SELECT
+              w.user_id,
+              w.combination,
+              w.price,
+              w.win_num,
+              w.jackpot,
+              w.winner_id,
+              u.username,
+              u.class
+          FROM super_loto_winners w
+          LEFT JOIN users u ON u.id = w.user_id
+          WHERE w.date = '" . mysqli_real_escape_string($mysqli, $lastDateRaw) . "'
+          ORDER BY (w.win_num + w.jackpot) DESC, w.price DESC, w.winner_id ASC
       ";
       $result = sql_query($wq);
       $num = $result ? mysqli_num_rows($result) : 0;
@@ -453,9 +502,9 @@
 
               // Ник: если есть ваш хелпер — используем; иначе — просто экранированный username
               if (function_exists('get_user_class_color')) {
-                  $nameHtml = get_user_class_color((int)get_user('class', $uid), (string)get_user('username', $uid));
+                  $nameHtml = get_user_class_color((int)($winner['class'] ?? 0), (string)($winner['username'] ?? ''));
               } else {
-                  $nameHtml = $h((string)get_user('username', $uid));
+                  $nameHtml = $h((string)($winner['username'] ?? ''));
               }
 
               echo '  <tr height="30">
@@ -483,18 +532,13 @@
 <div id="loading-layer" style="display:none; font-family: Lucida Sans Unicode; font-size:11px; width:200px;
      height:50px; background:#EDFCEF; padding:10px; text-align:center; border:1px solid #000">
   <div style="font-weight:bold" id="loading-layer-text">
-    <img src="pic/class_success.gif" border="0" align="absmiddle" width="14">
+    <img src="pic/load.gif" border="0" align="absmiddle" width="14" height="14" alt="">
     <span style="color:red"> Загрузка. Пожалуйста, подождите...</span>
   </div>
   <img src="pic/loading.gif" border="0" />
 </div>
 
 <?php stdfoot(); ?>
-
-
-
-
-
 
 
 

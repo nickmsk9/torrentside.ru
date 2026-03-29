@@ -2291,7 +2291,7 @@ function textbbcode(string $form, string $name, string $text = ''): void
                     height: 250,
                     resizeEnabled: true,
                     locale: 'ru',
-                    toolbarExclude: '' // при желании кастомизируй
+                    toolbar: 'bold,italic,underline,strike|left,center,right,justify|quote,code|bulletlist,orderedlist|link,unlink,image,emoticon|removeformat,source'
                 });
             } catch (e) {
                 console.error('SCEditor init error:', e);

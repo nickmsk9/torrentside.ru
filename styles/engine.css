@@ -980,6 +980,40 @@ cursor : pointer;
 font-family : tahoma; 
 font-size : 11px; 
 } 
+.sceditor-container {
+width : 100% !important;
+max-width : 100%;
+box-sizing : border-box;
+}
+.sceditor-container textarea,
+.sceditor-container iframe {
+box-sizing : border-box;
+}
+.sceditor-container .sceditor-toolbar {
+box-sizing : border-box;
+white-space : nowrap;
+overflow-x : auto;
+overflow-y : hidden;
+-webkit-overflow-scrolling : touch;
+padding : 4px 6px;
+}
+.sceditor-container .sceditor-group {
+float : none;
+display : inline-flex;
+vertical-align : top;
+white-space : nowrap;
+margin : 0 4px 0 0;
+}
+.sceditor-container .sceditor-button {
+float : none;
+box-sizing : border-box;
+width : 26px;
+height : 24px;
+min-width : 26px;
+}
+.sceditor-container .sceditor-button div {
+line-height : 24px;
+}
 .f_textarea { 
 margin-top : -1px; 
 color : #757575; 

@@ -33,6 +33,33 @@ function get_tags(): array {
     return $arr;
 }
 
+function reorder_cloud_tags(array $tags): array {
+    if (count($tags) < 3) {
+        return $tags;
+    }
+
+    arsort($tags, SORT_NUMERIC);
+    $items = [];
+    foreach ($tags as $name => $count) {
+        $items[] = ['name' => $name, 'count' => $count];
+    }
+
+    $mixed = [];
+    $left = 0;
+    $right = count($items) - 1;
+
+    while ($left <= $right) {
+        $mixed[] = $items[$left];
+        $left++;
+        if ($left <= $right) {
+            $mixed[] = $items[$right];
+            $right--;
+        }
+    }
+
+    return $mixed;
+}
+
 function cloud(int $small, int $big, bool $colour = false): string {
     $tags = get_tags();
 
@@ -43,19 +70,41 @@ function cloud(int $small, int $big, bool $colour = false): string {
     $minimum_count = min($tags);
     $maximum_count = max($tags);
     $spread = max(1, $maximum_count - $minimum_count);
+    $orderedTags = reorder_cloud_tags($tags);
+    $palette = ['#2f6fff', '#cc2fff', '#1eb255', '#ff6a00', '#00b7df', '#ff3fa0', '#c7d2df'];
+    $sizeBuckets = [38, 32, 27, 22, 18, 14, 11];
 
     $cloud = [];
-    $colours = ['#003EFF', '#0000FF', '#7EB6FF', '#0099CC', '#62B1F6'];
-
-    foreach ($tags as $tag => $count) {
-        $size = $small + ($count - $minimum_count) * ($big - $small) / $spread;
-        $style = "font-size:" . floor($size) . "px;";
-        if ($colour) {
-            $style .= "color:" . $colours[mt_rand(0, count($colours) - 1)] . "; ";
+    $total = count($orderedTags);
+    foreach ($orderedTags as $index => $item) {
+        $tag = (string)$item['name'];
+        $count = (int)$item['count'];
+        $weight = ($count - $minimum_count) / $spread;
+        $rankRatio = $total > 1 ? ($index / ($total - 1)) : 0.0;
+        $bucketIndex = (int)floor($rankRatio * (count($sizeBuckets) - 1));
+        $bucketIndex = max(0, min(count($sizeBuckets) - 1, $bucketIndex));
+        $fontSize = $sizeBuckets[$bucketIndex];
+        if ($weight > 0.92) {
+            $fontSize = max($fontSize, 40);
+        } elseif ($weight > 0.75) {
+            $fontSize = max($fontSize, 34);
         }
+        $fontWeight = max(500, min(900, (int)round(540 + ((1 - $bucketIndex / max(1, count($sizeBuckets) - 1)) * 320))));
+        $opacity = 0.88 + ((1 - ($bucketIndex / max(1, count($sizeBuckets) - 1))) * 0.12);
+        $color = $palette[$index % count($palette)];
+        $style = 'display:inline-block !important;'
+               . 'font-size:' . $fontSize . 'px !important;'
+               . 'font-weight:' . $fontWeight . ' !important;'
+               . 'font-family:Trebuchet MS,Verdana,Arial,sans-serif !important;'
+               . 'line-height:' . max(1, round($fontSize * 0.84)) . 'px !important;'
+               . 'color:' . $color . ' !important;'
+               . 'opacity:' . number_format($opacity, 2, '.', '') . ' !important;'
+               . 'letter-spacing:-0.02em !important;'
+               . 'white-space:nowrap !important;'
+               . 'text-decoration:none !important;';
 
-        $cloud[] = '<a href="browse.php?tag=' . urlencode($tag) . '&cat=0&incldead=1" style="' . $style .
-                   '" rel="tag" title="Содержится в ' . $count . ' торрентах">' .
+        $cloud[] = '<a class="tag-cloud__tag" href="browse.php?tag=' . urlencode($tag) . '&cat=0&incldead=1" style="' . $style .
+                   '" rel="tag" data-count="' . (int)$count . '" title="Содержится в ' . $count . ' торрентах">' .
                    htmlentities($tag, ENT_QUOTES, "UTF-8") . '</a>';
     }
 
@@ -63,7 +112,7 @@ function cloud(int $small, int $big, bool $colour = false): string {
 }
 
 // Заменяет flash_cloud — обычный PHP-вид
-function php_cloud(int $small = 12, int $big = 28): string {
+function php_cloud(int $small = 11, int $big = 40): string {
     return cloud($small, $big, true);
 }
 

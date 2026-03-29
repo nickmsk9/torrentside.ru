@@ -79,6 +79,11 @@ dbconn();
 loggedinorreturn();
 parked();
 
+$messageAction = (string)($_GET['action'] ?? $_POST['action'] ?? '');
+if (in_array($messageAction, ['new', 'sendmessage', 'send'], true) && !user_has_module('message_write')) {
+    stderr('Ошибка', 'У вас нет доступа к отправке личных сообщений.');
+}
+
 // Define constants
 define('PM_DELETED',0); // Message was deleted
 define('PM_INBOX',1); // Message located in Inbox for reciever
@@ -1130,7 +1135,6 @@ if ($action === "forward") {
         ) or sqlerr(__FILE__, __LINE__);
 
         stderr($tracker_lang['success'] ?? 'Удачно', "ЛС переслано.");
-    }
 }
 // конец пересылка
 

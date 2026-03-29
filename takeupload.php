@@ -13,7 +13,7 @@ multitracker_ensure_schema();
 loggedinorreturn();
 parked();
 
-if (get_user_class() < UC_USER) {
+if (get_user_class() < UC_USER || !user_has_module('torrent_add')) {
     die;
 }
 

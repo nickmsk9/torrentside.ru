@@ -11,7 +11,7 @@ stdhead($tracker_lang['upload_torrent']);
 begin_frame('Загрузить торрент на TorrentSide');
 
 /* ---------- guard: доступ ---------- */
-if (get_user_class() < UC_USER) {
+if (get_user_class() < UC_USER || !user_has_module('torrent_add')) {
     stdmsg($tracker_lang['error'], $tracker_lang['upget']);
     stdfoot();
     exit;

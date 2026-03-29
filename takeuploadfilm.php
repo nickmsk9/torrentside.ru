@@ -20,7 +20,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 
-if (get_user_class() < UC_USER) {
+if (get_user_class() < UC_USER || !user_has_module('torrent_add')) {
     die; // как в исходнике — тихий отказ
 }
 

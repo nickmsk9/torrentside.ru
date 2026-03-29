@@ -55,6 +55,7 @@ if ($action === 'edituser') {
 
     $deluser   = !empty($_POST['deluser']);
     $class     = (int)($_POST['class'] ?? 0);
+    $classProfileId = (int)($_POST['class_profile_id'] ?? 0);
 
     if (!is_valid_id($userid) || !is_valid_user_class($class)) {
         stderr($tracker_lang['error'], "Неверный идентификатор пользователя или класса.");
@@ -97,6 +98,10 @@ if ($action === 'edituser') {
 
     $updateset = [];
 
+    if (!user_has_module('users_edit')) {
+        puke('У вас нет доступа к редактированию пользователей.');
+    }
+
     // --- Корректировка upload ---
     if ($uploadtoadd > 0) {
         $delta = ($formatup === 'mb') ? ($uploadtoadd * 1048576) : ($uploadtoadd * 1073741824);
@@ -137,6 +142,9 @@ if ($action === 'edituser') {
 
     // --- Предупреждение ---
     if ($warned !== '' && $curwarned !== $warned) {
+        if (!user_has_module('users_warn')) {
+            puke('У вас нет доступа к предупреждениям пользователей.');
+        }
         // Снятие предупреждения
         $updateset[] = "warned = " . sqlesc($warned);
         $updateset[] = "warneduntil = '0000-00-00 00:00:00'";
@@ -149,6 +157,9 @@ if ($action === 'edituser') {
             $modcomment = gmdate("Y-m-d") . " - Предупреждение снял пользователь {$CURUSER['username']}.\n" . $modcomment;
         }
     } elseif ($warnlength > 0) {
+        if (!user_has_module('users_warn')) {
+            puke('У вас нет доступа к предупреждениям пользователей.');
+        }
         if ($warnpm === '') {
             stderr($tracker_lang['error'], "Вы должны указать причину по которой ставите предупреждение!");
         }
@@ -228,6 +239,7 @@ $updateset[] = "avatar = " . sqlesc($avatar);
 $updateset[] = "hiderating = " . sqlesc($hiderating);
 $updateset[] = "rangclass = " . (int)$rangclass;
 $updateset[] = "username = " . sqlesc($username);
+$updateset[] = "class_profile_id = " . max(0, $classProfileId);
 
 
     if ($modcomm !== '') {
@@ -246,6 +258,9 @@ $updateset[] = "username = " . sqlesc($username);
 
     // --- Удаление пользователя ---
     if ($deluser) {
+        if (!user_has_module('users_delete')) {
+            puke('У вас нет доступа к удалению пользователей.');
+        }
         $res = sql_query("SELECT username, email FROM users WHERE id = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
         $user = mysqli_fetch_assoc($res);
         $delusername = $user['username'] ?? '';

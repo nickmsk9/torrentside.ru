@@ -34,7 +34,7 @@ loggedinorreturn();
 if ($HTTP_SERVER_VARS["REQUEST_METHOD"] != "POST")
  stderr($tracker_lang['error'], "Шутник!");
 
-if (get_user_class() < UC_MODERATOR)
+if (!user_has_module('message_mass'))
 stderr($tracker_lang['error'], $tracker_lang['access_denied']);
 
 $sender_id = ($_POST['sender'] == 'system' ? 0 : $CURUSER['id']);

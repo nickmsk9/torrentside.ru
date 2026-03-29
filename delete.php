@@ -33,6 +33,8 @@ if (!$row)
 
 if ($CURUSER["id"] != $row["owner"] && get_user_class() < UC_MODERATOR)
 	bark("Вы не владелец! Как такое могло произойти?\n");
+if (!user_has_module('torrent_delete'))
+    bark("У вас нет доступа к удалению торрентов.");
 
 
 $tags = array_filter(array_map('trim', explode(",", (string)$row["tags"])));

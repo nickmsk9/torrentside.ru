@@ -5,6 +5,7 @@ if(!defined('IN_TRACKER'))
   die('Hacking attempt!');
 
 require_once($rootpath . 'include/functions_global.php');
+require_once($rootpath . 'include/class_permissions.php');
 
 /**
  * Показывает посетителей страницы. Быстро и без лишних запросов.

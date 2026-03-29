@@ -163,7 +163,7 @@ register_shutdown_function(function () {
 });
 
 /* ===================== ACL ===================== */
-if (get_user_class() < UC_ADMINISTRATOR) {
+if (get_user_class() < UC_ADMINISTRATOR || !user_has_module('users_add')) {
     __log_app('ACCESS_DENIED', [
         'user_id' => $CURUSER['id'] ?? null,
         'class'   => $CURUSER['class'] ?? null,

@@ -45,7 +45,7 @@ if (!isset($CURUSER['id'])) {
     stdfoot();
     exit;
 }
-$can_edit = ((int)$CURUSER['id'] === (int)$row['owner']) || (get_user_class() >= UC_MODERATOR);
+$can_edit = (((int)$CURUSER['id'] === (int)$row['owner']) || (get_user_class() >= UC_MODERATOR)) && user_has_module('torrent_edit');
 
 stdhead('Редактирование торрента "' . h($row['name']) . '"');
 begin_frame('Редактировать торрент');

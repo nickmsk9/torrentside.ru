@@ -416,6 +416,11 @@ switch ($do) {
 case 'add_comment':
     // Проверка авторизации (если не залогинен — сразу exit с редиректом/ошибкой)
     loggedinorreturn();
+    if (!user_has_module('comment_add')) {
+        http_response_code(403);
+        echo 'forbidden';
+        break;
+    }
 
     $text = $_POST['text'] ?? '';
     $text = clean_text($text);

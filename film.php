@@ -22,7 +22,7 @@ stdhead('Загрузить Фильм на TorrentSide');
 begin_frame('Загрузить Фильм на TorrentSide');
 
 /* ---- доступ ---- */
-if (get_user_class() < UC_USER) {
+if (get_user_class() < UC_USER || !user_has_module('torrent_add')) {
     stdmsg($tracker_lang['error'], $tracker_lang['upget']);
     stdfoot();
     exit;

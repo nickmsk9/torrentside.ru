@@ -314,176 +314,127 @@ if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_ME
     }
    elseif ($act == "moderate")
     {
-        if (get_user_class() >= UC_MODERATOR)
-        {
-            print("<h2>Модерирование</h2>\n");
-
-// --- Формируем список рангов для select ---
-$rangclass1 = "<option value='0'>---Выбрать ранг---</option>\n";
-$res28 = mysqli_query($mysqli, "SELECT * FROM rangclass ORDER BY name") or sqlerr(__FILE__, __LINE__);
-while ($rank = mysqli_fetch_assoc($res28)) {
-    $selected = ($user['rangclass'] == $rank['id']) ? " selected" : "";
-    $rangclass1 .= "<option value='" . (int)$rank['id'] . "'$selected>" . htmlspecialchars($rank['name']) . "</option>\n";
-}
-
-// --- Получаем данные о текущем ранге пользователя ---
-$user_rangclass_id = (int)$user['rangclass'];
-$res22 = mysqli_query($mysqli, "SELECT name, rangpic FROM rangclass WHERE id = $user_rangclass_id LIMIT 1") or sqlerr(__FILE__, __LINE__);
-if (mysqli_num_rows($res22) === 1) {
-    $arr22 = mysqli_fetch_assoc($res22);
-    $rang_name = htmlspecialchars($arr22['name']);
-    $rang_pic = htmlspecialchars($arr22['rangpic']);
-    $rangclass = "<img src='/pic/$rang_pic' alt=\"$rang_name\" title=\"$rang_name\" style='margin-left: 5pt' align='top'></td>";
-}
-
-  print("<form method=\"post\" action=\"modtask.php\">\n");
-  print("<input type=\"hidden\" name=\"action\" value=\"edituser\">\n");
-  print("<input type=\"hidden\" name=\"userid\" value=\"$id\">\n");
-  print("<input type=\"hidden\" name=\"returnto\" value=\"userdetails.php?id=$id\">\n");
-  print("<table class=\"main\" border=\"1\" cellspacing=\"0\" cellpadding=\"5\">\n");
-print("<tr><td class=\"rowhead\">Ник</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"username\" value=\"" . htmlspecialchars($user["username"]) . "\"></tr>\n");  
-	$avatar = htmlspecialchars($user["avatar"]);
-  print("<tr><td class=\"rowhead\">Аватар</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"avatar\" value=\"$avatar\"></tr>\n");
-	// we do not want mods to be able to change user classes or amount donated...
-	if ($CURUSER["class"] < UC_SYSOP)
-	  print("<input type=\"hidden\" name=\"donor\" value=\"$user[donor]\">\n");
-	else {
-	  print("<tr><td class=\"rowhead\">Донор</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"donor\" value=\"yes\"" .($user["donor"] == "yes" ? " checked" : "").">Да <input type=\"radio\" name=\"donor\" value=\"no\"" .($user["donor"] == "no" ? " checked" : "").">Нет</td></tr>\n");
-	}
-	if (get_user_class() == UC_MODERATOR && $user["class"] > UC_VIP)
-	  printf("<input type=\"hidden\" name=\"class\" value=\"$user[class]\"\n");
-	else
-	{
-	  print("<tr><td class=\"rowhead\">Класс</td><td colspan=\"2\" align=\"left\"><select name=\"class\">\n");
-	  if (get_user_class() == UC_SYSOP)
-	  	$maxclass = UC_SYSOP;
-	  elseif (get_user_class() == UC_MODERATOR)
-	    $maxclass = UC_VIP;
-	  else
-	    $maxclass = get_user_class() - 1;
-	  for ($i = 0; $i <= $maxclass; ++$i)
-	    print("<option value=\"$i\"" . ($user["class"] == $i ? " selected" : "") . ">$prefix" . get_user_class_name($i) . "\n");
-	  print("</select></td></tr>\n");
-	}
-	print("<tr><td class=\"rowhead\">Сбросить день рождения</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"resetb\" value=\"yes\">Да<input type=\"radio\" name=\"resetb\" value=\"no\" checked>Нет</td></tr>\n");
-	$modcomment  = htmlspecialchars($user['modcomment']  ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-$supportfor  = htmlspecialchars($user['supportfor']  ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
-print("<tr><td class=rowhead>Убрать рейтинг</td><td class=tablea colspan=2 align=left><input type=radio name=hiderating value=yes" .($user["hiderating"]=="yes" ? " checked" : "") . ">Да <input type=radio name=hiderating value=no" .($user["hiderating"]=="no" ? " checked" : "") . ">Нет</td></tr>\n");  
-	print("<tr><td class=rowhead>Поддержка</td><td colspan=2 align=left><input type=radio name=support value=yes" .($user["support"] == "yes" ? " checked" : "").">Да <input type=radio name=support value=no" .($user["support"] == "no" ? " checked" : "").">Нет</td></tr>\n");
-	print("<tr><td class=rowhead>Поддержка для:</td><td colspan=2 align=left><textarea cols=60 rows=6 name=supportfor>$supportfor</textarea></td></tr>\n");
-	print("<tr><td class=rowhead>История пользователя</td><td colspan=2 align=left><textarea cols=60 rows=6".(get_user_class() < UC_SYSOP ? " readonly" : " name=modcomment").">$modcomment</textarea></td></tr>\n");
-	print("<tr><td class=rowhead>Добавить заметку</td><td colspan=2 align=left><textarea cols=60 rows=3 name=modcomm></textarea></td></tr>\n");
-	$warned = $user["warned"] == "yes";
-
- 	print("<tr><td class=\"rowhead\"" . (!$warned ? " rowspan=\"2\"": "") . ">Предупреждение</td>
- 	<td align=\"left\" width=\"20%\">" .
-  ( $warned
-  ? "<input name=\"warned\" value=\"yes\" type=\"radio\" checked>Да<input name=\"warned\" value=\"no\" type=\"radio\">Нет"
- 	: "Нет" ) ."</td>");
-
-	if ($warned) {
-		$warneduntil = $user['warneduntil'];
-		if ($warneduntil == '0000-00-00 00:00:00')
-    		print("<td align=\"center\">На неограниченый срок</td></tr>\n");
-		else {
-    		print("<td align=\"center\">До $warneduntil");
-	    	print(" (" . mkprettytime(strtotime($warneduntil) - gmtime()) . " осталось)</td></tr>\n");
- 	    }
-  } else {
-    print("<td>Предупредить на <select name=\"warnlength\">\n");
-    print("<option value=\"0\">------</option>\n");
-    print("<option value=\"1\">1 неделю</option>\n");
-    print("<option value=\"2\">2 недели</option>\n");
-    print("<option value=\"4\">4 недели</option>\n");
-    print("<option value=\"8\">8 недель</option>\n");
-    print("<option value=\"255\">Неограничено</option>\n");
-    print("</select>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Комментарий в ЛС:</td></tr>\n");
-    print("<tr><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"warnpm\"></td></tr>");
-  }
-
-
-if ($CURUSER["class"]  < UC_ADMINISTRATOR)
-print("<input type=hidden name=rangclass value=$user[rangclass]>\n");
-else
-{
-print("<tr><td class=rowhead>Ранг</td><td colspan=2 align=left><select name=rangclass>\n" .$rangclass1. "\n</select></tr>\n");
-}
-// приведение к булевому виду
-$enabled = ($user['enabled'] ?? '') === 'yes';
-
-print(
-    '<tr><td class="rowhead" rowspan="2">Включен</td>
-     <td colspan="2" align="left">
-       <input name="enabled" value="yes" type="radio"' . ($enabled ? ' checked' : '') . '>Да
-       <input name="enabled" value="no" type="radio"' . (!$enabled ? ' checked' : '') . '>Нет
-     </td></tr>'
-);
-
-if ($enabled) {
-    print('<tr><td colspan="2" align="left">Причина отключения:&nbsp;
-           <input type="text" name="disreason" size="60" /></td></tr>');
-} else {
-    print('<tr><td colspan="2" align="left">Причина включения:&nbsp;
-           <input type="text" name="enareason" size="60" /></td></tr>');
-}
-?>
-<script type="text/javascript">
-
-function togglepic(bu, picid, formid)
-{
-    var pic = document.getElementById(picid);
-    var form = document.getElementById(formid);
-    
-    if(pic.src == bu + "/pic/plus.gif")
-    {
-        pic.src = bu + "/pic/minus.gif";
-        form.value = "minus";
-    }else{
-        pic.src = bu + "/pic/plus.gif";
-        form.value = "plus";
-    }
-}
-
-
-</script>
-<?
-  print("<tr><td class=\"rowhead\">Изменить раздачу</td><td align=\"left\"><img src=\"pic/plus.gif\" id=\"uppic\" onClick=\"togglepic('$DEFAULTBASEURL','uppic','upchange')\" style=\"cursor: pointer;\">&nbsp;<input type=\"text\" name=\"amountup\" size=\"10\" /><td>\n<select name=\"formatup\">\n<option value=\"mb\">MB</option>\n<option value=\"gb\">GB</option></select></td></tr>");
-  print("<tr><td class=\"rowhead\">Изменить скачку</td><td align=\"left\"><img src=\"pic/plus.gif\" id=\"downpic\" onClick=\"togglepic('$DEFAULTBASEURL','downpic','downchange')\" style=\"cursor: pointer;\">&nbsp;<input type=\"text\" name=\"amountdown\" size=\"10\" /><td>\n<select name=\"formatdown\">\n<option value=\"mb\">MB</option>\n<option value=\"gb\">GB</option></select></td></tr>");
-print("<tr><td class=rowhead>Чат Бан</td><td colspan=2 align=left><input type=radio name=schoutboxpos value=yes" .($user["schoutboxpos"]=="yes" ? " checked" : "") . ">Нет <input type=radio name=schoutboxpos value=no" .($user["schoutboxpos"]=="no" ? " checked" : "") . ">Да</td></tr>\n");  
-print("<tr><td class=rowhead>В группе?</td><td colspan=2 align=left><input type=radio name=groups value=yes" .($user["groups"]=="yes" ? " checked" : "") . ">Нет <input type=radio name=groups value=no" .($user["groups"]=="no" ? " checked" : "") . ">Да</td></tr>\n");  
-  print("<tr><td class=\"rowhead\">Сбросить passkey</td><td colspan=\"2\" align=\"left\"><input name=\"resetkey\" value=\"1\" type=\"checkbox\"></td></tr>\n");
-  if ($CURUSER["class"] < UC_ADMINISTRATOR)
-  	print("<input type=\"hidden\" name=\"deluser\">");
-  else
-  	print("<tr><td class=\"rowhead\">Удалить</td><td colspan=\"2\" align=\"left\"><input type=\"checkbox\" name=\"deluser\"></td></tr>");
-  print("</td></tr>");
-  print("<tr><td colspan=\"3\" align=\"center\"><input type=\"submit\" class=\"btn\" value=\"ОК\"></td></tr>\n");
-  print("</table>\n");
-  print("<input type=\"hidden\" id=\"upchange\" name=\"upchange\" value=\"plus\"><input type=\"hidden\" id=\"downchange\" name=\"downchange\" value=\"plus\">\n");
-  print("</form>\n");
-            die();
-        }
-        else
+        if (get_user_class() < UC_MODERATOR) {
             die("У вас нет прав");
+        }
+
+        print("<h2>Модерирование</h2>\n");
+
+        $rangclass1 = "<option value='0'>---Выбрать ранг---</option>\n";
+        $res28 = mysqli_query($mysqli, "SELECT * FROM rangclass ORDER BY name") or sqlerr(__FILE__, __LINE__);
+        while ($rank = mysqli_fetch_assoc($res28)) {
+            $selected = ((int)$user['rangclass'] === (int)$rank['id']) ? " selected" : "";
+            $rangclass1 .= "<option value='" . (int)$rank['id'] . "'$selected>" . htmlspecialchars($rank['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</option>\n";
+        }
+
+        print("<form method=\"post\" action=\"modtask.php\">\n");
+        print("<input type=\"hidden\" name=\"action\" value=\"edituser\">\n");
+        print("<input type=\"hidden\" name=\"userid\" value=\"$id\">\n");
+        print("<input type=\"hidden\" name=\"returnto\" value=\"userdetails.php?id=$id\">\n");
+        print("<table class=\"main\" border=\"1\" cellspacing=\"0\" cellpadding=\"5\">\n");
+        print("<tr><td class=\"rowhead\">Ник</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"username\" value=\"" . htmlspecialchars((string)$user["username"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Аватар</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"avatar\" value=\"" . htmlspecialchars((string)$user["avatar"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+
+        if ($CURUSER["class"] < UC_SYSOP) {
+            print("<input type=\"hidden\" name=\"donor\" value=\"" . htmlspecialchars((string)$user["donor"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\">\n");
+        } else {
+            print("<tr><td class=\"rowhead\">Донор</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"donor\" value=\"yes\"" . (($user["donor"] == "yes") ? " checked" : "") . ">Да <input type=\"radio\" name=\"donor\" value=\"no\"" . (($user["donor"] == "no") ? " checked" : "") . ">Нет</td></tr>\n");
+        }
+
+        if (get_user_class() == UC_MODERATOR && $user["class"] > UC_VIP) {
+            print("<input type=\"hidden\" name=\"class\" value=\"" . (int)$user["class"] . "\">\n");
+        } else {
+            print("<tr><td class=\"rowhead\">Класс</td><td colspan=\"2\" align=\"left\"><select name=\"class\">\n");
+            if (get_user_class() == UC_SYSOP) {
+                $maxclass = UC_SYSOP;
+            } elseif (get_user_class() == UC_MODERATOR) {
+                $maxclass = UC_VIP;
+            } else {
+                $maxclass = get_user_class() - 1;
+            }
+            for ($i = 0; $i <= $maxclass; ++$i) {
+                print("<option value=\"$i\"" . ((int)$user["class"] === $i ? " selected" : "") . ">" . get_user_class_name($i) . "</option>\n");
+            }
+            print("</select></td></tr>\n");
+        }
+
+        $profiles = class_permissions_get_profiles();
+        print("<tr><td class=\"rowhead\">Профиль доступа</td><td colspan=\"2\" align=\"left\"><select name=\"class_profile_id\"><option value=\"0\">Без профиля (наследовать базовый класс)</option>");
+        foreach ($profiles as $profile) {
+            $selected = ((int)($user['class_profile_id'] ?? 0) === (int)$profile['id']) ? ' selected' : '';
+            print("<option value=\"" . (int)$profile['id'] . "\"{$selected}>" . htmlspecialchars((string)$profile['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</option>");
+        }
+        print("</select><br><small>Профиль задает отдельные возможности выбранного класса.</small></td></tr>\n");
+
+        print("<tr><td class=\"rowhead\">Сбросить день рождения</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"resetb\" value=\"yes\">Да <input type=\"radio\" name=\"resetb\" value=\"no\" checked>Нет</td></tr>\n");
+
+        $modcomment = htmlspecialchars((string)($user['modcomment'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $supportfor = htmlspecialchars((string)($user['supportfor'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        print("<tr><td class=\"rowhead\">Убрать рейтинг</td><td class=\"tablea\" colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"hiderating\" value=\"yes\"" . (($user["hiderating"]=="yes") ? " checked" : "") . ">Да <input type=\"radio\" name=\"hiderating\" value=\"no\"" . (($user["hiderating"]=="no") ? " checked" : "") . ">Нет</td></tr>\n");
+        print("<tr><td class=\"rowhead\">Поддержка</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"support\" value=\"yes\"" . (($user["support"] == "yes") ? " checked" : "") . ">Да <input type=\"radio\" name=\"support\" value=\"no\"" . (($user["support"] == "no") ? " checked" : "") . ">Нет</td></tr>\n");
+        print("<tr><td class=\"rowhead\">Поддержка для:</td><td colspan=\"2\" align=\"left\"><textarea cols=\"60\" rows=\"6\" name=\"supportfor\">$supportfor</textarea></td></tr>\n");
+        print("<tr><td class=\"rowhead\">История пользователя</td><td colspan=\"2\" align=\"left\"><textarea cols=\"60\" rows=\"6\"" . (get_user_class() < UC_SYSOP ? " readonly" : " name=\"modcomment\"") . ">$modcomment</textarea></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Добавить заметку</td><td colspan=\"2\" align=\"left\"><textarea cols=\"60\" rows=\"3\" name=\"modcomm\"></textarea></td></tr>\n");
+
+        $warned = ($user["warned"] == "yes");
+        print("<tr><td class=\"rowhead\"" . (!$warned ? " rowspan=\"2\"" : "") . ">Предупреждение</td><td align=\"left\" width=\"20%\">" . ($warned ? "<input name=\"warned\" value=\"yes\" type=\"radio\" checked>Да <input name=\"warned\" value=\"no\" type=\"radio\">Нет" : "Нет") . "</td>");
+        if ($warned) {
+            $warneduntil = (string)$user['warneduntil'];
+            if ($warneduntil === '0000-00-00 00:00:00') {
+                print("<td align=\"center\">На неограниченый срок</td></tr>\n");
+            } else {
+                print("<td align=\"center\">До $warneduntil (" . mkprettytime(strtotime($warneduntil) - gmtime()) . " осталось)</td></tr>\n");
+            }
+        } else {
+            print("<td>Предупредить на <select name=\"warnlength\"><option value=\"0\">------</option><option value=\"1\">1 неделю</option><option value=\"2\">2 недели</option><option value=\"4\">4 недели</option><option value=\"8\">8 недель</option><option value=\"255\">Неограничено</option></select>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Комментарий в ЛС:</td></tr>\n");
+            print("<tr><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"warnpm\"></td></tr>");
+        }
+
+        if ($CURUSER["class"] < UC_ADMINISTRATOR) {
+            print("<input type=\"hidden\" name=\"rangclass\" value=\"" . (int)$user['rangclass'] . "\">\n");
+        } else {
+            print("<tr><td class=\"rowhead\">Ранг</td><td colspan=\"2\" align=\"left\"><select name=\"rangclass\">\n" . $rangclass1 . "\n</select></td></tr>\n");
+        }
+
+        $enabled = (($user['enabled'] ?? '') === 'yes');
+        print('<tr><td class="rowhead" rowspan="2">Включен</td><td colspan="2" align="left"><input name="enabled" value="yes" type="radio"' . ($enabled ? ' checked' : '') . '>Да <input name="enabled" value="no" type="radio"' . (!$enabled ? ' checked' : '') . '>Нет</td></tr>');
+        if ($enabled) {
+            print('<tr><td colspan="2" align="left">Причина отключения:&nbsp;<input type="text" name="disreason" size="60" /></td></tr>');
+        } else {
+            print('<tr><td colspan="2" align="left">Причина включения:&nbsp;<input type="text" name="enareason" size="60" /></td></tr>');
+        }
+
+        print("<tr><td class=\"rowhead\">Изменить раздачу</td><td align=\"left\"><input type=\"text\" name=\"amountup\" size=\"10\" /><td><select name=\"formatup\"><option value=\"mb\">MB</option><option value=\"gb\">GB</option></select></td></tr>");
+        print("<tr><td class=\"rowhead\">Изменить скачку</td><td align=\"left\"><input type=\"text\" name=\"amountdown\" size=\"10\" /><td><select name=\"formatdown\"><option value=\"mb\">MB</option><option value=\"gb\">GB</option></select></td></tr>");
+        print("<tr><td class=\"rowhead\">Чат Бан</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"schoutboxpos\" value=\"yes\"" . (($user["schoutboxpos"]=="yes") ? " checked" : "") . ">Нет <input type=\"radio\" name=\"schoutboxpos\" value=\"no\"" . (($user["schoutboxpos"]=="no") ? " checked" : "") . ">Да</td></tr>\n");
+        print("<tr><td class=\"rowhead\">В группе?</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"groups\" value=\"yes\"" . (($user["groups"]=="yes") ? " checked" : "") . ">Нет <input type=\"radio\" name=\"groups\" value=\"no\"" . (($user["groups"]=="no") ? " checked" : "") . ">Да</td></tr>\n");
+        print("<tr><td class=\"rowhead\">Сбросить passkey</td><td colspan=\"2\" align=\"left\"><input name=\"resetkey\" value=\"1\" type=\"checkbox\"></td></tr>\n");
+        if ($CURUSER["class"] < UC_ADMINISTRATOR) {
+            print("<input type=\"hidden\" name=\"deluser\">");
+        } else {
+            print("<tr><td class=\"rowhead\">Удалить</td><td colspan=\"2\" align=\"left\"><input type=\"checkbox\" name=\"deluser\"></td></tr>");
+        }
+        print("<tr><td colspan=\"3\" align=\"center\"><input type=\"submit\" class=\"btn\" value=\"ОК\"></td></tr>\n");
+        print("</table>\n");
+        print("<input type=\"hidden\" id=\"upchange\" name=\"upchange\" value=\"plus\"><input type=\"hidden\" id=\"downchange\" name=\"downchange\" value=\"plus\">\n");
+        print("</form>\n");
+        die();
     }
     elseif ($act == "pm")
     {
-        ?>
-        <script language="JavaScript" type="text/javascript">
- function send_message(to, msg, subject)
+        print('<script type="text/javascript">
+function send_message(to, msg, subject)
 {
-    // Если SCEditor подключён — обновляем textarea перед чтением
-    if ($("#msg").sceditor) {
+    if (window.jQuery && $("#msg").sceditor) {
         $("#msg").sceditor("instance").updateOriginal();
-        msg = $("#msg").val(); // актуальное значение из редактора
+        msg = $("#msg").val();
     }
 
     var text = enBASE64(msg);
     var subj = enBASE64(subject);
 
-    if (text === '' || subj === '') {
-        alert('Вы не указали сообщение или тему.');
+    if (text === "" || subj === "") {
+        alert("Вы не указали сообщение или тему.");
         return;
     }
 
@@ -496,12 +447,10 @@ print("<tr><td class=rowhead>В группе?</td><td colspan=2 align=left><inpu
         jQuery("#operation").empty().append(response);
     });
 
-    document.pm.msg.value = '';
-    document.pm.subject.value = '';
+    document.pm.msg.value = "";
+    document.pm.subject.value = "";
 }
-
-        </script>
-        <?
+</script>');
         print("<form name=\"pm\">\n");
         print("<h2>Личное сообщение</h2>\n");
         print("<table width=\"100%\" cellpadding=\"5\">\n");

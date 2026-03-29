@@ -60,7 +60,7 @@ if ($id <= 0) die("Access denied: Wrong ID");
 $res = sql_query("SELECT owner, filename, save_as, image1, image2, image3, image4, image5 FROM torrents WHERE id = " . sqlesc($id));
 $row = mysqli_fetch_assoc($res);
 if (!$row) die("Торрент не найден");
-if ((int)$CURUSER["id"] !== (int)$row["owner"] && get_user_class() < UC_MODERATOR) {
+if (((int)$CURUSER["id"] !== (int)$row["owner"] && get_user_class() < UC_MODERATOR) || !user_has_module('torrent_edit')) {
     bark("Вы не являетесь владельцем торрента");
 }
 

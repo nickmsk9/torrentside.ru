@@ -5,7 +5,7 @@ require "include/bittorrent.php";
 dbconn();
 
 // Проверка прав
-if (get_user_class() < UC_ADMINISTRATOR) {
+if (get_user_class() < UC_ADMINISTRATOR || !user_has_module('users_delete')) {
     stderr($tracker_lang['error'], "Нет доступа.");
 }
 

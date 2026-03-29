@@ -16,7 +16,7 @@ stdhead("Загрузить Аудио на TorrentSide");
 begin_frame("Загрузить Аудио на TorrentSide");
 
 // --- Проверка прав
-if (get_user_class() < UC_USER) {
+if (get_user_class() < UC_USER || !user_has_module('torrent_add')) {
     stdmsg($tracker_lang['error'] ?? 'Ошибка', $tracker_lang['upget'] ?? 'Недостаточно прав.');
     stdfoot();
     exit;

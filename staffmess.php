@@ -4,7 +4,7 @@ require "include/bittorrent.php";
 dbconn(false);
 loggedinorreturn();
 
-if (get_user_class() < UC_SYSOP)
+if (!user_has_module('message_mass'))
     stderr($tracker_lang['error'], $tracker_lang['access_denied']);
 
 $body = $body ?? '';

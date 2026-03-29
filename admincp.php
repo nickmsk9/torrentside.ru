@@ -7,7 +7,7 @@ ini_set("display_errors", "1");
 require_once __DIR__ . "/include/bittorrent.php";
 dbconn(false);
 
-if (!isset($CURUSER) || $CURUSER["class"] < UC_SYSOP) {
+if (!isset($CURUSER) || !user_has_module('admin_access')) {
     stderr("Ошибка доступа", "У вас нет прав для доступа к панели администратора.");
     exit;
 }

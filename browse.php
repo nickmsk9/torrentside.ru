@@ -28,6 +28,243 @@ function get_browse_mode(): string {
     return $def;
 }
 
+function browse_search_terms(string $search): array {
+    $search = mb_strtolower(trim($search), 'UTF-8');
+    if ($search === '') {
+        return [];
+    }
+
+    $parts = preg_split('~[^\p{L}\p{N}]+~u', $search, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $stopwords = [
+        'фильм', 'фильмы', 'кино', 'сериал', 'сериалы', 'мультфильм', 'мультфильмы',
+        'мульт', 'аниме', 'дорама', 'сезон', 'сезоны', 'часть', 'серия', 'серии',
+        'смотреть', 'онлайн', 'скачать', 'torrent', 'торрент', 'the', 'a', 'an',
+    ];
+    $stop = array_fill_keys($stopwords, true);
+    $terms = [];
+
+    foreach ($parts as $part) {
+        if (mb_strlen($part, 'UTF-8') <= 1) {
+            continue;
+        }
+        if (isset($stop[$part])) {
+            continue;
+        }
+        $terms[$part] = $part;
+    }
+
+    return array_values($terms);
+}
+
+function browse_search_candidates(string $search): array {
+    $search = trim($search);
+    if ($search === '') {
+        return [];
+    }
+
+    $candidates = [];
+    $variants = [$search];
+
+    $fixedLayout = browse_fix_keyboard_layout($search);
+    if ($fixedLayout !== '' && mb_strtolower($fixedLayout, 'UTF-8') !== mb_strtolower($search, 'UTF-8')) {
+        $variants[] = $fixedLayout;
+    }
+
+    foreach ($variants as $variant) {
+        $variant = trim($variant);
+        if ($variant === '') {
+            continue;
+        }
+
+        $variantLower = mb_strtolower($variant, 'UTF-8');
+        $candidates[$variantLower] = $variantLower;
+
+        $terms = browse_search_terms($variant);
+        if ($terms) {
+            $joined = implode(' ', $terms);
+            $candidates[mb_strtolower($joined, 'UTF-8')] = mb_strtolower($joined, 'UTF-8');
+            foreach ($terms as $term) {
+                $termLower = mb_strtolower($term, 'UTF-8');
+                $candidates[$termLower] = $termLower;
+            }
+        }
+    }
+
+    return array_values(array_filter($candidates));
+}
+
+function browse_fix_keyboard_layout(string $search): string {
+    $search = trim($search);
+    if ($search === '') {
+        return '';
+    }
+
+    $en = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>~";
+    $ru = "йцукенгшщзхъфывапролджэячсмитьбюёйЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮЁ";
+    $fixed = strtr($search, $en, $ru);
+
+    return trim($fixed);
+}
+
+function browse_search_fields(string $scope): array {
+    return match ($scope) {
+        'descr' => ['torrents.descr', 'torrents.ori_descr'],
+        'tags' => ['torrents.tags'],
+        'all' => ['torrents.name', 'torrents.search_text', 'torrents.descr', 'torrents.ori_descr', 'torrents.tags'],
+        default => ['torrents.name', 'torrents.search_text'],
+    };
+}
+
+function browse_normalize_fuzzy(string $value): string {
+    $value = mb_strtolower(trim($value), 'UTF-8');
+    if ($value === '') {
+        return '';
+    }
+
+    $map = [
+        'а' => 'a', 'б' => 'b', 'в' => 'v', 'г' => 'g', 'д' => 'd', 'е' => 'e', 'ё' => 'e',
+        'ж' => 'zh', 'з' => 'z', 'и' => 'i', 'й' => 'y', 'к' => 'k', 'л' => 'l', 'м' => 'm',
+        'н' => 'n', 'о' => 'o', 'п' => 'p', 'р' => 'r', 'с' => 's', 'т' => 't', 'у' => 'u',
+        'ф' => 'f', 'х' => 'h', 'ц' => 'c', 'ч' => 'ch', 'ш' => 'sh', 'щ' => 'sch', 'ъ' => '',
+        'ы' => 'y', 'ь' => '', 'э' => 'e', 'ю' => 'yu', 'я' => 'ya',
+    ];
+
+    $value = strtr($value, $map);
+    $value = preg_replace('~[^a-z0-9]+~', ' ', $value) ?? '';
+    $value = trim(preg_replace('~\s+~', ' ', $value) ?? $value);
+    return $value;
+}
+
+function browse_find_fuzzy_suggestion(mysqli $mysqli, string $search, array $wherebase, string $wherecatin = ''): string {
+    $terms = browse_search_terms($search);
+    $focus = '';
+    foreach ($terms as $term) {
+        if (mb_strlen($term, 'UTF-8') > mb_strlen($focus, 'UTF-8')) {
+            $focus = $term;
+        }
+    }
+    if ($focus === '') {
+        $focus = trim($search);
+    }
+    if ($focus === '' || mb_strlen($focus, 'UTF-8') < 3) {
+        return '';
+    }
+
+    $prefix = mb_substr($focus, 0, min(3, mb_strlen($focus, 'UTF-8')), 'UTF-8');
+    $likePrefix = sqlwildcardesc($prefix);
+    $where = $wherebase;
+    $where[] = "torrents.name LIKE '%{$likePrefix}%'";
+    if ($wherecatin !== '') {
+        $where[] = "category IN ({$wherecatin})";
+    }
+
+    $sqlWhere = implode(' AND ', $where);
+    if ($sqlWhere !== '') {
+        $sqlWhere = 'WHERE ' . $sqlWhere;
+    }
+
+    $res = sql_query("
+        SELECT torrents.name
+        FROM torrents
+        {$sqlWhere}
+        ORDER BY torrents.sticky ASC, torrents.id DESC
+        LIMIT 250
+    ");
+
+    $searchNorm = browse_normalize_fuzzy($focus);
+    if ($searchNorm === '') {
+        return '';
+    }
+
+    $bestName = '';
+    $bestScore = 0.0;
+    while ($row = mysqli_fetch_assoc($res)) {
+        $name = trim((string)($row['name'] ?? ''));
+        if ($name === '') {
+            continue;
+        }
+        $nameNorm = browse_normalize_fuzzy($name);
+        if ($nameNorm === '') {
+            continue;
+        }
+
+        similar_text($searchNorm, $nameNorm, $percent);
+        if ($percent < 55.0) {
+            continue;
+        }
+
+        if ($percent > $bestScore) {
+            $bestScore = $percent;
+            $bestName = $name;
+        }
+    }
+
+    return $bestScore >= 62.0 ? $bestName : '';
+}
+
+function browse_build_search_condition(string $search, string $scope = 'title'): ?string {
+    $search = trim($search);
+    if ($search === '') {
+        return null;
+    }
+
+    $searchParts = [];
+    $fields = browse_search_fields($scope);
+    foreach (browse_search_candidates($search) as $candidate) {
+        $fieldParts = [];
+        foreach ($fields as $field) {
+            $fieldParts[] = "LOWER({$field}) LIKE '%" . sqlwildcardesc($candidate) . "%'";
+        }
+        if ($fieldParts) {
+            $searchParts[] = '(' . implode(' OR ', $fieldParts) . ')';
+        }
+    }
+
+    $searchParts = array_values(array_unique($searchParts));
+    if (!$searchParts) {
+        return null;
+    }
+
+    return '(' . implode(' OR ', $searchParts) . ')';
+}
+
+function browse_build_format_condition(string $format): ?string {
+    $format = mb_strtolower(trim($format), 'UTF-8');
+    if ($format === '') {
+        return null;
+    }
+
+    return "(LOWER(torrents.search_text) LIKE '%" . sqlwildcardesc($format) . "%' OR LOWER(torrents.descr) LIKE '%" . sqlwildcardesc($format) . "%' OR LOWER(torrents.name) LIKE '%" . sqlwildcardesc($format) . "%')";
+}
+
+function browse_build_year_condition(int $year): ?string {
+    if ($year < 1900 || $year > 2100) {
+        return null;
+    }
+
+    $yearStr = (string)$year;
+    return "(torrents.name LIKE '%{$yearStr}%' OR torrents.search_text LIKE '%{$yearStr}%' OR torrents.descr LIKE '%{$yearStr}%' OR YEAR(torrents.added) = {$year})";
+}
+
+function browse_format_options(): array {
+    return [
+        '' => 'Все форматы',
+        'avi' => 'AVI',
+        'mkv' => 'MKV',
+        'mp4' => 'MP4',
+        'dvd5' => 'DVD5',
+        'dvd9' => 'DVD9',
+        'web-dl' => 'WEB-DL',
+        'webrip' => 'WEBRip',
+        'bdrip' => 'BDRip',
+        'blu-ray' => 'Blu-ray',
+        'hdtv' => 'HDTV',
+        'dvdrip' => 'DVDRip',
+        'camrip' => 'CAMRip',
+        'ts' => 'TS',
+    ];
+}
+
 
 
 parked();
@@ -46,6 +283,17 @@ if (empty($cleantagstr)) unset($cleantagstr);
 $letter = trim($_GET["letter"] ?? '');
 if (strlen($letter) > 3) die();
 if (empty($letter)) unset($letter);
+$searchSuggestion = '';
+$searchIn = trim((string)($_GET['where'] ?? 'title'));
+if (!in_array($searchIn, ['title', 'descr', 'tags', 'all'], true)) {
+    $searchIn = 'title';
+}
+$formatFilter = trim((string)($_GET['format'] ?? ''));
+$formatOptions = browse_format_options();
+if (!array_key_exists($formatFilter, $formatOptions)) {
+    $formatFilter = '';
+}
+$yearFilter = (int)($_GET['year'] ?? 0);
 
 // Сортировка
 $orderby = "ORDER BY torrents.sticky ASC, torrents.id DESC";
@@ -139,8 +387,14 @@ elseif (count($wherecatina) == 1)
 $wherebase = $wherea;
 
 if (isset($cleansearchstr)) {
-    $wherea[] = "torrents.name LIKE '%" . sqlwildcardesc($searchstr) . "%'";
+    $searchCondition = browse_build_search_condition($searchstr, $searchIn);
+    if ($searchCondition !== null) {
+        $wherea[] = $searchCondition;
+    }
     $addparam .= "search=" . urlencode($searchstr) . "&amp;";
+    if ($searchIn !== 'title') {
+        $addparam .= "where=" . urlencode($searchIn) . "&amp;";
+    }
 }
 
 if (isset($cleantagstr)) {
@@ -151,6 +405,18 @@ if (isset($cleantagstr)) {
 if (isset($letter)) {
     $wherea[] = "torrents.name LIKE BINARY '" . mysqli_real_escape_string($mysqli, $letter) . "%'";
     $addparam .= "letter=" . urlencode($letter) . "&amp;";
+}
+
+$formatCondition = browse_build_format_condition($formatFilter);
+if ($formatCondition !== null) {
+    $wherea[] = $formatCondition;
+    $addparam .= "format=" . urlencode($formatFilter) . "&amp;";
+}
+
+$yearCondition = browse_build_year_condition($yearFilter);
+if ($yearCondition !== null) {
+    $wherea[] = $yearCondition;
+    $addparam .= "year=" . $yearFilter . "&amp;";
 }
 
 $where = implode(" AND ", $wherea);
@@ -182,6 +448,86 @@ if (!$count && isset($cleansearchstr)) {
         $res = sql_query("SELECT COUNT(*) FROM torrents $where");
         $row = mysqli_fetch_array($res);
         $count = $row[0];
+    }
+}
+
+if (!$count && isset($cleansearchstr)) {
+    $fixedSearch = browse_fix_keyboard_layout($searchstr);
+    if ($fixedSearch !== '' && mb_strtolower($fixedSearch, 'UTF-8') !== mb_strtolower($searchstr, 'UTF-8')) {
+        $wherea = $wherebase;
+        $fixedCondition = browse_build_search_condition($fixedSearch, $searchIn);
+        if ($fixedCondition !== null) {
+            $wherea[] = $fixedCondition;
+            if (isset($cleantagstr)) {
+                $wherea[] = "torrents.tags LIKE '%" . sqlwildcardesc($tagstr) . "%'";
+            }
+            if (isset($letter)) {
+                $wherea[] = "torrents.name LIKE BINARY '" . mysqli_real_escape_string($mysqli, $letter) . "%'";
+            }
+            if ($formatCondition !== null) {
+                $wherea[] = $formatCondition;
+            }
+            if ($yearCondition !== null) {
+                $wherea[] = $yearCondition;
+            }
+
+            $where = implode(" AND ", $wherea);
+            if (!empty($wherecatin)) {
+                $where .= ($where ? " AND " : "") . "category IN (" . $wherecatin . ")";
+            }
+            if (!empty($where)) {
+                $where = "WHERE $where";
+            }
+
+            $res = sql_query("SELECT COUNT(*) FROM torrents $where");
+            $row = mysqli_fetch_array($res);
+            $count = (int)$row[0];
+            $num_torrents = $count;
+
+            if ($count > 0) {
+                $searchSuggestion = $fixedSearch;
+            }
+        }
+    }
+}
+
+if (!$count && isset($cleansearchstr)) {
+    $fuzzySearch = browse_find_fuzzy_suggestion($mysqli, $searchstr, $wherebase, $wherecatin ?? '');
+    if ($fuzzySearch !== '' && mb_strtolower($fuzzySearch, 'UTF-8') !== mb_strtolower($searchstr, 'UTF-8')) {
+        $wherea = $wherebase;
+        $fuzzyCondition = browse_build_search_condition($fuzzySearch, $searchIn);
+        if ($fuzzyCondition !== null) {
+            $wherea[] = $fuzzyCondition;
+            if (isset($cleantagstr)) {
+                $wherea[] = "torrents.tags LIKE '%" . sqlwildcardesc($tagstr) . "%'";
+            }
+            if (isset($letter)) {
+                $wherea[] = "torrents.name LIKE BINARY '" . mysqli_real_escape_string($mysqli, $letter) . "%'";
+            }
+            if ($formatCondition !== null) {
+                $wherea[] = $formatCondition;
+            }
+            if ($yearCondition !== null) {
+                $wherea[] = $yearCondition;
+            }
+
+            $where = implode(" AND ", $wherea);
+            if (!empty($wherecatin)) {
+                $where .= ($where ? " AND " : "") . "category IN (" . $wherecatin . ")";
+            }
+            if (!empty($where)) {
+                $where = "WHERE $where";
+            }
+
+            $res = sql_query("SELECT COUNT(*) FROM torrents $where");
+            $row = mysqli_fetch_array($res);
+            $count = (int)$row[0];
+            $num_torrents = $count;
+
+            if ($count > 0) {
+                $searchSuggestion = $fuzzySearch;
+            }
+        }
     }
 }
 
@@ -433,6 +779,15 @@ begin_frame("Список раздач");
   /* компактная сетка и “стеклянные” кнопки */
   .browse-wrap{--pad:10px;--rad:12px;--gap:10px}
   .browse-fieldset{border:1px solid #999;border-radius:var(--rad);padding:var(--pad)}
+  .browse-search-table{table-layout:auto}
+  .browse-search-table td{vertical-align:middle}
+  .browse-search-top{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
+  .browse-search-top .browse-query-input{flex:1 1 auto;min-width:0}
+  .browse-search-top .browse-where-select{flex:0 0 190px}
+  .browse-search-top .browse-sort-select{flex:0 0 170px}
+  .browse-search-top .browse-type-select{flex:0 0 130px}
+  .browse-search-top .search-submit{flex:0 0 140px}
+  .browse-where-select{display:block;min-width:190px;width:100%;margin-top:0 !important;margin-bottom:0 !important;padding:7px 28px 7px 10px;box-sizing:border-box}
   .search-row{display:flex;flex-wrap:wrap;gap:var(--gap);align-items:center;justify-content:center}
   .search-row .search{min-width:260px;max-width:520px;padding:8px 10px;border:1px solid #bbb;border-radius:10px}
   .browse-select{padding:7px 10px;border:1px solid #bbb;border-radius:10px}
@@ -461,6 +816,9 @@ begin_frame("Список раздач");
   .alpha a{ text-decoration:none; padding:0 } /* убираем "кнопочность" */
   .alpha b{ font-weight:700 }                 /* активный символ просто жирный */
   .index{padding:6px 8px}
+  .browse-suggest{margin:0 0 10px;padding:10px 12px;border:1px solid rgba(35,94,158,.18);border-radius:10px;background:rgba(255,255,255,.82);color:#235e9e;font-weight:700}
+  .search-submit{background:#2f6fe4 !important;color:#fff !important;border-color:#2f6fe4 !important;font-weight:700}
+  .search-submit:hover{background:#245ec4 !important;color:#fff !important}
   .thumb-grid{display:grid;grid-template-columns:repeat(auto-fit,220px);justify-content:flex-start;gap:24px;padding:8px 6px}
   .thumb-card{display:flex;flex-direction:column;gap:8px}
   .thumb-img{border-radius:10px;object-fit:cover}
@@ -470,6 +828,12 @@ begin_frame("Список раздач");
   @media (max-width:700px){
     .search-row{justify-content:stretch}
     .view-toggle{justify-content:center}
+    .browse-search-top{flex-wrap:wrap}
+    .browse-search-top .browse-query-input,
+    .browse-search-top .browse-where-select,
+    .browse-search-top .search-submit,
+    .browse-search-top .browse-sort-select,
+    .browse-search-top .browse-type-select{flex:1 1 100%}
     .thumb-grid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;padding:6px 4px}
     .thumb-card{width:auto}
   }
@@ -477,10 +841,10 @@ begin_frame("Список раздач");
 </style>
 
 <script>
-  // лёгкий debounce для suggest(); запрет Enter
+  // лёгкий debounce для suggest(); Enter должен отправлять форму
   (function(){
     var t=null;
-    window.noenter=function(k){ if((k||0)===13) return false; };
+    window.noenter=function(){ return true; };
     window.suggestDebounced=function(k,v){
       if((k||0)===13) return; // Enter — сабмитит form
       clearTimeout(t); t=setTimeout(function(){ if(window.suggest) suggest(k,v); }, 120);
@@ -493,41 +857,88 @@ begin_frame("Список раздач");
     <tr>
       <td colspan="12" style="border:0;">
         <fieldset class="browse-fieldset">
-          <legend><b>Поиск</b></legend>
-
-          <div class="search-row">
-            <?php
-              // мини-хелпер
-              $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
-              // текущее значение поиска
-              $search_val = $h($searchstr ?? '');
-
-              // выбранная категория
-              $cat_sel = isset($_GET['cat']) ? (int)$_GET['cat'] : 0;
-            ?>
-            <input class="search" id="searchinput" name="search" type="text" size="34" autocomplete="off"
-                   ondblclick="suggestDebounced(event.keyCode, this.value);"
-                   onkeyup="suggestDebounced(event.keyCode, this.value);"
-                   onkeypress="return noenter(event.keyCode);"
-                   value="<?= $search_val ?>"/>
-
-            <select class="browse-select" name="cat" aria-label="Категория">
-              <option value="0">(<?= $tracker_lang['all_types']; ?>)</option>
-              <?php foreach ($cats as $cat): ?>
-                <?php $sel = ($cat_sel === (int)$cat['id']) ? ' selected="selected"' : ''; ?>
-                <option value="<?= (int)$cat['id'] ?>"<?= $sel ?>><?= $h($cat['name']) ?></option>
-              <?php endforeach; ?>
-            </select>
-
-            <input class="glass-btn" type="submit" value="<?= $tracker_lang['search']; ?>!"/>
-          </div>
-
-         <?php
-  // ——— Генерация букв/цифр (компактные группы) ———
-  
-?>
-
+          <legend><b>Поиск раздач</b></legend>
+          <?php
+            $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $search_val = $h($searchstr ?? '');
+            $cat_sel = isset($_GET['cat']) ? (int)$_GET['cat'] : 0;
+            $sort_sel = (int)($_GET['sort'] ?? 4);
+            if (!in_array($sort_sel, [1, 4, 5, 6, 7, 8], true)) {
+                $sort_sel = 4;
+            }
+            $dir_sel = ($_GET['type'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
+            $whereOptions = [
+                'title' => 'В названии',
+                'descr' => 'В описании',
+                'tags' => 'В тегах',
+                'all' => 'Везде',
+            ];
+            $sortOptions = [
+                4 => 'По дате',
+                1 => 'По названию',
+                5 => 'По размеру',
+                6 => 'По скачиваниям',
+                7 => 'По сидам',
+                8 => 'По личам',
+            ];
+          ?>
+          <table class="embedded browse-search-table" width="100%" cellspacing="0" cellpadding="4">
+            <tr>
+              <td colspan="5">
+                <div class="browse-search-top">
+                  <input class="search browse-query-input" id="searchinput" name="search" type="text" autocomplete="off"
+                         ondblclick="suggestDebounced(event.keyCode, this.value);"
+                         onkeyup="suggestDebounced(event.keyCode, this.value);"
+                         onkeypress="return noenter(event.keyCode);"
+                         value="<?= $search_val ?>" />
+                  <select class="browse-select browse-where-select" name="where" aria-label="Где искать">
+                    <?php foreach ($whereOptions as $key => $label): ?>
+                      <option value="<?= $h($key) ?>"<?= $searchIn === $key ? ' selected="selected"' : '' ?>><?= $h($label) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <input class="glass-btn search-submit" type="submit" value="Поиск"/>
+                  <select class="browse-select browse-sort-select" name="sort" aria-label="Сортировка">
+                    <?php foreach ($sortOptions as $key => $label): ?>
+                      <option value="<?= (int)$key ?>"<?= $sort_sel === (int)$key ? ' selected="selected"' : '' ?>><?= $h($label) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <select class="browse-select browse-type-select" name="type" aria-label="Направление сортировки">
+                    <option value="desc"<?= $dir_sel === 'desc' ? ' selected="selected"' : '' ?>>убыв.</option>
+                    <option value="asc"<?= $dir_sel === 'asc' ? ' selected="selected"' : '' ?>>возр.</option>
+                  </select>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div style="font-weight:bold; margin-bottom:4px;">Выбор раздела</div>
+                <select class="browse-select" name="cat" style="width:100%" aria-label="Категория">
+                  <option value="0">Поиск по разделам</option>
+                  <?php foreach ($cats as $cat): ?>
+                    <?php $sel = ($cat_sel === (int)$cat['id']) ? ' selected="selected"' : ''; ?>
+                    <option value="<?= (int)$cat['id'] ?>"<?= $sel ?>><?= $h($cat['name']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </td>
+              <td colspan="2">
+                <div style="font-weight:bold; margin-bottom:4px;">Выбор формата</div>
+                <select class="browse-select" name="format" style="width:100%" aria-label="Формат">
+                  <?php foreach ($formatOptions as $key => $label): ?>
+                    <option value="<?= $h($key) ?>"<?= $formatFilter === $key ? ' selected="selected"' : '' ?>><?= $h($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </td>
+              <td colspan="2">
+                <div style="font-weight:bold; margin-bottom:4px;">Год выхода</div>
+                <select class="browse-select" name="year" style="width:100%" aria-label="Год выхода">
+                  <option value="0">Все года</option>
+                  <?php for ($y = (int)date('Y') + 1; $y >= 1950; $y--): ?>
+                    <option value="<?= $y ?>"<?= $yearFilter === $y ? ' selected="selected"' : '' ?>><?= $y ?></option>
+                  <?php endfor; ?>
+                </select>
+              </td>
+            </tr>
+          </table>
         </fieldset>
       </td>
     </tr>
@@ -536,6 +947,9 @@ begin_frame("Список раздач");
       // Результаты поиска — заголовок
       if (isset($cleansearchstr)) {
           echo "<tr><td class=\"index\" colspan=\"12\">{$tracker_lang['search_results_for']} \"".$h($searchstr)."\"</td></tr>\n";
+          if ($searchSuggestion !== '') {
+              echo "<tr><td style=\"border:0\" colspan=\"12\"><div class=\"browse-suggest\">Возможно, вы имели в виду &laquo;" . $h($searchSuggestion) . "&raquo;</div></td></tr>\n";
+          }
       }
 
       if ($num_torrents) {

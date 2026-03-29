@@ -317,16 +317,85 @@ small,.small{color:var(--muted)}
 .view-toggle{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin:6px 0}
 .view-toggle .glass-btn{padding:6px 10px;border-radius:12px}
 
-.thumb-card{
-  display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;
-  background:linear-gradient(180deg,rgba(255,255,255,.30),rgba(255,255,255,.10));
-  border:1px solid rgba(255,255,255,.5);border-radius:14px;padding:10px 8px;
-  box-shadow:var(--shadow);transition:transform .12s ease,box-shadow .12s ease;
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+.thumb-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,220px);
+  justify-content:flex-start;
+  gap:24px;
+  align-items:start;
+  padding:8px 6px;
 }
-.thumb-card:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(0,0,0,.18)}
-.thumb-img{width:100%;height:auto;border-radius:10px;border:1px solid rgba(0,0,0,.12);display:block}
-.thumb-meta{margin-top:4px;font-size:12px;display:flex;gap:10px;align-items:center;justify-content:center}
+.thumb-card{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  width:220px;
+  height:100%;
+  margin:0;
+  padding:10px;
+  border:1px solid rgba(0,0,0,.10);
+  border-radius:14px;
+  background:#fff;
+  color:inherit;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+  transition:border-color .12s ease,box-shadow .12s ease,transform .12s ease;
+}
+.thumb-card:hover{transform:translateY(-2px);border-color:rgba(0,0,0,.18);box-shadow:0 8px 18px rgba(0,0,0,.12)}
+.thumb-link{display:block;text-decoration:none;color:inherit;background:#fff}
+.thumb-link:hover,.thumb-link:focus{background:#fff;color:inherit;text-decoration:none}
+.thumb-img{
+  display:block;
+  width:100%;
+  aspect-ratio:134/188;
+  height:auto;
+  object-fit:cover;
+  border-radius:10px;
+  border:1px solid rgba(0,0,0,.12);
+  background:#f4f4f4;
+}
+.thumb-title{
+  font:inherit;
+  font-weight:700;
+  line-height:1.25;
+  color:inherit;
+  min-height:2.5em;
+  overflow:hidden;
+}
+.thumb-sub{
+  font:inherit;
+  font-size:12px;
+  line-height:1.35;
+  color:#555;
+}
+.thumb-rating{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:20px;
+}
+.thumb-rating .rating{
+  min-width:125px;
+}
+.thumb-rating .star-rating{
+  margin:0;
+}
+.thumb-rating-num{
+  color:#ff6600;
+  font-size:14px;
+  font-weight:700;
+  line-height:1;
+}
+.thumb-meta{
+  margin-top:auto;
+  padding-top:4px;
+  font:inherit;
+  font-size:12px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 10px;
+  align-items:center;
+  justify-content:center;
+}
 .ico{display:inline-flex;width:14px;height:14px;vertical-align:-2px}
 .meta-pair{display:inline-flex;align-items:center;gap:4px}
 
@@ -392,15 +461,17 @@ begin_frame("Список раздач");
   .alpha a{ text-decoration:none; padding:0 } /* убираем "кнопочность" */
   .alpha b{ font-weight:700 }                 /* активный символ просто жирный */
   .index{padding:6px 8px}
-  /* плитки: слегка подшлифовал вид, без тяжёлых теней */
-  .thumb-card{display:flex;flex-direction:column;align-items:center;gap:6px}
-  .thumb-img{border-radius:8px;object-fit:cover}
-  .thumb-meta{display:flex;gap:10px;align-items:center;justify-content:center;font-size:12px;margin-top:2px}
+  .thumb-grid{display:grid;grid-template-columns:repeat(auto-fit,220px);justify-content:flex-start;gap:24px;padding:8px 6px}
+  .thumb-card{display:flex;flex-direction:column;gap:8px}
+  .thumb-img{border-radius:10px;object-fit:cover}
+  .thumb-meta{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;justify-content:center;font-size:12px;margin-top:auto}
   .thumb-meta .meta-pair{display:inline-flex;gap:3px;align-items:center}
   .ico{width:14px;height:14px;vertical-align:-2px}
   @media (max-width:700px){
     .search-row{justify-content:stretch}
     .view-toggle{justify-content:center}
+    .thumb-grid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;padding:6px 4px}
+    .thumb-card{width:auto}
   }
   
 </style>
@@ -477,31 +548,16 @@ $browsemode = get_browse_mode();
 
 
 
-        echo "</td></tr>";
-
         echo "<tr><td style=\"border:0\" colspan=\"12\">{$pagertop}</td></tr>";
-echo "<div class='view-toggle'>";
-echo   "<a class='glass-btn ".($browsemode==='thumbs'?'active':'')."' href='cookieset.php?browsemode=thumbs&ret={$ret_enc}'>Плитка</a>";
-echo   "<a class='glass-btn ".($browsemode==='list'  ?'active':'')."' href='cookieset.php?browsemode=list&ret={$ret_enc}'>Список</a>";
-echo "</div>";
+        echo "<tr><td style=\"border:0\" colspan=\"12\"><div class='view-toggle'>";
+        echo   "<a class='glass-btn ".($browsemode==='thumbs'?'active':'')."' href='cookieset.php?browsemode=thumbs&ret={$ret_enc}'>Плитка</a>";
+        echo   "<a class='glass-btn ".($browsemode==='list'  ?'active':'')."' href='cookieset.php?browsemode=list&ret={$ret_enc}'>Список</a>";
+        echo "</div></td></tr>";
         // ===== переключатель вида =====
 $browsemode = get_browse_mode();
 
         if ($browsemode === 'thumbs') {
-          // ---- настройки плитки (оставил как у тебя) ----
-          $thumb_w = 134; $thumb_h = 188; $per_row = 5;
-
-          $ratingImg = static function (?float $num): string {
-            if ($num === null) return '';
-            $r = round($num / 2);
-            if ($r < 1 || $r > 5) return '';
-            return "<img src='pic/rating/{$r}.gif' alt='{$num}' />";
-          };
-
-          echo "<tr><td style='border:0' colspan='12'>";
-          echo "<table class='embedded' style='width:100%;table-layout:fixed' cellspacing='0' cellpadding='6'><tr>";
-
-          $i = 0;
+          echo "<tr><td style='border:0' colspan='12'><div class='thumb-grid'>";
 
           // SVG-иконки (как у тебя)
           $icoUpRed = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#e53935" d="M12 3l6 6h-4v9h-4V9H6l6-6z"/></svg>';
@@ -514,8 +570,16 @@ $browsemode = get_browse_mode();
             elseif (!empty($row['poster']))  $poster = $h($row['poster']);
             else                              $poster = "pic/noposter.png";
 
-            $ratingHtml = $ratingImg(isset($row['rating']) ? (float)$row['rating'] : null);
-            if ($ratingHtml === '') $ratingHtml = $tracker_lang['no_votes'] ?? 'Нет голосов';
+            $ratingValue = isset($row['rating']) ? (float)$row['rating'] : null;
+            if ($ratingValue !== null && $ratingValue > 0) {
+              $ratingWidth = max(0, min(125, $ratingValue * 25));
+              $ratingHtml = "<div class='thumb-rating'>"
+                . "<div class='rating'><ul class='star-rating'><li class='current-rating' style='width:{$ratingWidth}px;'></li></ul></div>"
+                . "<span class='thumb-rating-num'>" . number_format($ratingValue, 1) . "</span>"
+                . "</div>";
+            } else {
+              $ratingHtml = $tracker_lang['no_votes'] ?? 'Нет голосов';
+            }
 
             $freeHtml = (!empty($row['free']) && $row['free'] === 'yes') ? "<img src='pic/free.gif' alt='FREE' />" : '';
 
@@ -524,49 +588,28 @@ $browsemode = get_browse_mode();
             $usr  = isset($row['username']) && $row['username'] !== '' ? "<b>".$h($row['username'])."</b>" : "<i>(unknown)</i>";
 
             $added   = $h($row['added'] ?? '');
-            $cmts    = (int)($row['comments'] ?? 0);
-            $files   = (int)($row['numfiles'] ?? 0);
-            $size    = mksize((int)($row['size'] ?? 0));
             $seeders = (int)($row['seeders'] ?? 0);
             $leech   = (int)($row['leechers'] ?? 0);
             $done    = (int)($row['times_completed'] ?? 0);
 
-            $tooltip = "<div style=\\'padding:5px;\\'><table id=\\'thumbs\\'>"
-              . "<tr><td colspan=\\'2\\'><pre>{$name}</pre></td></tr>"
-              . "<tr><td>Категория</td><td>{$cat}</td></tr>"
-              . "<tr><td>Оценка</td><td>{$ratingHtml}</td></tr>"
-              . "<tr><td>Загрузил</td><td>{$usr}</td></tr>"
-              . "<tr><td>Добавлен</td><td><pre style=\\'font-weight:normal;\\'>{$added}</pre></td></tr>"
-              . "<tr><td>Комментариев</td><td>{$cmts}</td></tr>"
-              . "<tr><td>Файлов</td><td>{$files}</td></tr>"
-              . "<tr><td>Размер</td><td>{$size}</td></tr>"
-              . "</table></div>";
-
-            echo "<td style='width:{$thumb_w}px;border:0;vertical-align:top;text-align:center'>"
-              . "  <div class='thumb-card'>"
-              . "    <a href='details.php?id=".(int)$row['id']."&amp;hit=1' "
-              . "       onmouseover=\"return overlib('{$tooltip}');\" onmouseout=\"return nd();\">"
-              . "       <img class='thumb-img' src='{$poster}' width='{$thumb_w}' height='{$thumb_h}' alt='' />"
-              . "    </a>"
-              . "    <div class='thumb-meta'>"
-              . "      <span class='meta-pair' title='Качают'>{$icoDownGreen}{$leech}</span>"
-              . "      <span class='meta-pair' title='Раздают'>{$icoUpRed}{$seeders}</span>"
-              . "      <span class='meta-pair' title='Скачан'>{$icoDone}{$done}</span>"
-              . "      {$freeHtml}"
-              . "    </div>"
+            echo "<div class='thumb-card'>"
+              . "  <a class='thumb-link' href='details.php?id=".(int)$row['id']."&amp;hit=1' title='{$name}'>"
+              . "    <img class='thumb-img' src='{$poster}' alt='{$name}' loading='lazy' decoding='async' />"
+              . "  </a>"
+              . "  <a class='thumb-link thumb-title' href='details.php?id=".(int)$row['id']."&amp;hit=1'>{$name}</a>"
+              . "  <div class='thumb-sub'>{$cat}</div>"
+              . "  <div class='thumb-sub'>Загрузил: {$usr}</div>"
+              . "  <div class='thumb-sub'>Добавлен: {$added}</div>"
+              . "  <div class='thumb-sub'>Оценка: {$ratingHtml}</div>"
+              . "  <div class='thumb-meta'>"
+              . "    <span class='meta-pair' title='Качают'>{$icoDownGreen}{$leech}</span>"
+              . "    <span class='meta-pair' title='Раздают'>{$icoUpRed}{$seeders}</span>"
+              . "    <span class='meta-pair' title='Скачан'>{$icoDone}{$done}</span>"
+              .      ($freeHtml !== '' ? "<span class='meta-pair'>{$freeHtml}</span>" : '')
               . "  </div>"
-              . "</td>";
-
-            $i++; if ($i % $per_row === 0) echo "</tr><tr>";
+              . "</div>";
           }
-
-          if ($i % $per_row !== 0) {
-            $rest = $per_row - ($i % $per_row);
-            echo str_repeat("<td style='border:0'>&nbsp;</td>", $rest);
-          }
-
-          echo "</tr></table>";
-          echo "</td></tr>";
+          echo "</div></td></tr>";
 
         } else {
           // — НЕ ТРОГАЕМ — классический список

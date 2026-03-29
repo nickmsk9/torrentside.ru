@@ -200,11 +200,8 @@ class Snoopy
 				return true;					
 				break;
 			case "https":
-				if(!$this->curl_path)
+				if(!function_exists('curl_init'))
 					return false;
-				if(function_exists("is_executable"))
-				    if (!is_executable($this->curl_path))
-				        return false;
 				$this->host = $URI_PARTS["host"];
 				if(!empty($URI_PARTS["port"]))
 					$this->port = $URI_PARTS["port"];
@@ -359,11 +356,8 @@ class Snoopy
 				return true;					
 				break;
 			case "https":
-				if(!$this->curl_path)
+				if(!function_exists('curl_init'))
 					return false;
-				if(function_exists("is_executable"))
-				    if (!is_executable($this->curl_path))
-				        return false;
 				$this->host = $URI_PARTS["host"];
 				if(!empty($URI_PARTS["port"]))
 					$this->port = $URI_PARTS["port"];
@@ -1021,34 +1015,65 @@ class Snoopy
 			$headers[] = "Content-length: ".strlen($body);
 		if(!empty($this->user) || !empty($this->pass))	
 			$headers[] = "Authorization: BASIC ".base64_encode($this->user.":".$this->pass);
-			
-		for($curr_header = 0; $curr_header < count($headers); $curr_header++) {
-			$safer_header = strtr( $headers[$curr_header], "\"", " " );
-			$cmdline_params .= " -H \"".$safer_header."\"";
-		}
-		
-		if(!empty($body))
-			$cmdline_params .= " -d \"$body\"";
-		
-		if($this->read_timeout > 0)
-			$cmdline_params .= " -m ".$this->read_timeout;
-		
-		$headerfile = tempnam($temp_dir, "sno");
 
-		exec($this->curl_path." -k -D \"$headerfile\"".$cmdline_params." \"".escapeshellcmd($URI)."\"",$results,$return);
-		
-		if($return)
+		if(!function_exists('curl_init'))
 		{
-			$this->error = "Error: cURL could not retrieve the document, error $return.";
+			$this->error = "Error: PHP cURL extension is not available.";
 			return false;
 		}
-			
-			
-		$results = implode("\r\n",$results);
-		
-		$result_headers = file("$headerfile");
-						
+
+		$curl = curl_init();
+		if($curl === false)
+		{
+			$this->error = "Error: cURL could not be initialized.";
+			return false;
+		}
+
+		$result_headers = array();
+		$results = '';
+
+		curl_setopt($curl, CURLOPT_URL, $URI);
+		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($curl, CURLOPT_FOLLOWLOCATION, false);
+		curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+		curl_setopt($curl, CURLOPT_CUSTOMREQUEST, $http_method);
+		curl_setopt($curl, CURLOPT_HEADERFUNCTION, array(&$this, '_curl_header_callback'));
+
+		if(!empty($this->user) || !empty($this->pass))
+			curl_setopt($curl, CURLOPT_USERPWD, $this->user.":".$this->pass);
+
+		if(!empty($body))
+			curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+
+		if($this->read_timeout > 0)
+			curl_setopt($curl, CURLOPT_TIMEOUT, $this->read_timeout);
+
+		if(!empty($this->proxy_host))
+		{
+			curl_setopt($curl, CURLOPT_PROXY, $this->proxy_host);
+			if(!empty($this->proxy_port))
+				curl_setopt($curl, CURLOPT_PROXYPORT, $this->proxy_port);
+			if(!empty($this->proxy_user) || !empty($this->proxy_pass))
+				curl_setopt($curl, CURLOPT_PROXYUSERPWD, $this->proxy_user.":".$this->proxy_pass);
+		}
+
+		$this->headers = array();
+		$results = curl_exec($curl);
+		if($results === false)
+		{
+			$this->error = "Error: cURL could not retrieve the document, error ".curl_errno($curl).": ".curl_error($curl).".";
+			curl_close($curl);
+			return false;
+		}
+
+		$responseCode = curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+		$this->response_code = "HTTP/1.1 ".$responseCode;
+		curl_close($curl);
+
 		$this->_redirectaddr = false;
+		$result_headers = $this->headers;
 		unset($this->headers);
 						
 		for($currentHeader = 0; $currentHeader < count($result_headers); $currentHeader++)
@@ -1073,7 +1098,7 @@ class Snoopy
 				else
 					$this->_redirectaddr = $matches[2];
 			}
-		
+
 			if(preg_match("|^HTTP/|",$result_headers[$currentHeader]))
 				$this->response_code = $result_headers[$currentHeader];
 
@@ -1100,10 +1125,17 @@ class Snoopy
 		// no framed content
 		else
 			$this->results = $results;
-
-		unlink("$headerfile");
 		
 		return true;
+	}
+
+	function _curl_header_callback($curl, $headerLine)
+	{
+		$trimmed = rtrim($headerLine, "\r\n");
+		if($trimmed !== '')
+			$this->headers[] = $trimmed;
+
+		return strlen($headerLine);
 	}
 
 /*======================================================================*\

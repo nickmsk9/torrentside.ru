@@ -1738,7 +1738,10 @@ function stdfoot($blockhide = null): void
     $ctype    = $_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '';
     $isHtmlCt = (stripos($ctype, 'text/html') !== false) || $ctype === '';
 
-    $debugOn = !$isAjax && $isHtmlCt && ((defined('DEBUG_MODE') && DEBUG_MODE) || isset($_GET['werth']));
+    $debugOn = !$isAjax
+        && $isHtmlCt
+        && function_exists('is_debug_mode_enabled')
+        && is_debug_mode_enabled();
     if (!$debugOn) return;
 
     // Метрики

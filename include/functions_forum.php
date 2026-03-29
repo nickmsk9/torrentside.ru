@@ -1123,9 +1123,8 @@ function stdfoot_f($title = null) {
 </tr>
 </table></body></html>";
 
-    // Отладочный вывод запросов (только для SYSOP и если включен DEBUG_MODE)
-    if (defined('DEBUG_MODE') && DEBUG_MODE && function_exists('get_user_class') && defined('UC_SYSOP')
-        && get_user_class() == UC_SYSOP && !empty($_COOKIE['debug']) && $_COOKIE['debug'] === 'yes'
+    // Отладочный вывод запросов доступен автоматически только SYSOP
+    if (function_exists('is_debug_mode_enabled') && is_debug_mode_enabled()
         && !empty($GLOBALS['query_stat']) && is_array($GLOBALS['query_stat'])) {
 
         foreach ($GLOBALS['query_stat'] as $key => $value) {

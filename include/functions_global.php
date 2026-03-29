@@ -828,6 +828,13 @@ function get_user_class(): ?int {
     return isset($CURUSER['class']) ? (int)$CURUSER['class'] : null;
 }
 
+// Отладочный режим доступен автоматически только SYSOP-пользователям
+function is_debug_mode_enabled(): bool {
+    return defined('UC_SYSOP')
+        && function_exists('get_user_class')
+        && get_user_class() === UC_SYSOP;
+}
+
 
 function get_user_class_name($class) {
   global $tracker_lang;

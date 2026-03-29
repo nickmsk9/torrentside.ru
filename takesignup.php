@@ -131,13 +131,9 @@ if ($deny_signup && $allow_invite_signup) {
 // $ip = getip();
 
 // --- хеширование пароля ---
-// TBDev исторически хранит md5( secret + pass + secret ), оставим совместимость,
-// но НЕ будем хранить пароль открыто. Рекомендуется добавить отдельное поле bcrypt_hash (nullable).
 $secret     = mksecret();
-$passhash   = md5($secret . $wantpassword . $secret);
-
-// Если у тебя есть современное поле, раскомментируй и добавь столбец `bcrypt_hash` VARCHAR(255) NULL:
-// $bcrypt_hash = password_hash($wantpassword, PASSWORD_BCRYPT);
+$passhash   = hash_legacy_password($wantpassword, $secret);
+$modernhash = tracker_hash_password($wantpassword);
 
 // Первому пользователю даём SYSOP + confirmed, остальным — pending при включённой email-активации
 $editsecret = $users_total ? mksecret() : '';
@@ -147,15 +143,13 @@ $added      = get_date_time();
 
 // --- вставка пользователя ---
 $columns = [
-    "username","passhash","secret","editsecret","gender","country","icq","email","status",
+    "username","passhash","secret","pss","editsecret","gender","country","icq","email","status",
     // class — только для самого первого пользователя
 ];
 $values  = [
-    sqlesc($wantusername), sqlesc($passhash), sqlesc($secret), sqlesc($editsecret),
+    sqlesc($wantusername), sqlesc($passhash), sqlesc($secret), sqlesc($modernhash), sqlesc($editsecret),
     (int)$gender, (int)$country, sqlesc($icq), sqlesc($email), sqlesc($status)
 ];
-
-// if (isset($bcrypt_hash)) { $columns[] = "bcrypt_hash"; $values[] = sqlesc($bcrypt_hash); }
 
 if (!$users_total) { $columns[] = "class"; $values[] = (int)$class; }
 

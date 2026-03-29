@@ -91,11 +91,19 @@ error_reporting(E_ALL & ~E_NOTICE);
 ini_set('display_errors', '1');
 ini_set('display_startup_errors', '0');
 ini_set('ignore_repeated_errors', '1');
+ini_set('session.use_strict_mode', '1');
 ignore_user_abort(true);
 set_time_limit(0);
 
 // Старт сессии (если ещё не запущена)
 if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'secure' => $https,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
     session_start();
 }
 

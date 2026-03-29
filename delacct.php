@@ -12,15 +12,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         stderr($tracker_lang['error'], "Заполните форму корректно.");
     }
 
-    // Поиск пользователя по имени и паролю
-    $res = sql_query("SELECT id FROM users WHERE username = " . sqlesc($username) . " 
-        AND passhash = md5(CONCAT(secret, CONCAT(" . sqlesc($password) . ", secret)))") or sqlerr(__FILE__, __LINE__);
+    // Поиск пользователя и проверка пароля без legacy SQL-хеша
+    $res = sql_query("SELECT id, passhash, secret, pss FROM users WHERE username = " . sqlesc($username) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
+    $arr = mysqli_fetch_assoc($res);
 
-    if (mysqli_num_rows($res) !== 1) {
+    if (!$arr || !verify_tracker_password($arr, $password)) {
         stderr($tracker_lang['error'], "Неверное имя пользователя или пароль. Проверьте введённую информацию.");
     }
-
-    $arr = mysqli_fetch_assoc($res);
     $id = (int)$arr['id'];
 
     // Удаление пользователя и связанных записей

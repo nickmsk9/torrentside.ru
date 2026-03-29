@@ -110,13 +110,15 @@ if (isset($_GET['id'], $_GET['secret'])) {
     }
 
     $newsec      = mksecret();
-    $newpasshash = md5($newsec . $newpassword . $newsec);
+    $newpasshash = hash_legacy_password($newpassword, $newsec);
+    $newmodern   = tracker_hash_password($newpassword);
 
     sql_query(
         'UPDATE users
            SET secret = ' . sqlesc($newsec) . ',
                editsecret = \'\',
-               passhash = ' . sqlesc($newpasshash) . '
+               passhash = ' . sqlesc($newpasshash) . ',
+               pss = ' . sqlesc($newmodern) . '
          WHERE id = ' . $id . ' AND editsecret = ' . sqlesc($arr['editsecret']) . ' LIMIT 1'
     ) or sqlerr(__FILE__, __LINE__);
 

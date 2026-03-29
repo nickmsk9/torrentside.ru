@@ -232,12 +232,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     // ===== секреты/даты/хэши =====
     $secret       = mksecret();
-    $passhash     = sqlesc(md5($secret . $password . $secret)); // TBDev совместимость
+    $passhash     = sqlesc(hash_legacy_password($password, $secret)); // TBDev совместимость
     $secret_esc   = sqlesc($secret);
     $now          = sqlesc(get_date_time());
     $ip           = getip();
     $ip_esc       = sqlesc($ip);
-    $pss          = sqlesc('');
+    $pss          = sqlesc(tracker_hash_password($password));
 
     $username_ins = sqlesc($username_try);
     $email_ins    = sqlesc($email_try);

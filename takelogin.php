@@ -29,7 +29,7 @@ if ($nextTryAt && time() < $nextTryAt) {
 }
 
 // ---- получаем пользователя (строго одна запись) ----
-$res = sql_query("SELECT id, passhash, secret, enabled, status, last_login, ip 
+$res = sql_query("SELECT id, passhash, secret, pss, enabled, status, last_login, ip 
                   FROM users 
                   WHERE username = " . sqlesc($username) . " 
                   LIMIT 1");
@@ -43,8 +43,7 @@ if (!$row) {
 }
 
 // ---- проверка пароля (constant-time) ----
-$calc = md5($row["secret"] . $password . $row["secret"]);
-if (!hash_equals($row["passhash"], $calc)) {
+if (!verify_tracker_password($row, $password)) {
     // Тихо уведомим в ЛС без пароля (IP, User-Agent)
     $ua  = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
     $msg = "Неудачная попытка входа под вашим аккаунтом с IP {$ip}. UA: {$ua}. Если это не вы — смените пароль и сообщите администрации.";
@@ -56,6 +55,8 @@ if (!hash_equals($row["passhash"], $calc)) {
     $memcached->set($throttleKey, time() + $throttleTtl, $throttleTtl);
     bark();
 }
+
+maybe_upgrade_tracker_password((int)$row['id'], $row, $password);
 
 // ---- статус/доступ ----
 if ($row["status"] === 'pending') {

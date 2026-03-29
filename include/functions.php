@@ -880,8 +880,8 @@ function userlogin(bool $lightmode = false): void {
         }
     }
 
-    /** ----------------------- COOKIE ----------------------- */
-    if (!$SITE_ONLINE || empty($_COOKIE['uid']) || empty($_COOKIE['pass'])) {
+    /** ----------------------- AUTH SOURCE ----------------------- */
+    if (!$SITE_ONLINE) {
         if ($use_lang) {
             include_once "languages/lang_{$default_language}/lang_main.php";
         }
@@ -889,27 +889,45 @@ function userlogin(bool $lightmode = false): void {
         return;
     }
 
-    // Жёсткая валидация значений cookie
-    $id_raw   = $_COOKIE['uid'];
-    $pass_raw = $_COOKIE['pass'];
+    $authMode = null;
+    $id = 0;
+    $pass = null;
 
-    // uid — только цифры (int > 0), pass — HEX32
-    if (!ctype_digit($id_raw) || !preg_match('/^[a-f0-9]{32}$/i', $pass_raw)) {
-        http_response_code(400);
-        exit('Ошибка: некорректные cookie.');
+    if (!empty($_SESSION['auth_uid'])) {
+        $idRaw = (string)$_SESSION['auth_uid'];
+        if (!ctype_digit($idRaw)) {
+            unset($_SESSION['auth_uid']);
+        } else {
+            $authMode = 'session';
+            $id = (int)$idRaw;
+        }
     }
 
-    $id   = (int)$id_raw;
-    $pass = strtolower($pass_raw); // cookieFromPasshash обычно MD5 → нормализуем регистр
+    if ($authMode === null && !empty($_COOKIE['uid']) && !empty($_COOKIE['pass'])) {
+        $idRaw = (string)$_COOKIE['uid'];
+        $passRaw = (string)$_COOKIE['pass'];
 
-    if ($id <= 0) {
-        http_response_code(400);
-        exit('Ошибка: некорректный ID.');
+        if (!ctype_digit($idRaw) || !preg_match('/^[a-f0-9]{32}$/i', $passRaw)) {
+            http_response_code(400);
+            exit('Ошибка: некорректные cookie.');
+        }
+
+        $authMode = 'legacy_cookie';
+        $id = (int)$idRaw;
+        $pass = strtolower($passRaw);
+    }
+
+    if ($authMode === null || $id <= 0) {
+        if ($use_lang) {
+            include_once "languages/lang_{$default_language}/lang_main.php";
+        }
+        user_session();
+        return;
     }
 
     /** ----------------------- КЭШ СЕССИИ ----------------------- */
     $row = null;
-    $cache_key = "user:session:{$id}:{$pass}";
+    $cache_key = "user:session:{$id}";
     $have_memc = isset($memcached) && ($memcached instanceof Memcached);
 
     if ($have_memc) {
@@ -921,20 +939,99 @@ function userlogin(bool $lightmode = false): void {
 
     if (!$row) {
         // Минимальный селект по ключевым полям (всё равно нужен passhash)
-        $res = sql_query("SELECT * FROM users WHERE id = {$id} AND enabled = 'yes' AND status = 'confirmed' LIMIT 1");
+        $userColumns = implode(', ', [
+            'id',
+            'username',
+            'old_password',
+            'passhash',
+            'secret',
+            'email',
+            'status',
+            'added',
+            'last_login',
+            'editsecret',
+            'privacy',
+            'stylesheet',
+            'info',
+            'acceptpms',
+            'ip',
+            'class',
+            'override_class',
+            'support',
+            'supportfor',
+            'avatar',
+            'telegram',
+            'skype',
+            'website',
+            'uploaded',
+            'downloaded',
+            'title',
+            'country',
+            'tzoffset',
+            'notifs',
+            'modcomment',
+            'enabled',
+            'parked',
+            'avatars',
+            'donor',
+            'simpaty',
+            'warned',
+            'warneduntil',
+            'torrentsperpage',
+            'topicsperpage',
+            'postsperpage',
+            'deletepms',
+            'savepms',
+            'gender',
+            'birthday',
+            'passkey',
+            'language',
+            'invites',
+            'invitedby',
+            'invitedroot',
+            'passkey_ip',
+            'page',
+            'hiderating',
+            'bjwins',
+            'bjlosses',
+            'hidebid',
+            'last_access',
+            'last_post',
+            'forum_access',
+            'forum_com',
+            'schoutboxpos',
+            'bot_pos',
+            'rangclass',
+            'bonus',
+            '`groups`',
+            'karma',
+            'moderated',
+            'pss',
+            'signature',
+            'signatrue',
+        ]);
+        $res = sql_query("SELECT {$userColumns} FROM users WHERE id = {$id} AND enabled = 'yes' AND status = 'confirmed' LIMIT 1");
         if ($res instanceof mysqli_result) {
             $row = $res->fetch_assoc() ?: null;
             $res->free();
         }
 
         // Проверяем cookie против passhash
-        if ($row && hash_equals($pass, strtolower(cookieFromPasshash($row['passhash'] ?? '')))) {
-            if ($have_memc) {
-                // Короткий TTL — чтобы не «залипала» сессия при банах/изменениях
-                $memcached->set($cache_key, $row, 60);
-            }
-        } else {
+        if (!$row) {
             $row = null;
+        } elseif ($authMode === 'legacy_cookie') {
+            $legacyCookie = strtolower(cookieFromPasshash($row['passhash'] ?? ''));
+            if (!hash_equals((string)$pass, $legacyCookie)) {
+                $row = null;
+            } else {
+                tracker_session_login((int)$row['id']);
+                clear_legacy_login_cookies();
+            }
+        }
+
+        if ($row && $have_memc) {
+            // Короткий TTL — чтобы не «залипала» сессия при банах/изменениях
+            $memcached->set($cache_key, $row, 60);
         }
     }
 
@@ -989,14 +1086,87 @@ function userlogin(bool $lightmode = false): void {
     }
 }
 
-
-
-
-
-
 function cookieFromPasshash($p)
 {
-	return md5('gu&R'.$p.getip().'==');
+    return md5('gu&R' . $p . getip() . '==');
+}
+
+function hash_legacy_password(string $password, string $secret): string
+{
+    return md5($secret . $password . $secret);
+}
+
+function tracker_hash_password(string $password): string
+{
+    return password_hash($password, PASSWORD_DEFAULT);
+}
+
+function tracker_password_needs_rehash(?string $hash): bool
+{
+    if ($hash === null || $hash === '') {
+        return true;
+    }
+
+    return password_needs_rehash($hash, PASSWORD_DEFAULT);
+}
+
+function verify_tracker_password(array $user, string $password): bool
+{
+    $modernHash = (string)($user['pss'] ?? '');
+    if ($modernHash !== '') {
+        return password_verify($password, $modernHash);
+    }
+
+    if (!isset($user['secret'], $user['passhash'])) {
+        return false;
+    }
+
+    return hash_equals((string)$user['passhash'], hash_legacy_password($password, (string)$user['secret']));
+}
+
+function maybe_upgrade_tracker_password(int $userId, array &$user, string $password): void
+{
+    $currentHash = (string)($user['pss'] ?? '');
+    if (!tracker_password_needs_rehash($currentHash)) {
+        return;
+    }
+
+    $newHash = tracker_hash_password($password);
+    sql_query("UPDATE users SET pss = " . sqlesc($newHash) . " WHERE id = " . (int)$userId . " LIMIT 1");
+    $user['pss'] = $newHash;
+}
+
+function tracker_cookie_params(int $expires = 0): array
+{
+    $isSecure =
+        (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443)
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string)$_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+
+    return [
+        'expires' => $expires,
+        'path' => '/',
+        'secure' => $isSecure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ];
+}
+
+function tracker_session_login(int $id): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+
+    session_regenerate_id(true);
+    $_SESSION['auth_uid'] = (string)$id;
+}
+
+function clear_legacy_login_cookies(): void
+{
+    $expired = tracker_cookie_params(time() - 3600);
+    setcookie('uid', '', $expired);
+    setcookie('pass', '', $expired);
 }
 
 function get_server_load() {
@@ -1882,16 +2052,23 @@ function gmtime() {
 }
 
 function logincookie($id, $passhash, $updatedb = 1, $expires = 0x7fffffff) {
-		setcookie("uid", $id, $expires, "/");
-		setcookie("pass", cookieFromPasshash($passhash), $expires, "/");
+    tracker_session_login((int)$id);
+    clear_legacy_login_cookies();
 
-	if ($updatedb)
-		sql_query("UPDATE users SET last_login = NOW() WHERE id = $id");
+    if ($updatedb) {
+        sql_query("UPDATE users SET last_login = NOW() WHERE id = " . (int)$id);
+    }
 }
 
 function logoutcookie() {
-	setcookie("uid", "", 0x7fffffff, "/");
-	setcookie("pass", "", 0x7fffffff, "/");
+    clear_legacy_login_cookies();
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $_SESSION = [];
+        $sessionCookie = tracker_cookie_params(time() - 3600);
+        setcookie(session_name(), '', $sessionCookie);
+        session_destroy();
+    }
 }
 
 function loggedinorreturn($nowarn = false) {

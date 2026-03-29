@@ -146,21 +146,21 @@ if ($chpassword !== '') {
         bark("Пароли не совпадают. Попробуйте ещё раз.");
     }
 
-    // Если хотим требовать старый пароль — проверим (CURUSER должен содержать secret и passhash)
-    if ($oldpassword === '' || !isset($CURUSER['secret'], $CURUSER['passhash'])) {
+    // Если хотим требовать старый пароль — проверим
+    if ($oldpassword === '') {
         bark("Укажите старый пароль.");
     }
-    $expected = md5($CURUSER['secret'] . $oldpassword . $CURUSER['secret']);
-    if (!hash_equals((string)$CURUSER['passhash'], $expected)) {
+    if (!verify_tracker_password($CURUSER, $oldpassword)) {
         bark("Старый пароль указан неверно.");
     }
 
     $sec = mksecret();
-    // Историческая совместимость TBDev:
-    $passhash = md5($sec . $chpassword . $sec);
+    $passhash = hash_legacy_password($chpassword, $sec);
+    $modernhash = tracker_hash_password($chpassword);
 
     $updateset[] = "secret = " . sqlesc($sec);
     $updateset[] = "passhash = " . sqlesc($passhash);
+    $updateset[] = "pss = " . sqlesc($modernhash);
     logincookie((int)$CURUSER["id"], $passhash);
 }
 

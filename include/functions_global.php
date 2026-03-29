@@ -590,7 +590,7 @@ function format_comment(string $text, bool $strip_html = true): string {
     try {
         // 1) Получаем кэш имён
         $pages = [];
-        $cacheKey = 'pages_names_map_v2'; // name(lower) => id
+        $cacheKey = 'persons:names_map_v3'; // name(lower) => id
         $haveMemc = class_exists('Memcached');
 
         if ($haveMemc) {
@@ -601,21 +601,51 @@ function format_comment(string $text, bool $strip_html = true): string {
             $pages = $memcached->get($cacheKey);
             if ($memcached->getResultCode() !== Memcached::RES_SUCCESS || !is_array($pages)) {
                 $pages = [];
-                if ($res = mysqli_query($mysqli, "SELECT id, name FROM pages")) {
+                $hasAliases = false;
+                if ($check = mysqli_query($mysqli, "SHOW TABLES LIKE 'person_aliases'")) {
+                    $hasAliases = mysqli_num_rows($check) > 0;
+                }
+                if ($hasAliases) {
+                    $sql = "
+                        SELECT p.id, p.name AS alias_name
+                        FROM pages p
+                        WHERE p.is_published = 'yes'
+                        UNION ALL
+                        SELECT pa.person_id AS id, pa.alias_name
+                        FROM person_aliases pa
+                    ";
+                } else {
+                    $sql = "SELECT id, name AS alias_name FROM pages";
+                }
+                if ($res = mysqli_query($mysqli, $sql)) {
                     while ($row = mysqli_fetch_assoc($res)) {
-                        $name = trim((string)$row['name']);
+                        $name = trim((string)$row['alias_name']);
                         if ($name === '') continue;
-                        // Храним карту: нижний регистр => id
                         $pages[mb_strtolower($name, 'UTF-8')] = (int)$row['id'];
                     }
                 }
-                // TTL 5 минут
                 $memcached->set($cacheKey, $pages, 300);
             }
         } else {
-            if ($res = mysqli_query($mysqli, "SELECT id, name FROM pages")) {
+            $hasAliases = false;
+            if ($check = mysqli_query($mysqli, "SHOW TABLES LIKE 'person_aliases'")) {
+                $hasAliases = mysqli_num_rows($check) > 0;
+            }
+            if ($hasAliases) {
+                $sql = "
+                    SELECT p.id, p.name AS alias_name
+                    FROM pages p
+                    WHERE p.is_published = 'yes'
+                    UNION ALL
+                    SELECT pa.person_id AS id, pa.alias_name
+                    FROM person_aliases pa
+                ";
+            } else {
+                $sql = "SELECT id, name AS alias_name FROM pages";
+            }
+            if ($res = mysqli_query($mysqli, $sql)) {
                 while ($row = mysqli_fetch_assoc($res)) {
-                    $name = trim((string)$row['name']);
+                    $name = trim((string)$row['alias_name']);
                     if ($name === '') continue;
                     $pages[mb_strtolower($name, 'UTF-8')] = (int)$row['id'];
                 }

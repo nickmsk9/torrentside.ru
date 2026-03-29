@@ -30,8 +30,16 @@ $mc->addServer('localhost', 11211);
 
 // -------- helpers --------
 function fetch_active_poll(mysqli $db): ?array {
-    // Берём самый свежий опрос
-    $sql = "SELECT * FROM polls ORDER BY added DESC, id DESC LIMIT 1";
+    // Берём только нужные поля самого свежего опроса
+    $sql = "SELECT id, added, question,
+                   option0, option1, option2, option3, option4,
+                   option5, option6, option7, option8, option9,
+                   option10, option11, option12, option13, option14,
+                   option15, option16, option17, option18, option19,
+                   sort
+            FROM polls
+            ORDER BY added DESC, id DESC
+            LIMIT 1";
     $res = $db->query($sql);
     if (!$res) return null;
     $row = $res->fetch_assoc();
@@ -153,7 +161,16 @@ try {
             }
 
             // Проверим валидность варианта
-            $pstmt = $mysqli->prepare("SELECT * FROM polls WHERE id = ?");
+            $pstmt = $mysqli->prepare(
+                "SELECT id, added, question,
+                        option0, option1, option2, option3, option4,
+                        option5, option6, option7, option8, option9,
+                        option10, option11, option12, option13, option14,
+                        option15, option16, option17, option18, option19,
+                        sort
+                 FROM polls
+                 WHERE id = ?"
+            );
             $pstmt->bind_param('i', $pollId);
             $pstmt->execute();
             $pollRes = $pstmt->get_result();

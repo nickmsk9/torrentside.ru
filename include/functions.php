@@ -2500,11 +2500,11 @@ function torrenttable(mysqli_result $res, string $variant = "index"): void
         }
 
         // prebuild parts
-        $catCell = '<td align="center" rowspan="2" width="1%" style="padding:0">'
+        $catCell = '<td class="tt-cat-cell" align="center" rowspan="2" width="1%" style="padding:0">'
                  . ($catName !== ''
                     ? ('<a href="browse.php?cat=' . $catId . '">'
                         . ($catPic !== ''
-                           ? '<img width="55" height="55" loading="lazy" decoding="async" src="' . $h($pic_base_url) . '/cats/' . $catPic . '" alt="' . $catName . '">'
+                           ? '<img class="tt-cat-icon" loading="lazy" decoding="async" src="' . $h($pic_base_url) . '/cats/' . $catPic . '" alt="' . $catName . '">'
                            : $catName)
                         . '</a>')
                     : '-')

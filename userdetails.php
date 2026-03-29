@@ -179,9 +179,13 @@ $status = ($status !== '')
     overflow-wrap: anywhere;
     word-break: break-word;
   }
-  .profile-layout table.mainp {
+  .profile-layout .profile-left > table {
+    width: 100%;
+  }
+  .profile-layout .profile-right > table.mainp {
     margin-left: 0 !important;
     width: 100%;
+    table-layout: fixed;
   }
 
   @media (max-width: 900px) {
@@ -203,7 +207,8 @@ $status = ($status !== '')
 </div>
 
 <div class="profile-layout">
-<table class="profile-left" border="1" cellspacing="0" cellpadding="4" style="width:260px;">
+<div class="profile-left">
+<table border="1" cellspacing="0" cellpadding="4" style="width:260px;">
 
 <?php
 // Аватар
@@ -433,7 +438,9 @@ echo '</div></td></tr>';
 ?>
 </table>
 
-<table class="mainp profile-right" cellpadding="4" cellspacing="0">
+</div>
+<div class="profile-right">
+<table class="mainp" cellpadding="4" cellspacing="0">
 <tr><td class="rowhead" width="1%">Зарегистрирован</td><td class="lol" width="99%" align="left"><?= $joindate ?></td></tr>
 <tr><td class="rowhead" width="1%">Был на трекере</td><td class="lol" width="99%" align="left"><?= $lastseen ?></td></tr>
 
@@ -611,7 +618,7 @@ echo visitorsList('
 ', $VISITORS);
 
 // Закрываем правую таблицу прямо здесь:
-echo "</table>\n</div>\n";
+echo "</table>\n</div>\n</div>\n";
 ?>
 
 <!-- Стили ДЛЯ БЛОКА ВИЗИТОРОВ — оставлены как у тебя, но вынесены ВНЕ таблицы -->

@@ -163,6 +163,8 @@ $status = ($status !== '')
   .profile-caption-meta img{vertical-align:middle}
   .category .profile-caption-meta, .tit .profile-caption-meta{font-size:12px;font-weight:600}
   .tit h1, .category{line-height:1.2;word-break:break-word}
+  /* В первом (профильном) фрейме убираем дублирующий правый заголовок */
+  .new:first-of-type .cat{display:none !important}
 
   /* Стабильная раскладка профиля вместо float/margin-хаков */
   .profile-layout {

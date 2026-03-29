@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/include/benc.php";
 require_once __DIR__ . "/include/bittorrent.php";
+require_once __DIR__ . "/include/multitracker.php";
 
 function bark(string $msg): void {
     stderr("Ошибка", $msg);
@@ -40,6 +41,7 @@ function dict_get(array $d, string $k, string $t) {
 
 /** Bootstrap */
 dbconn();
+multitracker_ensure_schema();
 loggedinorreturn();
 global $CURUSER, $mysqli_charset, $torrent_dir, $max_torrent_size, $announce_urls, $DEFAULTBASEURL, $SITENAME;
 
@@ -113,6 +115,7 @@ if ($update_torrent) {
 
     $dict = bdec_file($tmpname, $max_torrent_size);
     if (!$dict) bark("Файл не является .torrent");
+    $preserveExternalTrackers = (string)($_POST['preserve_external_trackers'] ?? '1') === '1';
 
     /** parse info */
     [$info] = dict_check($dict, "info");
@@ -141,34 +144,9 @@ if ($update_torrent) {
         }
     }
 
-    /** mutate torrent (announce, private, source, meta) */
-    // announce
-    $dict['value']['announce'] = bdec(benc_str($announce_urls[0]));
-    // info flags
-    $dict['value']['info']['value']['private'] = bdec('i1e');
-    $dict['value']['info']['value']['source']  = bdec(benc_str("[$DEFAULTBASEURL] $SITENAME"));
-    // cleanup public fields
-    unset(
-        $dict['value']['announce-list'],
-        $dict['value']['nodes'],
-        $dict['value']['azureus_properties']
-    );
-    unset(
-        $dict['value']['info']['value']['crc32'],
-        $dict['value']['info']['value']['ed2k'],
-        $dict['value']['info']['value']['md5sum'],
-        $dict['value']['info']['value']['sha1'],
-        $dict['value']['info']['value']['tiger']
-    );
-    // meta
-    $dict['value']['comment']       = bdec(benc_str("Торрент создан для '$SITENAME'"));
-    $dict['value']['created by']    = bdec(benc_str($CURUSER["username"]));
-    $dict['value']['publisher']     = bdec(benc_str($CURUSER["username"]));
-    $dict['value']['publisher-url'] = bdec(benc_str("$DEFAULTBASEURL/userdetails.php?id={$CURUSER['id']}"));
-
-    /** recompute info hash against *mutated* info dict */
-    $info_bencoded = benc($dict['value']['info']);
-    $infohash      = sha1($info_bencoded);
+    $preparedTorrent = multitracker_prepare_uploaded_torrent($dict, $preserveExternalTrackers);
+    $dict = $preparedTorrent['dict'];
+    $infohash = $preparedTorrent['infohash'];
 
     /** safe write: tmp → atomic rename */
     $target = rtrim($torrent_dir, '/\\') . '/' . $id . '.torrent';
@@ -188,11 +166,13 @@ if ($update_torrent) {
     $updateset[] = "numfiles  = " . sqlesc(count($filelist));
     $updateset[] = "filename  = " . sqlesc($fname);
     $updateset[] = "save_as   = " . sqlesc($dname);
+
+    multitracker_save_trackers($id, $preparedTorrent['all_trackers']);
 }
 
 /** Tags normalize */
 $replace = [", ", " , ", " ,"];
-$tagsNorm = mb_convert_case(unesc($tags), MB_CASE_LOWER, $mysqli_charset);
+$tagsNorm = mb_convert_case(unesc($tags), MB_CASE_LOWER, 'UTF-8');
 $tagsNorm = trim(str_replace($replace, ",", $tagsNorm), " ,");
 $oldtagsNorm = trim(unesc($oldtags), " ,");
 

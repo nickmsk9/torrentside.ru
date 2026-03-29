@@ -10,6 +10,7 @@ if (!defined("IN_TRACKER") && !defined("IN_ANNOUNCE")) {
 $SITE_ONLINE = true;
 $SITENAME = 'TorrentSide.ru';
 $SITEEMAIL = 'nickmsk9@icloud.com';
+$site_base_url = 'http://localhost:8084';
 
 // --- Торренты ---
 $max_torrent_size = 10000000;
@@ -43,6 +44,10 @@ $minvotes = 1;
 $ttl_days = 28;
 $use_ttl = false;
 $ctracker = true;
+$external_tracker_stats_ttl = 1800;
+$external_tracker_http_timeout = 4;
+$external_tracker_scrape_limit = 5;
+$kinozal_user_agent = 'TorrentSide External Tracker Bot/1.0';
 
 // --- Дополнительно ---
 $use_wait = false;

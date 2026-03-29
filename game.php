@@ -125,6 +125,7 @@ $catNameSafe = htmlspecialchars($catName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
       // .torrent
       tr($tracker_lang['torrent_file'] ?? 'Файл торрента', '<input type="file" name="tfile" size="60" accept=".torrent" required>', 1);
+      tr('Мультитрекер', '<input type="hidden" name="preserve_external_trackers" value="0"><label><input type="checkbox" name="preserve_external_trackers" value="1" checked> Сохранить внешние announce и исходный info_hash</label><br><small>Включено по умолчанию для импорта чужих swarm без пересборки info-секции.</small>', 1);
 
       // Названия
       tr("Русское название", '<input type="text" name="name" size="60" maxlength="200" required placeholder="например — Гибель 3">', 1);

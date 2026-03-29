@@ -1,8 +1,10 @@
 <?php
 require_once "include/bittorrent.php";
 require_once "include/benc.php";
+require_once "include/multitracker.php";
 
 dbconn();
+multitracker_ensure_schema();
 
 /* ===================== helpers ===================== */
 
@@ -45,23 +47,6 @@ function base32_from_hex(string $hex): string {
         $out .= $alphabet[bindec($chunk)];
     }
     return $out;
-}
-
-/**
- * Добавляет passkey ко всем URL анонсеров и вычищает дубли.
- */
-function tracker_urls_with_passkey(array $urls, string $passkey): array {
-    $out = [];
-    foreach ($urls as $u) {
-        if (!is_string($u) || $u === '') continue;
-        if (preg_match('#^https?://#i', $u)) {
-            $sep = (str_contains($u, '?') ? '&' : '?');
-            $out[] = $u . $sep . 'passkey=' . $passkey;
-        } else {
-            $out[] = $u;
-        }
-    }
-    return array_values(array_unique($out));
 }
 
 /* ===================== gzip guard ===================== */
@@ -127,35 +112,16 @@ if (empty($CURUSER['passkey']) || strlen($CURUSER['passkey']) !== 32) {
 
 /* ===================== prepare tracker list ===================== */
 
-$trackerPool = [];
-
-// 1) из конфига
-if (!empty($announce_urls) && is_array($announce_urls)) {
-    $trackerPool = array_merge($trackerPool, $announce_urls);
-}
-
-// 2) из .torrent
 $dict = bdec_file($fn, $max_torrent_size);
-if (isset($dict['value']['announce']['type']) && $dict['value']['announce']['type'] === 'string') {
-    $trackerPool[] = $dict['value']['announce']['value'];
+$trackerPool = multitracker_get_stored_trackers($id);
+if (empty($trackerPool)) {
+    $trackerPool = multitracker_extract_urls_from_dict($dict);
 }
-if (isset($dict['value']['announce-list']['type']) && $dict['value']['announce-list']['type'] === 'list') {
-    foreach ($dict['value']['announce-list']['value'] as $tier) {
-        if (($tier['type'] ?? null) !== 'list') continue;
-        foreach ($tier['value'] as $trk) {
-            if (($trk['type'] ?? null) === 'string') {
-                $trackerPool[] = $trk['value'];
-            }
-        }
-    }
+if (empty($trackerPool)) {
+    $trackerPool = [multitracker_primary_announce()];
 }
 
-// 3) дефолт, если вообще пусто
-if (empty($trackerPool) && defined('BASEURL')) {
-    $trackerPool[] = rtrim(BASEURL, '/') . '/announce.php';
-}
-
-$trackerWithKey = tracker_urls_with_passkey($trackerPool, $CURUSER['passkey']);
+$trackerWithKey = multitracker_tracker_urls_for_download($trackerPool, $CURUSER['passkey']);
 $httpTrackersWithKey = array_values(array_filter($trackerWithKey, static function(string $url): bool {
     return (bool)preg_match('#^https?://#i', $url);
 }));
@@ -193,7 +159,7 @@ if ($wantMagnet) {
 
 /* ===================== TORRENT branch ===================== */
 
-$primaryAnnounce = $trackerWithKey[0] ?? ($announce_urls[0] . '?passkey=' . $CURUSER['passkey']);
+$primaryAnnounce = $trackerWithKey[0] ?? (multitracker_primary_announce() . '?passkey=' . $CURUSER['passkey']);
 
 // Подменяем announce
 $dict['value']['announce'] = [

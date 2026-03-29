@@ -2725,6 +2725,9 @@ function torrenttable(mysqli_result $res, string $variant = "index"): void
         $snatched  = (int)($row['times_completed'] ?? 0);
         $seeders   = (int)($row['seeders'] ?? 0);
         $leechers  = (int)($row['leechers'] ?? 0);
+        $externalSeeders = (int)($row['external_seeders'] ?? 0);
+        $externalLeechers = (int)($row['external_leechers'] ?? 0);
+        $externalCompleted = (int)($row['external_completed'] ?? 0);
 
         $catId     = (int)($row['category'] ?? 0);
         $catName   = isset($row['cat_name']) ? $h($row['cat_name']) : '';
@@ -2802,8 +2805,15 @@ $stickyBadge = $stickyYes
         }
 
         $commentsCell = '<td width="5%" class="lol" align="right">' . ($comments ? '<b>' . $comments . '</b>' : '0') . '</td>';
-        $snatchedCell = '<td width="5%" class="lol" align="center">' . $snatched . '</td>';
-        $peersCell    = '<td width="10%" class="lol" align="center"><b>' . $seeders . '</b> | <b>' . $leechers . '</b></td>';
+        $snatchedTotal = $snatched + $externalCompleted;
+        $snatchedCell = '<td width="5%" class="lol" align="center">' . $snatchedTotal
+            . ($externalCompleted > 0 ? '<br><span style="font-size:10px;color:#64748b;">внеш. ' . $externalCompleted . '</span>' : '')
+            . '</td>';
+        $peersCell    = '<td width="10%" class="lol" align="center"><b>' . ($seeders + $externalSeeders) . '</b> | <b>' . ($leechers + $externalLeechers) . '</b>'
+            . (($externalSeeders > 0 || $externalLeechers > 0)
+                ? '<br><span style="font-size:10px;color:#64748b;">лок. ' . $seeders . '/' . $leechers . ' • внеш. ' . $externalSeeders . '/' . $externalLeechers . '</span>'
+                : '')
+            . '</td>';
 
         $uploaderCell = '<td width="10%" class="lol" align="center">';
         if ($username !== '') {

@@ -2,6 +2,8 @@
 // Защита от прямого вызова
 if (!defined('IN_TRACKER')) die('Hacking attempt!');
 
+require_once __DIR__ . '/multitracker.php';
+
 function cleanup_should_run_tag_recount(): bool {
 	global $mysqli;
 
@@ -43,6 +45,30 @@ function cleanup_recount_tags(): void {
 		) AS stats ON stats.tag_id = t.id
 		SET t.howmuch = COALESCE(stats.exact_count, 0)
 	") or sqlerr(__FILE__, __LINE__);
+}
+
+function cleanup_should_run_external_tracker_refresh(): bool {
+	global $mysqli;
+
+	$arg = 'lastexternaltrackerrefresh';
+	$now = time();
+	$interval = 600;
+
+	$res = sql_query("SELECT value_u FROM avps WHERE arg = " . sqlesc($arg) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
+	$row = mysqli_fetch_assoc($res) ?: null;
+	$last = (int)($row['value_u'] ?? 0);
+
+	if ($last > 0 && ($now - $last) < $interval) {
+		return false;
+	}
+
+	if ($row) {
+		sql_query("UPDATE avps SET value_u = {$now} WHERE arg = " . sqlesc($arg)) or sqlerr(__FILE__, __LINE__);
+	} else {
+		sql_query("INSERT INTO avps (arg, value_u) VALUES (" . sqlesc($arg) . ", {$now})") or sqlerr(__FILE__, __LINE__);
+	}
+
+	return true;
 }
 
 function docleanup(): void {
@@ -228,5 +254,9 @@ while ($row = mysqli_fetch_assoc($res)) {
 	if (cleanup_should_run_tag_recount()) {
 		cleanup_recount_tags();
 		sql_query("DELETE FROM tags WHERE howmuch <= 0") or sqlerr(__FILE__, __LINE__);
+	}
+
+	if (cleanup_should_run_external_tracker_refresh()) {
+		multitracker_refresh_due_stats();
 	}
 }

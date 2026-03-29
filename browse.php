@@ -1,8 +1,10 @@
 <?php
 require_once("include/bittorrent.php");
+require_once("include/multitracker.php");
 gzip();
 
 dbconn(false);
+multitracker_ensure_schema();
 
 /* ===== per-user browse mode (list/thumbs) ===== */
 function get_browse_mode(): string {
@@ -554,13 +556,17 @@ $query = "SELECT
         torrents.free, torrents.name, torrents.times_completed, torrents.size,
         torrents.added, torrents.comments, torrents.numfiles, torrents.filename,
         torrents.sticky, torrents.owner,
-        torrents.image1,           
+        torrents.image1,
+        COALESCE(mts.external_seeders, 0) AS external_seeders,
+        COALESCE(mts.external_leechers, 0) AS external_leechers,
+        COALESCE(mts.external_completed, 0) AS external_completed,
         IF(torrents.numratings < $minvotes, NULL, ROUND(torrents.ratingsum / torrents.numratings, 1)) AS rating,
         categories.name AS cat_name, categories.image AS cat_pic,
         users.username, users.class
         FROM torrents
         LEFT JOIN categories ON category = categories.id
         LEFT JOIN users ON torrents.owner = users.id
+        " . multitracker_stats_summary_sql('torrents') . "
         $where $orderby $limit";
 
 
@@ -1005,6 +1011,12 @@ $browsemode = get_browse_mode();
             $seeders = (int)($row['seeders'] ?? 0);
             $leech   = (int)($row['leechers'] ?? 0);
             $done    = (int)($row['times_completed'] ?? 0);
+            $externalSeeders = (int)($row['external_seeders'] ?? 0);
+            $externalLeechers = (int)($row['external_leechers'] ?? 0);
+            $externalDone = (int)($row['external_completed'] ?? 0);
+            $totalSeeders = $seeders + $externalSeeders;
+            $totalLeechers = $leech + $externalLeechers;
+            $totalDone = $done + $externalDone;
 
             echo "<div class='thumb-card'>"
               . "  <a class='thumb-link' href='details.php?id=".(int)$row['id']."&amp;hit=1' title='{$name}'>"
@@ -1014,11 +1026,12 @@ $browsemode = get_browse_mode();
               . "  <div class='thumb-sub'>{$cat}</div>"
               . "  <div class='thumb-sub'>Загрузил: {$usr}</div>"
               . "  <div class='thumb-sub'>Добавлен: {$added}</div>"
+              . "  <div class='thumb-sub'>Пиры: локально {$seeders}/{$leech}, внешне {$externalSeeders}/{$externalLeechers}</div>"
               . "  <div class='thumb-sub'>Оценка: {$ratingHtml}</div>"
               . "  <div class='thumb-meta'>"
-              . "    <span class='meta-pair' title='Качают'>{$icoDownGreen}{$leech}</span>"
-              . "    <span class='meta-pair' title='Раздают'>{$icoUpRed}{$seeders}</span>"
-              . "    <span class='meta-pair' title='Скачан'>{$icoDone}{$done}</span>"
+              . "    <span class='meta-pair' title='Качают'>{$icoDownGreen}{$totalLeechers}</span>"
+              . "    <span class='meta-pair' title='Раздают'>{$icoUpRed}{$totalSeeders}</span>"
+              . "    <span class='meta-pair' title='Скачан'>{$icoDone}{$totalDone}</span>"
               .      ($freeHtml !== '' ? "<span class='meta-pair'>{$freeHtml}</span>" : '')
               . "  </div>"
               . "</div>";

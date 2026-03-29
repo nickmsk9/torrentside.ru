@@ -8,6 +8,34 @@ if (!defined("IN_TRACKER")) {
 require_once($rootpath . 'include/init.php');
 require_once($rootpath . 'include/global.php');
 require_once($rootpath . 'include/config.php');
+
+if (!function_exists('tracker_normalize_base_url')) {
+    function tracker_normalize_base_url(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        if (!preg_match('#^https?://#i', $url)) {
+            return '';
+        }
+
+        return rtrim($url, '/');
+    }
+}
+
+$configuredBaseUrl = tracker_normalize_base_url((string)($site_base_url ?? ''));
+if ($configuredBaseUrl === '') {
+    $configuredBaseUrl = tracker_normalize_base_url((string)(getenv('SITE_BASE_URL') ?: ''));
+}
+
+if ($configuredBaseUrl !== '') {
+    $DEFAULTBASEURL = $configuredBaseUrl;
+    $BASEURL = $configuredBaseUrl;
+    $announce_urls = [$configuredBaseUrl . '/announce.php'];
+}
+
 require_once($rootpath . 'include/functions.php');
 require_once($rootpath . 'include/secrets.php');
 

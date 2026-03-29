@@ -103,6 +103,11 @@ HTML;
 /* announce, файл, имя, обложка */
 tr($tracker_lang['announce_url'], h($announce_urls[0] ?? ''), 1);
 tr($tracker_lang['torrent_file'], "<input type='file' name='tfile' size='80' accept='.torrent' required>", 1);
+tr(
+    'Мультитрекер',
+    "<input type='hidden' name='preserve_external_trackers' value='0'><label><input type='checkbox' name='preserve_external_trackers' value='1' checked> Сохранить внешние announce из загруженного .torrent и не менять его info_hash</label><br><small>Включено по умолчанию для мультитрекерного импорта. Отключайте только если сознательно хотите пересобрать info_hash под локальный трекер.</small>",
+    1
+);
 tr($tracker_lang['torrent_name'], "<input type='text' name='name' size='80' maxlength='255' required /><br />(" . h($tracker_lang['taken_from_torrent']) . ")", 1);
 tr($tracker_lang['images'], "<input type='url' name='image0' size='80' placeholder='https://...' pattern='https?://.+'><br/><b>Укажите URL-адрес картинки</b><br/>Если вы не знаете, куда загрузить картинку, воспользуйтесь бесплатными хостингами: <a href='http://radikal.ru/'>Radikal</a>, <a href='http://ipicture.ru'>iPicture</a>", 1);
 print("</td></tr>\n");

@@ -5,10 +5,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/include/benc.php";
 require_once __DIR__ . "/include/bittorrent.php";
+require_once __DIR__ . "/include/multitracker.php";
 
 global $mysqli, $mysqli_charset, $announce_urls, $DEFAULTBASEURL, $SITENAME, $torrent_dir;
 
 dbconn(false);
+multitracker_ensure_schema();
 loggedinorreturn();
 parked();
 
@@ -82,7 +84,7 @@ $rawTags = (string)($_POST['tags'] ?? '');
 
 // приводим разделители к запятой и нижний регистр
 $replace = [", ", " , ", " ,", ";", "\n", "\r", "\t"];
-$tagsCsv = trim(str_replace($replace, ",", mb_convert_case(unesc($rawTags), MB_CASE_LOWER, $mysqli_charset ?? 'UTF-8')));
+$tagsCsv = trim(str_replace($replace, ",", mb_convert_case(unesc($rawTags), MB_CASE_LOWER, 'UTF-8')));
 
 // разрезаем на массив, триммим, убираем дубли и пустые
 $tagArr = array_map('trim', explode(",", $tagsCsv));
@@ -90,7 +92,7 @@ $tagArr = array_filter(array_unique($tagArr), fn($t) => $t !== '');
 
 // ограничиваем длину каждого тега (≤32 символа) и общее количество (≤20)
 $tagArr = array_map(
-    fn($t) => mb_substr($t, 0, 32, $mysqli_charset ?? 'UTF-8'),
+    fn($t) => mb_substr($t, 0, 32, 'UTF-8'),
     $tagArr
 );
 $tagArr = array_slice($tagArr, 0, 20);
@@ -137,6 +139,7 @@ $dict = bdec_file($tmpname, $maxTorrentSize);
 if (!$dict) {
     bark("Загружен не .torrent файл!");
 }
+$preserveExternalTrackers = (string)($_POST['preserve_external_trackers'] ?? '1') === '1';
 
 // --- проверки структуры
 function dict_check($d, $s) {
@@ -203,35 +206,9 @@ if (!isset($totallen)) {
     $type = "multi";
 }
 
-// --- переписываем announce / private / source
-$dict['value']['announce'] = bdec(benc_str($announce_urls[0]));
-$dict['value']['info']['value']['private'] = bdec('i1e');
-$dict['value']['info']['value']['source']  = bdec(benc_str("[$DEFAULTBASEURL] $SITENAME"));
-
-// чистим мусорные поля
-unset(
-    $dict['value']['announce-list'],
-    $dict['value']['nodes'],
-    $dict['value']['info']['value']['crc32'],
-    $dict['value']['info']['value']['ed2k'],
-    $dict['value']['info']['value']['md5sum'],
-    $dict['value']['info']['value']['sha1'],
-    $dict['value']['info']['value']['tiger'],
-    $dict['value']['azureus_properties']
-);
-
-// нормализуем строковое представление и добавим сервисные поля
-$dict = bdec(benc($dict));
-$dict['value']['comment']             = bdec(benc_str("Торрент создан для '$SITENAME'"));
-$dict['value']['created by']          = bdec(benc_str($CURUSER['username']));
-$dict['value']['publisher']           = bdec(benc_str($CURUSER['username']));
-$dict['value']['publisher.utf-8']     = bdec(benc_str($CURUSER['username']));
-$dict['value']['publisher-url']       = bdec(benc_str("$DEFAULTBASEURL/userdetails.php?id={$CURUSER['id']}"));
-$dict['value']['publisher-url.utf-8'] = bdec(benc_str("$DEFAULTBASEURL/userdetails.php?id={$CURUSER['id']}"));
-
-// infohash
-[$info] = dict_check($dict, "info");
-$infohash = sha1($info['string']);
+$preparedTorrent = multitracker_prepare_uploaded_torrent($dict, $preserveExternalTrackers);
+$dict = $preparedTorrent['dict'];
+$infohash = $preparedTorrent['infohash'];
 
 // --- ранняя проверка на дубль по info_hash
 $dup = sql_query("SELECT id FROM torrents WHERE info_hash = " . sqlesc($infohash) . " LIMIT 1");
@@ -329,6 +306,8 @@ if (@file_put_contents($target, benc($dict)) === false) {
     // как fallback попробуем move_uploaded_file, но это не идеал (без наших правок)
     @move_uploaded_file($tmpname, $target);
 }
+
+multitracker_save_trackers($id, $preparedTorrent['all_trackers']);
 
 // --- теги: апсерт+счётчики
 $existingTags = [];

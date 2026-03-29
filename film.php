@@ -114,6 +114,11 @@ if ($descrtype <= 0 || !in_array($descrtype, $allowedIds, true)) {
 /* announce, файл, названия */
 tr($tracker_lang['announce_url'], h($announce_urls[0] ?? ''), 1);
 tr($tracker_lang['torrent_file'], '<input type="file" name="tfile" size="80" accept=".torrent">', 1);
+tr(
+    'Мультитрекер',
+    '<input type="hidden" name="preserve_external_trackers" value="0"><label><input type="checkbox" name="preserve_external_trackers" value="1" checked> Сохранить внешние announce и исходный info_hash</label><br><small>Включено по умолчанию для импортированных .torrent с другого трекера.</small>',
+    1
+);
 tr('Русское название', '<input type="text" name="name" size="80" /><br>(например - <b>Матрица</b>)', 1);
 tr('Оригинальное название', '<input type="text" name="origname" size="80" /><br>(например - <b>Matrix</b>)', 1);
 tr($tracker_lang['images'], '<input type="text" name="image0" size="80"><br><b>Укажите URL-адрес картинки</b><br>Если не знаете, куда загрузить — используйте <a href="http://radikal.ru/">Radikal</a> или <a href="http://ipicture.ru">iPicture</a>', 1);

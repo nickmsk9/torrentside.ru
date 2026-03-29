@@ -23,6 +23,7 @@ $config_groups = [
         "SITE_ONLINE" => ["Сайт онлайн", "bool"],
         "SITENAME" => ["Название сайта", "text"],
         "SITEEMAIL" => ["Email сайта", "email"],
+        "site_base_url" => ["Базовый URL сайта", "text"],
     ],
     "Торренты" => [
         "max_torrent_size" => ["Макс. размер .torrent (байт)", "number"],
@@ -56,6 +57,10 @@ $config_groups = [
         "ttl_days" => ["TTL раздачи (дней)", "number"],
         "use_ttl" => ["Использовать TTL", "bool"],
         "ctracker" => ["Оптимиз. CTracker", "bool"],
+        "external_tracker_stats_ttl" => ["TTL внешних трекеров (сек)", "number"],
+        "external_tracker_http_timeout" => ["Таймаут scrape (сек)", "number"],
+        "external_tracker_scrape_limit" => ["Лимит обновлений за проход", "number"],
+        "kinozal_user_agent" => ["User-Agent внешнего scrape", "text"],
     ],
     "Дополнительно" => [
         "use_wait" => ["Система ожидания", "bool"],

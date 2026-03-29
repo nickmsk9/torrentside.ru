@@ -1,5 +1,6 @@
 <?
 require_once("include/bittorrent.php");
+require_once("include/multitracker.php");
 require_once 'classes/rating.class.php'; 
 
 gzip();
@@ -181,11 +182,31 @@ function dltable($name, $arr, $torrent)
 }
 
 dbconn(false);
+multitracker_ensure_schema();
 
 $id = 0 + (int)$_GET["id"];
 
 if (!isset($id) || !$id)
         die();
+
+if (empty($_SESSION['mt_refresh_token'])) {
+    $_SESSION['mt_refresh_token'] = bin2hex(random_bytes(32));
+}
+
+$multitrackerRefreshToken = (string)$_SESSION['mt_refresh_token'];
+$multitrackerRefreshDone = false;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['refresh_multitracker'])) {
+    $postedToken = (string)($_POST['mt_refresh_token'] ?? '');
+    if (!hash_equals($multitrackerRefreshToken, $postedToken)) {
+        stderr('Ошибка', 'Неверный токен обновления мультитрекера.');
+    }
+
+    multitracker_refresh_torrent_stats($id, 20, true);
+    $multitrackerRefreshDone = true;
+}
+
+multitracker_refresh_torrent_stats($id, 10);
 
 $res = sql_query("
     SELECT
@@ -197,8 +218,13 @@ $res = sql_query("
         torrents.free,
         torrents.image1,
         torrents.seeders,
-        torrents.leechers
+        torrents.leechers,
+        COALESCE(mts.external_seeders, 0) AS external_seeders,
+        COALESCE(mts.external_leechers, 0) AS external_leechers,
+        COALESCE(mts.external_completed, 0) AS external_completed,
+        mts.external_fetched_at
     FROM torrents
+    " . multitracker_stats_summary_sql('torrents') . "
     WHERE torrents.id = {$id}
     LIMIT 1
 ") or sqlerr(__FILE__, __LINE__);
@@ -345,7 +371,14 @@ $dUrl   = htmlspecialchars('download.php?id=' . $torrentId . '&name=' . rawurlen
 $mUrl   = htmlspecialchars('download.php?id=' . $torrentId . '&name=' . rawurlencode($fname) . '&magnet=1', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $seedersCount = (int)($row['seeders'] ?? 0);
 $leechersCount = (int)($row['leechers'] ?? 0);
-$hasActivePeers = ($seedersCount + $leechersCount) > 0;
+$externalSeedersCount = (int)($row['external_seeders'] ?? 0);
+$externalLeechersCount = (int)($row['external_leechers'] ?? 0);
+$externalCompletedCount = (int)($row['external_completed'] ?? 0);
+$externalFetchedAt = trim((string)($row['external_fetched_at'] ?? ''));
+$totalSeedersCount = $seedersCount + $externalSeedersCount;
+$totalLeechersCount = $leechersCount + $externalLeechersCount;
+$hasActivePeers = ($totalSeedersCount + $totalLeechersCount) > 0;
+$trackerRows = multitracker_get_tracker_details($torrentId);
 
 // если нужно бейдж «Скидка N%»
 $discountPct = $freePct; // используем то же число
@@ -368,6 +401,18 @@ $left = ''
 
 $right = ''
   . '<div style="font-weight:700;margin-bottom:6px;">' . $torr . '</div>'
+  . '<div style="margin:0 0 8px 0;padding:8px 10px;border:1px solid #d7dee6;border-radius:10px;background:#f8fbff;">'
+  .   '<div><b>Локально:</b> сиды ' . $seedersCount . ' / личи ' . $leechersCount . '</div>'
+  .   '<div><b>Внешне:</b> сиды ' . $externalSeedersCount . ' / личи ' . $externalLeechersCount . '</div>'
+  .   '<div><b>Итого:</b> сиды ' . $totalSeedersCount . ' / личи ' . $totalLeechersCount . '</div>'
+  .   ($externalFetchedAt !== '' ? '<div style="margin-top:4px;color:#64748b;">Кэш внешней статистики: ' . htmlspecialchars($externalFetchedAt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</div>' : '')
+  .   ($multitrackerRefreshDone ? '<div style="margin-top:4px;color:#166534;">Данные мультитрекера обновлены принудительно.</div>' : '')
+  .   '<form method="post" action="details.php?id=' . $torrentId . '" style="margin-top:8px;">'
+  .     '<input type="hidden" name="mt_refresh_token" value="' . htmlspecialchars($multitrackerRefreshToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">'
+  .     '<input type="hidden" name="refresh_multitracker" value="1">'
+  .     '<input type="submit" value="Обновить мультитрекерные данные" style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#eef5ff;color:#1d4f91;font-weight:600;cursor:pointer;">'
+  .   '</form>'
+  . '</div>'
   . '<ol style="margin:6px 0 0 18px;padding:0;">'
   .   '<li>Установите клиент: <a href="https://www.qbittorrent.org/" target="_blank" rel="noopener"><b>qBittorrent</b></a> (или любой другой).</li>'
   .   '<li>Скачайте <b>.torrent</b> выше или используйте <b>magnet</b>-ссылку.</li>'
@@ -378,6 +423,39 @@ $right = ''
 tr($left, $right, 1, 1, '22%');
 ?>
 </table>
+<?php if (!empty($trackerRows)) { ?>
+<table align="center" width="70%" border="1" cellspacing="0" cellpadding="5" style="margin-top:10px;">
+<?php
+$trackerHtml = '<table width="100%" cellspacing="0" cellpadding="4">'
+    . '<tr>'
+    . '<td class="colhead" align="left"><b>Трекер</b></td>'
+    . '<td class="colhead" align="center"><b>Тип</b></td>'
+    . '<td class="colhead" align="center"><b>Сиды</b></td>'
+    . '<td class="colhead" align="center"><b>Личи</b></td>'
+    . '<td class="colhead" align="center"><b>Статус</b></td>'
+    . '</tr>';
+
+foreach ($trackerRows as $trackerRow) {
+    $trackerUrl = htmlspecialchars((string)($trackerRow['tracker_url'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $sourceName = htmlspecialchars((string)($trackerRow['source_name'] ?? 'tracker'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $isLocal = !empty($trackerRow['is_local']);
+    $rawStatus = (string)($trackerRow['status'] ?? 'pending');
+    $lastError = trim((string)($trackerRow['last_error'] ?? ''));
+    $status = htmlspecialchars(multitracker_translate_status($rawStatus, $isLocal, $lastError), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $statusHint = $lastError !== '' ? '<div style="margin-top:2px;color:#7c8796;font-size:11px;">' . htmlspecialchars($lastError, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</div>' : '';
+    $trackerHtml .= '<tr>'
+        . '<td class="lol"><a href="' . $trackerUrl . '" target="_blank" rel="noopener">' . $sourceName . '</a></td>'
+        . '<td class="lol" align="center">' . ($isLocal ? 'локальный' : 'внешний') . '</td>'
+        . '<td class="lol" align="center">' . (int)($trackerRow['seeders'] ?? 0) . '</td>'
+        . '<td class="lol" align="center">' . (int)($trackerRow['leechers'] ?? 0) . '</td>'
+        . '<td class="lol" align="center">' . $status . $statusHint . '</td>'
+        . '</tr>';
+}
+$trackerHtml .= '</table>';
+tr('<b>Мультитрекер</b>', $trackerHtml, 1, 1, '22%');
+?>
+</table>
+<?php } ?>
 <?php
 end_frame();
 echo '</center>';

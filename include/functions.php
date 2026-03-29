@@ -648,14 +648,6 @@ function sql_query(string $query, bool $detect = true) {
         detect_sqlinjection($query);
     }
 
-    // Страхуем соединение (иногда на долгих скриптах timeout)
-    if (!$mysqli->ping()) {
-        // по желанию: попытка переподключения, если у тебя есть вспомогательная функция
-        // reconnect_mysqli($mysqli);
-        // ещё раз ping
-        $mysqli->ping();
-    }
-
     $queries++;
     $attempt  = 0;
     $started  = timer();
@@ -766,7 +758,11 @@ function dbconn(bool $autoclean = false, bool $lightmode = false): void
     // Уже есть живое соединение? — переиспользуем
     if (isset($mysqli) && $mysqli instanceof mysqli) {
         try {
-            if (@$mysqli->ping()) {
+            $probe = @$mysqli->query('SELECT 1');
+            if ($probe !== false) {
+                if ($probe instanceof mysqli_result) {
+                    $probe->free();
+                }
                 userlogin($lightmode);
                 if (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === 'index.php' && $autoclean) {
                     register_shutdown_function('autoclean');

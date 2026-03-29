@@ -19,7 +19,7 @@
             <div class="user-avatar" style="margin:6px 0;text-align:center">
               <a href="my.php">
                 <img src="{$userMenu.avatar}" alt="Аватар"
-                     style="max-width:60px;max-height:60px;border-radius:50%;box-shadow:0 0 4px rgba(0,0,0,0.3)">
+                     style="width:96px;height:96px;max-width:96px;max-height:96px;border-radius:50%;object-fit:cover;box-shadow:0 0 6px rgba(0,0,0,0.32)">
               </a>
             </div>
 

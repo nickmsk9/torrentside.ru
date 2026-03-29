@@ -35,6 +35,27 @@ const MC_LOCK_SHORT      = 300;                              // 5 мин
 const MC_NEWS_KEY        = NS . 'news:last';
 const MC_NEWS_TTL        = 300;
 
+function home_truncate_text(string $text, int $limit = 400): string {
+    $text = trim($text);
+    if ($text === '') {
+        return '';
+    }
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        if (mb_strlen($text, 'UTF-8') <= $limit) {
+            return $text;
+        }
+
+        return rtrim(mb_substr($text, 0, $limit, 'UTF-8')) . '...';
+    }
+
+    if (strlen($text) <= $limit) {
+        return $text;
+    }
+
+    return rtrim(substr($text, 0, $limit)) . '...';
+}
+
 /** =========================
  *  Время и границы
  *  ========================= */
@@ -155,6 +176,9 @@ $news = $memcached->get(MC_NEWS_KEY);
 if ($memcached->getResultCode() !== Memcached::RES_SUCCESS) {
     $q = sql_query("SELECT id, body FROM news ORDER BY added DESC LIMIT 1") or sqlerr(__FILE__, __LINE__);
     $news = $q && mysqli_num_rows($q) ? mysqli_fetch_assoc($q) : null;
+    if (!empty($news)) {
+        $news['body_html'] = format_comment((string)$news['body']);
+    }
     $memcached->set(MC_NEWS_KEY, $news, MC_NEWS_TTL);
 }
 
@@ -167,7 +191,7 @@ if (!empty($news)) {
             . '"><b>Редактировать</b></a>]</font>';
     }
     $content .= '<table width="100%" border="1" cellspacing="0" cellpadding="10"><tr><td class="text">';
-    $content .= '<div>' . format_comment((string)$news['body']) . '</div>';
+    $content .= '<div>' . ($news['body_html'] ?? format_comment((string)$news['body'])) . '</div>';
     $content .= '</td></tr></table>';
 }
 
@@ -312,13 +336,11 @@ if ($can_show_poll) {
 // 2) если сможете заменить "category <> 31" на whitelist IN (...):
 //   CREATE INDEX idx_torrents_vis_mod_cat_id ON torrents (visible, moderated, category, id DESC);
 
-$CACHE_KEY  = 'home:new_torrents:v2';
-$CACHE_TTL  = 180; // 3 минуты. Можно 60–300 c.
-$res = $memcached->get($CACHE_KEY);
+$isModeratorHome = get_user_class() >= UC_MODERATOR;
+$newTorrentsCacheKey = 'home:new_torrents:block:v4:mod:' . (int)$isModeratorHome;
+$newTorrentsBlock = $memcached->get($newTorrentsCacheKey);
 
-if ($res === false) {
-    // NB: тянем только нужные поля, и режем descr на стороне SQL (меньше трафика и I/O).
-    // "SUBSTRING(descr, 1, 1200)" даёт запас под форматирование и усечём до 400 позже.
+if (!is_string($newTorrentsBlock) || $newTorrentsBlock === '') {
     $sql = "
         SELECT
             id,
@@ -330,7 +352,7 @@ if ($res === false) {
             times_completed,
             added,
             free,
-            SUBSTRING(descr, 1, 1200) AS descr
+            SUBSTRING(descr, 1, 900) AS descr
         FROM torrents
         WHERE category <> 31
           AND visible = 'yes'
@@ -340,65 +362,32 @@ if ($res === false) {
     ";
     $result = sql_query($sql) or sqlerr(__FILE__, __LINE__);
 
-    $res = [];
+    ob_start();
     while ($row = mysqli_fetch_assoc($result)) {
-        // Приводим типы и добавляем производные поля тут, чтобы кэшировать уже готовые данные
         $row['id']              = (int)$row['id'];
         $row['size']            = (int)$row['size'];
         $row['leechers']        = (int)$row['leechers'];
         $row['seeders']         = (int)$row['seeders'];
         $row['times_completed'] = (int)$row['times_completed'];
-        $row['free']            = (int)$row['free']; // tinyint процентов freeleech (по вашей схеме)
+        $row['free']            = (int)$row['free'];
 
-        $res[] = $row;
-    }
+        if (isset($row['leechers_net']))        $row['leechers']        += (int)$row['leechers_net'];
+        if (isset($row['seeders_net']))         $row['seeders']         += (int)$row['seeders_net'];
+        if (isset($row['times_completed_net'])) $row['times_completed'] += (int)$row['times_completed_net'];
 
-    $memcached->set($CACHE_KEY, $res, $CACHE_TTL);
-}
+        $size = mksize($row['size']);
+        $nameSafe = htmlspecialchars((string)$row['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $freeLabel = $row['free'] > 0 ? ($row['free'] . '%') : '0%';
 
-// Заголовок блока (как было)
-$blocktitle = "Новые поступления" . (get_user_class() >= UC_MODERATOR
-    ? "<font class=\"small\"> - [<a class=\"altlink\" href=\"upload.php\"><b>Загрузить</b></a>]</font>"
-    : "<font class=\"small\"> - (торренты без сидов - не отображаются!)</font>");
-
-foreach ($res as $row) {
-    // Корректировки «*_net» убираю — этих полей нет в вашей схеме, оставлю мягкий фолбэк:
-    if (isset($row['leechers_net']))        $row['leechers']        += (int)$row['leechers_net'];
-    if (isset($row['seeders_net']))         $row['seeders']         += (int)$row['seeders_net'];
-    if (isset($row['times_completed_net'])) $row['times_completed'] += (int)$row['times_completed_net'];
-
-    // Размер
-    $size = mksize($row['size']);
-
-    // Безопасные строки
-    $nameSafe = htmlspecialchars((string)$row['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
-    // FREELEECH (у вас нет поля external; оставляю отображение процента free)
-    $freeLabel = $row['free'] > 0 ? ($row['free'] . '%') : '0%';
-
-    // Постер
-    $img = '';
-    if (!empty($row['image1'])) {
-        $imgUrl = htmlspecialchars((string)$row['image1'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $img = "<div class='glass-frame'><img src='{$imgUrl}' alt='Постер'></div><br>";
-    }
-
-    // Описание: форматируем укороченный текст, потом дополнительно режем до 400 с многобайтной безопасностью
-    $rawDescr = (string)$row['descr'];
-    $descFormatted = format_comment($rawDescr);
-
-    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
-        if (mb_strlen($descFormatted, 'UTF-8') > 500) {
-            $descFormatted = mb_substr($descFormatted, 0, 400, 'UTF-8') . '...';
+        $img = '';
+        if (!empty($row['image1'])) {
+            $imgUrl = htmlspecialchars((string)$row['image1'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $img = "<div class='glass-frame'><img loading='lazy' src='{$imgUrl}' alt='Постер'></div><br>";
         }
-    } else {
-        if (strlen($descFormatted) > 500) {
-            $descFormatted = substr($descFormatted, 0, 400) . '...';
-        }
-    }
 
-    // Вывод (оставил вашу разметку)
-    echo "
+        $descFormatted = format_comment(home_truncate_text((string)$row['descr'], 420));
+
+        echo "
 <div class=\"c\">
 <div class=\"c1\">
     <div class=\"c2\">
@@ -418,7 +407,6 @@ foreach ($res as $row) {
                                             </td>
                                         </tr>
                                     </table><br>
-                                    <!-- rating -->
                                     <table border=\"0\" cellpadding=\"0\" cellspacing=\"0\"><tr>
                                         <td>
                                             <div class=\"sbg\"><div class=\"ss1\"><div class=\"rat st\">
@@ -428,7 +416,6 @@ foreach ($res as $row) {
                                         </td>
                                         <td><div class=\"ss2\"></div></td>
                                     </tr></table>
-                                    <!-- /rating -->
                                     <div class=\"s\"><div class=\"s1\"><div class=\"s2\">
                                         <div class=\"st\">
                                             <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">
@@ -459,8 +446,17 @@ foreach ($res as $row) {
     </div>
 </div>
 ";
+    }
+
+    $newTorrentsBlock = ob_get_clean();
+    $memcached->set($newTorrentsCacheKey, $newTorrentsBlock, 180);
 }
-end_frame();
+
+$blocktitle = "Новые поступления" . ($isModeratorHome
+    ? "<font class=\"small\"> - [<a class=\"altlink\" href=\"upload.php\"><b>Загрузить</b></a>]</font>"
+    : "<font class=\"small\"> - (торренты без сидов - не отображаются!)</font>");
+echo '<div style="margin:0 0 8px 0;padding:0 2px;font-weight:bold;">' . $blocktitle . '</div>';
+echo $newTorrentsBlock;
 //////////////////////////////////////////////////////////////
 
 
@@ -626,12 +622,6 @@ begin_frame("Статистика");
 
 global $tracker_lang, $ss_uri, $maxusers, $CURUSER, $use_sessions, $mysqli;
 
-// Подключение к Memcached (если ещё нет подключения)
-if (!isset($memcached) || !($memcached instanceof Memcached)) {
-    $memcached = new Memcached();
-    $memcached->addServer("127.0.0.1", 11211); // По умолчанию
-}
-
 $cache_key = 'stats';
 $stats = $memcached->get($cache_key);
 
@@ -738,7 +728,7 @@ end_frame();
 
 global $CURUSER, $memcached;
 
-$blocktitle = ".:: <a title=\"На главную форума\" class=\"altlink_white\" href='forums.php'>Главная</a> :: <a title=\"Поиск выражений на форуме\" class=\"altlink_white\" href='forums.php?action=search'>Поиск на форуме</a> :: <a title=\"Перейти к непрочитанным сообщениям\" class=\"altlink_white\" href='forums.php?action=viewunread'>К непрочитанным сообщениям</a> :: <a title=\"Пометить все сообщения как прочитанные\" class=\"altlink_white\" href='forums.php?action=catchup'>Пометить прочитанным</a> ::.";
+$blocktitle = ".:: <a title=\"На главную форума\" href='forums.php'>Главная</a> :: <a title=\"Поиск выражений на форуме\" href='forums.php?action=search'>Поиск на форуме</a> :: <a title=\"Перейти к непрочитанным сообщениям\" href='forums.php?action=viewunread'>К непрочитанным сообщениям</a> :: <a title=\"Пометить все сообщения как прочитанные\" href='forums.php?action=catchup'>Пометить прочитанным</a> ::.";
 
 // Определяем класс пользователя (fallback = 1)
 $curuserclass = isset($CURUSER['class']) && (int)$CURUSER['class'] > 0 ? (int)$CURUSER['class'] : 1;
@@ -821,16 +811,38 @@ if (!is_string($content) || $content === '') {
                 <td class=\"colhead\" align=\"right\">&nbsp;Последний&nbsp;</td>
             </tr>";
 
-            // Основной запрос по темам
+            // Основной запрос по темам без N+1 по последнему сообщению/автору
             $q = "
                 SELECT
-                    ft.*,
+                    ft.id,
+                    ft.subject,
+                    ft.polls,
+                    ft.forumid,
+                    ft.userid,
+                    ft.views,
+                    ft.sticky,
+                    ft.lastpost,
                     ff.name AS forumname,
                     ff.description,
                     ff.minclassread,
-                    (SELECT COUNT(*) FROM posts WHERE topicid = ft.id) AS post_num
+                    COALESCE(ps.post_num, 0) AS post_num,
+                    p.id AS post_id,
+                    p.userid AS last_userid,
+                    p.added AS last_added,
+                    la.class AS la_class,
+                    la.username AS la_username,
+                    ow.class AS owner_class,
+                    ow.username AS owner_username
                 FROM topics AS ft
                 INNER JOIN forums AS ff ON ff.id = ft.forumid
+                LEFT JOIN (
+                    SELECT topicid, COUNT(*) AS post_num, MAX(id) AS last_post_id
+                    FROM posts
+                    GROUP BY topicid
+                ) AS ps ON ps.topicid = ft.id
+                LEFT JOIN posts AS p ON p.id = ps.last_post_id
+                LEFT JOIN users AS la ON la.id = p.userid
+                LEFT JOIN users AS ow ON ow.id = ft.userid
                 WHERE ft.visible = 'yes'
                   AND ff.visible = 'yes'
                   AND ff.minclassread <= " . sqlesc($curuserclass) . "
@@ -865,33 +877,20 @@ if (!is_string($content) || $content === '') {
                 $sticky    = $topic["sticky"] ?? 'no';
                 $lastpost  = (int)($topic["lastpost"] ?? 0);
 
-                $postRes = sql_query("
-                    SELECT p.*, la.class AS la_class, la.username AS la_username,
-                           ow.class AS owner_class, ow.username AS owner_username
-                    FROM posts AS p
-                    LEFT JOIN users AS la ON la.id = p.userid
-                    LEFT JOIN users AS ow ON ow.id = {$topic_uid}
-                    WHERE p.topicid = {$topicid}
-                    ORDER BY p.id DESC
-                    LIMIT 1
-                ") or sqlerr(__FILE__, __LINE__);
+                $userid = (int)($topic["last_userid"] ?? 0);
+                $added  = $topic["last_added"] ?? "";
 
-                $last = mysqli_fetch_assoc($postRes) ?: [];
-                $postid = (int)($last["id"] ?? 0);
-                $userid = (int)($last["userid"] ?? 0);
-                $added  = $last["added"] ?? "";
-
-                if (!empty($last["la_username"])) {
+                if (!empty($topic["la_username"])) {
                     $username = "<a href='userdetails.php?id={$userid}'>" .
-                        get_user_class_color((int)($last["la_class"] ?? 0), $last["la_username"]) .
+                        get_user_class_color((int)($topic["la_class"] ?? 0), $topic["la_username"]) .
                         "</a>";
                 } else {
                     $username = "id: {$userid}";
                 }
 
-                if (!empty($last["owner_username"])) {
+                if (!empty($topic["owner_username"])) {
                     $author = "<a href='userdetails.php?id={$topic_uid}'>" .
-                        get_user_class_color((int)($last["owner_class"] ?? 0), $last["owner_username"]) .
+                        get_user_class_color((int)($topic["owner_class"] ?? 0), $topic["owner_username"]) .
                         "</a>";
                 } else {
                     $author = "id: {$topic_uid}";

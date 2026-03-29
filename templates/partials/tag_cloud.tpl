@@ -31,20 +31,18 @@
             padding: 0;
             box-sizing: border-box;
             text-shadow: 0 1px 0 rgba(255,255,255,.22);
-            transition: color .18s ease, transform .18s ease, text-shadow .18s ease;
+            transition: none;
           }
           #sidebarTags a.tag:hover,
           #sidebarTags a:hover {
-            color: #ffffff !important;
-            transform: translateY(-1px);
-            text-shadow: 0 0 10px rgba(255,255,255,.65), 0 0 18px rgba(255,255,255,.28);
-            text-decoration: underline !important;
-            text-decoration-thickness: 1px;
-            text-underline-offset: 2px;
+            color: inherit !important;
+            transform: none;
+            text-shadow: 0 1px 0 rgba(255,255,255,.22);
+            text-decoration: none !important;
           }
           #sidebarTags a.tag:active,
           #sidebarTags a:active {
-            transform: translateY(0);
+            transform: none;
           }
           #sidebarTags a.tag[data-count]:after,
           #sidebarTags a[data-count]:after {

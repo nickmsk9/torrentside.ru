@@ -120,6 +120,22 @@ tr(
 tr("Удалять ЛС при ответе", "<input type='checkbox' name='deletepms'" . (($CURUSER["deletepms"] ?? 'yes') === "yes" ? " checked" : "") . ">", 1);
 tr("Сохранять отправленные ЛС", "<input type='checkbox' name='savepms'" . (($CURUSER["savepms"] ?? 'no') === "yes" ? " checked" : "") . ">", 1);
 
+/* -------- Уведомления -------- */
+$notifsRaw = (string)($CURUSER['notifs'] ?? '');
+$pmChecked = (strpos($notifsRaw, '[pm]') !== false) ? " checked" : "";
+$emChecked = (strpos($notifsRaw, '[email]') !== false) ? " checked" : "";
+tr("Уведомление о ЛС", "<input type='checkbox' name='pmnotif' value='yes'{$pmChecked}> Включить", 1);
+tr("Email-уведомления", "<input type='checkbox' name='emailnotif' value='yes'{$emChecked}> Включить", 1);
+
+/* -------- Приватность -------- */
+$privacy = (string)($CURUSER['privacy'] ?? 'normal');
+$privacyOpts = '';
+foreach (['strong' => 'Сильная', 'normal' => 'Обычная', 'low' => 'Низкая'] as $k => $label) {
+    $sel = ($privacy === $k) ? ' selected' : '';
+    $privacyOpts .= "<option value=\"{$k}\"{$sel}>{$label}</option>\n";
+}
+tr("Приватность профиля", "<select name=\"privacy\">{$privacyOpts}</select>", 1);
+
 /* -------- Категория по умолчанию — как «Страна» --------
    Для совместимости бэкенда (ждёт cat<ID>=yes) при сабмите добавим скрытый input.
 */
@@ -138,13 +154,35 @@ if ($r = mysqli_query($mysqli, "SELECT id, name FROM categories ORDER BY name"))
 }
 tr("Категория по умолчанию", "<select name=\"defaultcat\" id=\"defaultcat\">\n$cat_options\n</select>", 1);
 
+/* -------- Язык -------- */
+$currentLang = preg_replace('~[^a-z0-9_-]+~i', '', (string)($CURUSER['language'] ?? 'russian'));
+$langOpts = '';
+foreach (glob(__DIR__ . '/languages/lang_*', GLOB_ONLYDIR) ?: [] as $dir) {
+    $code = preg_replace('~^lang_~', '', basename($dir));
+    if ($code === '') continue;
+    $sel = ($code === $currentLang) ? ' selected' : '';
+    $langOpts .= "<option value=\"" . h($code) . "\"{$sel}>" . h(ucfirst($code)) . "</option>\n";
+}
+if ($langOpts === '') {
+    $langOpts = "<option value=\"russian\" selected>Russian</option>\n";
+}
+tr("Язык интерфейса", "<select name=\"language\">\n{$langOpts}</select>", 1);
+
 /* -------- Пол -------- */
 tr(
     "Пол",
     "<label><input type=\"radio\" name=\"gender\" value=\"1\"" . (($CURUSER["gender"] ?? '1') == "1" ? " checked" : "") . "> Парень</label> ".
-    "<label><input type=\"radio\" name=\"gender\" value=\"2\"" . (($CURUSER["gender"] ?? '1') == "2" ? " checked" : "") . "> Девушка</label>",
+    "<label><input type=\"radio\" name=\"gender\" value=\"2\"" . (($CURUSER["gender"] ?? '1') == "2" ? " checked" : "") . "> Девушка</label> ".
+    "<label><input type=\"radio\" name=\"gender\" value=\"3\"" . (($CURUSER["gender"] ?? '1') == "3" ? " checked" : "") . "> Не указывать</label>",
     1
 );
+
+/* -------- День рождения -------- */
+$birthdayVal = '';
+if (!empty($CURUSER['birthday']) && $CURUSER['birthday'] !== '0000-00-00') {
+    $birthdayVal = h((string)$CURUSER['birthday']);
+}
+tr("Дата рождения", "<input type=\"date\" name=\"birthday\" value=\"{$birthdayVal}\">", 1);
 
 /* -------- Telegram (вместо ICQ) -------- */
 $tg_val = h($CURUSER["telegram"] ?? "");
@@ -153,6 +191,19 @@ tr(
     "<input maxLength=\"64\" size=\"40\" name=\"telegram\" placeholder=\"@username или https://t.me/username\" ".
     "pattern=\"(^https?://t\\.me/[A-Za-z0-9_]{5,32}$)|(^@?[A-Za-z0-9_]{5,32}$)\" ".
     "title=\"Ник Telegram: 5–32 символов или https://t.me/username\" value=\"$tg_val\">",
+    1
+);
+
+/* -------- Skype -------- */
+tr("Skype", "<input maxLength=\"255\" size=\"50\" name=\"skype\" value=\"" . h($CURUSER["skype"] ?? "") . "\">", 1);
+
+/* -------- Отображение -------- */
+tr("Показывать аватары", "<input type='checkbox' name='avatars' value='yes'" . (($CURUSER["avatars"] ?? 'yes') === "yes" ? " checked" : "") . ">", 1);
+$botPos = (string)($CURUSER['bot_pos'] ?? 'yes');
+tr(
+    "Показывать в онлайн-блоке",
+    "<label><input type=\"radio\" name=\"bot_pos\" value=\"yes\"" . ($botPos === 'yes' ? " checked" : "") . "> Да</label> " .
+    "<label><input type=\"radio\" name=\"bot_pos\" value=\"no\"" . ($botPos === 'no' ? " checked" : "") . "> Нет</label>",
     1
 );
 
@@ -178,6 +229,12 @@ ob_start();
 textbbcode("profileform", "info", (string)($CURUSER["info"] ?? ""));
 $bbcode_editor = ob_get_clean();
 tr("О себе", $bbcode_editor . "<br>Показывается на вашей публичной странице. Допустимы <a href=\"tags.php\" target=\"_blank\">BB-коды</a>.", 1);
+
+/* -------- Подпись форума -------- */
+$signature = h((string)($CURUSER['signature'] ?? ''));
+$signatureOn = ((string)($CURUSER['signatrue'] ?? 'yes') === 'yes') ? ' checked' : '';
+tr("Подпись форума", "<textarea name=\"signature\" rows=\"3\" cols=\"60\">{$signature}</textarea>", 1);
+tr("Показывать подпись в форуме", "<input type='checkbox' name='signatrue' value='yes'{$signatureOn}>", 1);
 ?>
 
 <tr><td class="lol" colspan="2" align="center">

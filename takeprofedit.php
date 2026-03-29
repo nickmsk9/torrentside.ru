@@ -183,8 +183,10 @@ if (!in_array($acceptpms, ["yes","friends","no"], true)) $acceptpms = "yes";
 
 $deletepms  = !empty($_POST["deletepms"]) ? "yes" : "no";
 $savepms    = !empty($_POST["savepms"])   ? "yes" : "no";
-$bot_pos    = (!empty($_POST["bot_pos"]) && $_POST["bot_pos"] === "no") ? "no" : "yes";
-$avatars    = !empty($_POST["avatars"])   ? "yes" : "no";
+$bot_pos    = (($_POST["bot_pos"] ?? "yes") === "no") ? "no" : "yes";
+$avatars    = !empty($_POST["avatars"]) ? "yes" : "no";
+$privacy    = (string)($_POST["privacy"] ?? ($CURUSER['privacy'] ?? 'normal'));
+if (!in_array($privacy, ['strong', 'normal', 'low'], true)) $privacy = 'normal';
 
 $gender     = $_POST["gender"] ?? '1'; // '1','2','3'
 if (!in_array($gender, ['1','2','3'], true)) $gender = '1';
@@ -192,8 +194,29 @@ if (!in_array($gender, ['1','2','3'], true)) $gender = '1';
 $title      = norm_string($_POST["title"] ?? '');
 $info       = (string)($_POST["info"] ?? '');
 $avatar     = norm_string($_POST["avatar"] ?? '');
+$skype      = mb_substr(norm_string($_POST["skype"] ?? ''), 0, 255);
 $stylesheet = max(1, (int)($_POST["stylesheet"] ?? 1));
 $country    = max(0, (int)($_POST["country"] ?? 0));
+$language   = preg_replace('~[^a-z0-9_-]+~i', '', (string)($_POST['language'] ?? ($CURUSER['language'] ?? 'russian')));
+if ($language === '' || !is_dir(__DIR__ . '/languages/lang_' . $language)) {
+    $language = 'russian';
+}
+
+// Дата рождения
+$birthdayIn = trim((string)($_POST['birthday'] ?? ''));
+$birthday = null;
+if ($birthdayIn !== '') {
+    $dt = DateTime::createFromFormat('Y-m-d', $birthdayIn);
+    if (!$dt || $dt->format('Y-m-d') !== $birthdayIn) {
+        bark('Некорректная дата рождения.');
+    }
+    $birthday = $birthdayIn;
+}
+
+// Подпись форума
+$signature = trim((string)($_POST['signature'] ?? ''));
+$signature = mb_substr($signature, 0, 255);
+$signatrue = !empty($_POST['signatrue']) ? 'yes' : 'no';
 
 /* ---------- Уведомления ---------- */
 $pmnotif    = (($_POST["pmnotif"]    ?? "no") === "yes") ? "yes" : "no";
@@ -235,11 +258,13 @@ $updateset[] = "deletepms = " . sqlesc($deletepms);
 $updateset[] = "savepms = " . sqlesc($savepms);
 $updateset[] = "bot_pos = " . sqlesc($bot_pos);
 $updateset[] = "avatars = " . sqlesc($avatars);
+$updateset[] = "privacy = " . sqlesc($privacy);
 $updateset[] = "notifs = " . sqlesc($notifs);
 $updateset[] = "gender = " . sqlesc($gender);
 $updateset[] = "title = " . sqlesc($title);
 $updateset[] = "info = " . sqlesc($info);
 $updateset[] = "avatar = " . sqlesc($avatar);
+$updateset[] = "skype = " . sqlesc($skype);
 $updateset[] = "country = " . (int)$country;
 $updateset[] = "stylesheet = " . (int)$stylesheet;
 $updateset[] = "torrentsperpage = " . (int)$tpp;
@@ -247,6 +272,15 @@ $updateset[] = "topicsperpage = " . (int)$toppp;
 $updateset[] = "postsperpage = " . (int)$postpp;
 $updateset[] = "telegram = " . sqlesc($telegram);
 $updateset[] = "website = " . sqlesc($website_out);
+$updateset[] = "language = " . sqlesc($language);
+$updateset[] = "signature = " . sqlesc($signature);
+$updateset[] = "signatrue = " . sqlesc($signatrue);
+
+if ($birthday === null) {
+    $updateset[] = "birthday = NULL";
+} else {
+    $updateset[] = "birthday = " . sqlesc($birthday);
+}
 
 if ($tzoffset !== null) {
     $updateset[] = "tzoffset = " . sqlesc($tzoffset);

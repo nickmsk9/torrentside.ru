@@ -1,9 +1,9 @@
-<?
-require_once('../include/bittorrent.php'); 
+<?php
+require_once __DIR__ . '/../include/bittorrent.php';
 // Database Presets
-$config_path = "../include/secrets.php";
+$config_path = __DIR__ . "/../include/secrets.php";
 
-$template_file = "./template.png";
+$template_file = __DIR__ . "/template.png";
 
 $rating_x = 66;
 $rating_y = 10;
@@ -14,8 +14,8 @@ $upload_y = 43;
 $download_x = 60;
 $download_y = 26;
 
-$digits_template = "./digits.png";
-$digits_config = "./digits.ini";
+$digits_template = __DIR__ . "/digits.png";
+$digits_config = __DIR__ . "/digits.ini";
 
 //===========================================================================
 // Funtions

@@ -823,6 +823,17 @@ begin_frame("Список раздач");
   .alpha b{ font-weight:700 }                 /* активный символ просто жирный */
   .index{padding:6px 8px}
   .browse-suggest{margin:0 0 10px;padding:10px 12px;border:1px solid rgba(35,94,158,.18);border-radius:10px;background:rgba(255,255,255,.82);color:#235e9e;font-weight:700}
+  .browse-wrap .pg-wrap.pg-glass{background:#fff !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .browse-wrap .pg-wrap.pg-glass .pg-summary{background:#fff !important}
+  .browse-wrap .pg-wrap .pg-pill,
+  .browse-wrap .pg-wrap .pg-summary,
+  .browse-wrap .pg-wrap .pg-ellipsis{color:#4b5563 !important}
+  .browse-wrap .pg-wrap .pg-nav{color:#235e9e !important;font-weight:700}
+  .browse-wrap .pg-wrap a.pg-nav,
+  .browse-wrap .pg-wrap a.pg-pill{color:#4b5563 !important;text-decoration:none}
+  .browse-wrap .pg-wrap a.pg-nav{color:#235e9e !important}
+  .browse-wrap .pg-wrap .pg-disabled{color:#374151 !important;font-weight:700;opacity:1 !important}
+  .browse-wrap .pg-wrap .pg-current{color:#fff !important}
   .search-submit{background:#2f6fe4 !important;color:#fff !important;border-color:#2f6fe4 !important;font-weight:700}
   .search-submit:hover{background:#245ec4 !important;color:#fff !important}
   .thumb-grid{display:grid;grid-template-columns:repeat(auto-fit,220px);justify-content:flex-start;gap:24px;padding:8px 6px}

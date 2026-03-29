@@ -2153,15 +2153,14 @@ function commenttable(array $rows, string $redaktor = "comment"): void
 
             <table width="100%" border="0" cellspacing="0" cellpadding="3">
                 <tr valign="top">
-                    <td style="padding:0;width:5%;" align="center">
+                    <td class="comment-avatar-cell" align="center">
                         <img
                             src="<?= $esc($avatarUrl) ?>"
-                            width="<?= $avatarW ?>"
-                            height="<?= $avatarW ?>" 
+                            class="comment-avatar"
                             alt="avatar"
                             loading="lazy"
                             decoding="async"
-                            style="object-fit:cover;border-radius:8px"
+                            style="--avatar-max: <?= $avatarW ?>px;"
                             onerror="this.onerror=null;this.src='<?= $esc($fallbackAvatarUrl) ?>';"
                         >
                     </td>

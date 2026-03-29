@@ -281,12 +281,29 @@ height : 34px;
 line-height : 34px; 
 padding-left : 40px; 
 } 
+.comment-avatar-cell {
+padding : 0;
+width : clamp(58px, 9vw, 112px);
+}
+.comment-avatar {
+display : block;
+width : min(100%, var(--avatar-max, 100px));
+max-width : var(--avatar-max, 100px);
+height : auto;
+aspect-ratio : 1 / 1;
+object-fit : cover;
+border-radius : 8px;
+margin : 0 auto;
+}
 @media (max-width: 760px) {
 #tabs .tab {
 font-size : 12px;
 padding : 5px 8px;
 white-space : normal;
 text-align : center;
+}
+.comment-avatar-cell {
+width : clamp(46px, 16vw, 84px);
 }
 }
 #friends div.friend { 

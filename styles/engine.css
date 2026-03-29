@@ -1271,6 +1271,8 @@ font-family : inherit;
 font-weight : 600;
 letter-spacing : 0.1px;
 text-shadow : none;
+font-size : 12px !important;
+line-height : 20px;
 } 
 #stylefour ul li a:hover, #stylefour ul li a.current { 
 color : #b30000; 

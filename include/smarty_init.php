@@ -19,7 +19,8 @@ if (!isset($smarty)) {
     $smarty->setConfigDir(dirname(__DIR__) . '/configs');
 
     // Базовые настройки
-    $smarty->compile_check = false;
+    // Для разработки и точного применения правок шаблонов без ручной чистки templates_c
+    $smarty->compile_check = true;
     $smarty->force_compile = false;
     $smarty->caching = false;
 

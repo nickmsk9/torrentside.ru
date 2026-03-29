@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <!-- Стили -->
-    <link rel="stylesheet" href="/styles/engine.css" type="text/css">
+    <link rel="stylesheet" href="/styles/engine.css?v={$cssVersion|escape}" type="text/css">
 
     <!-- Favicon & RSS -->
     <link rel="alternate" type="application/rss+xml" title="Последние торренты" href="{$baseUrl}/rss.php">
@@ -52,7 +52,7 @@
     padding: 8px 12px;
     font-size: 13px;
     line-height: 1.1;
-    -webkit-text-size-adjust: 100%;
+    -webkit-text-size-adjust: none;
   }
 
   /* --- сама «лента» шапки: страхуемся от 1px-щелей на iOS --- */

@@ -12,6 +12,8 @@ global $smarty, $CURUSER, $tracker_lang, $DEFAULTBASEURL;
 // ====================== Заголовок страницы ======================
 $titleEscaped = htmlspecialchars($title ?? '', ENT_QUOTES | ENT_SUBSTITUTE);
 $baseUrl      = rtrim((string)($DEFAULTBASEURL ?? ''), '/');
+$engineCssPath = dirname(__DIR__) . '/engine.css';
+$cssVersion = is_file($engineCssPath) ? (string)filemtime($engineCssPath) : (string)time();
 
 // Верхнее меню (главная навигация)
 $navItems = [
@@ -32,6 +34,7 @@ $navItems = [
 if (isset($smarty)) {
     $smarty->assign('title', $titleEscaped);
     $smarty->assign('baseUrl', $baseUrl);
+    $smarty->assign('cssVersion', $cssVersion);
     $smarty->assign('navItems', $navItems);
     echo $smarty->fetch('partials/head_block.tpl');
     echo $smarty->fetch('partials/header_logo.tpl');

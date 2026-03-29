@@ -80,7 +80,7 @@ $torrentcomments = (int)$user['comment_count'];
 // Флаг страны
 $country = '';
 if ($safeFlag !== '') {
-    $country = "<img height='15' src='pic/flag/{$safeFlag}' alt='{$safeCountryName}' title='{$safeCountryName}'>";
+    $country = "<img class='profile-country-flag' style='height:15px;width:auto' src='pic/flag/{$safeFlag}' alt='{$safeCountryName}' title='{$safeCountryName}'>";
 }
 
 // Пол
@@ -161,10 +161,9 @@ $status = ($status !== '')
   .bubble p { line-height: 1.35; word-wrap: break-word; }
   .profile-caption-meta{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;vertical-align:middle}
   .profile-caption-meta img{vertical-align:middle}
+  .profile-caption-meta .profile-country-flag{height:15px !important;width:auto !important;max-width:none !important;object-fit:contain}
   .category .profile-caption-meta, .tit .profile-caption-meta{font-size:12px;font-weight:600}
   .tit h1, .category{line-height:1.2;word-break:break-word}
-  /* В первом (профильном) фрейме убираем дублирующий правый заголовок */
-  .new:first-of-type .cat{display:none !important}
 
   /* Стабильная раскладка профиля вместо float/margin-хаков */
   .profile-layout {

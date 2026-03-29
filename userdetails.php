@@ -154,6 +154,46 @@ $status = ($status !== '')
   }
   .bubble blockquote, .bubble p { margin: 0; padding: 0; }
   .bubble p { line-height: 1.35; word-wrap: break-word; }
+
+  /* Стабильная раскладка профиля вместо float/margin-хаков */
+  .profile-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: nowrap;
+  }
+  .profile-layout .profile-left {
+    width: 260px;
+    min-width: 260px;
+  }
+  .profile-layout .profile-right {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .profile-layout td.rowhead {
+    white-space: nowrap;
+    width: 1%;
+  }
+  .profile-layout td.lol {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .profile-layout table.mainp {
+    margin-left: 0 !important;
+    width: 100%;
+  }
+
+  @media (max-width: 900px) {
+    .profile-layout {
+      flex-wrap: wrap;
+    }
+    .profile-layout .profile-left,
+    .profile-layout .profile-right {
+      width: 100%;
+      min-width: 0;
+    }
+  }
 </style>
 
 <div class="bubble">
@@ -162,7 +202,8 @@ $status = ($status !== '')
   </div>
 </div>
 
-<table border="1" cellspacing="0" cellpadding="4" style="float:left;width:260px;margin-right:12px;">
+<div class="profile-layout">
+<table class="profile-left" border="1" cellspacing="0" cellpadding="4" style="width:260px;">
 
 <?php
 // Аватар
@@ -392,7 +433,7 @@ echo '</div></td></tr>';
 ?>
 </table>
 
-<table class="mainp" cellpadding="4" cellspacing="0" style="margin-left:272px;width:auto;">
+<table class="mainp profile-right" cellpadding="4" cellspacing="0">
 <tr><td class="rowhead" width="1%">Зарегистрирован</td><td class="lol" width="99%" align="left"><?= $joindate ?></td></tr>
 <tr><td class="rowhead" width="1%">Был на трекере</td><td class="lol" width="99%" align="left"><?= $lastseen ?></td></tr>
 
@@ -570,7 +611,7 @@ echo visitorsList('
 ', $VISITORS);
 
 // Закрываем правую таблицу прямо здесь:
-echo "</table>\n";
+echo "</table>\n</div>\n";
 ?>
 
 <!-- Стили ДЛЯ БЛОКА ВИЗИТОРОВ — оставлены как у тебя, но вынесены ВНЕ таблицы -->

@@ -132,8 +132,15 @@ stdhead("Просмотр профиля {$safeUsername}");
 
 
 // ====================== Начало блока профиля ======================
+$profileCaption = "Профиль пользователя "
+    . "<span class=\"profile-caption-meta\">"
+    . get_user_class_color($user['class'], $safeUsername)
+    . get_user_icons($user, true)
+    . " " . $country
+    . "</span>";
+
 begin_frame(
-    "Профиль пользователя"
+    $profileCaption
 );
 
 // --- Статус (стили оставлены как есть) ---
@@ -152,6 +159,10 @@ $status = ($status !== '')
   }
   .bubble blockquote, .bubble p { margin: 0; padding: 0; }
   .bubble p { line-height: 1.35; word-wrap: break-word; }
+  .profile-caption-meta{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;vertical-align:middle}
+  .profile-caption-meta img{vertical-align:middle}
+  .category .profile-caption-meta, .tit .profile-caption-meta{font-size:12px;font-weight:600}
+  .tit h1, .category{line-height:1.2;word-break:break-word}
 
   /* Стабильная раскладка профиля вместо float/margin-хаков */
   .profile-layout {
@@ -204,9 +215,6 @@ $status = ($status !== '')
 </style>
 
 <div class="bubble">
-  <div style="margin:0 0 8px;font-size:14px;line-height:1.25;">
-    <?= get_user_class_color($user['class'], $safeUsername) ?><?= get_user_icons($user, true) ?> <?= $country ?>
-  </div>
   <div class="rounded">
     <blockquote><p><?= $status ?></p></blockquote>
   </div>

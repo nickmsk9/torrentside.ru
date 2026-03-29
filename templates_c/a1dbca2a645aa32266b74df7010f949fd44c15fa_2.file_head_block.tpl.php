@@ -1,18 +1,18 @@
 <?php
-/* Smarty version 5.5.1, created on 2026-03-29 12:17:27
+/* Smarty version 5.5.1, created on 2026-03-29 13:06:13
   from 'file:partials/head_block.tpl' */
 
 /* @var \Smarty\Template $_smarty_tpl */
 if ($_smarty_tpl->getCompiled()->isFresh($_smarty_tpl, array (
   'version' => '5.5.1',
-  'unifunc' => 'content_69c91857aa77d3_01231184',
+  'unifunc' => 'content_69c923c593cfe8_13833629',
   'has_nocache_code' => false,
   'file_dependency' => 
   array (
     'a1dbca2a645aa32266b74df7010f949fd44c15fa' => 
     array (
       0 => 'partials/head_block.tpl',
-      1 => 1774785100,
+      1 => 1774789572,
       2 => 'file',
     ),
   ),
@@ -20,7 +20,7 @@ if ($_smarty_tpl->getCompiled()->isFresh($_smarty_tpl, array (
   array (
   ),
 ))) {
-function content_69c91857aa77d3_01231184 (\Smarty\Template $_smarty_tpl) {
+function content_69c923c593cfe8_13833629 (\Smarty\Template $_smarty_tpl) {
 $_smarty_current_dir = '/var/www/html/templates/partials';
 ?><!DOCTYPE html>
 <html lang="ru">
@@ -31,7 +31,8 @@ $_smarty_current_dir = '/var/www/html/templates/partials';
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <!-- Стили -->
-    <link rel="stylesheet" href="/styles/engine.css" type="text/css">
+    <link rel="stylesheet" href="/styles/engine.css?v=<?php echo htmlspecialchars((string) ($_smarty_tpl->getValue('cssVersion')), ENT_QUOTES, 'UTF-8');?>
+" type="text/css">
 
     <!-- Favicon & RSS -->
     <link rel="alternate" type="application/rss+xml" title="Последние торренты" href="<?php echo htmlspecialchars((string) ($_smarty_tpl->getValue('baseUrl')), ENT_QUOTES, 'UTF-8');?>
@@ -70,9 +71,6 @@ $_smarty_current_dir = '/var/www/html/templates/partials';
     <?php echo '<script'; ?>
  src="/js/overlib.js" defer><?php echo '</script'; ?>
 >
-	<?php echo '<script'; ?>
- src="/js/scroll-dock.js" defer><?php echo '</script'; ?>
->
 	
 	<style>
   /* --- базовый сброс + фон страницы --- */
@@ -82,11 +80,6 @@ $_smarty_current_dir = '/var/www/html/templates/partials';
 
   /* --- контейнеры шапки/меню должны красить фон на всю ширину --- */
   #header-wrap, #menucase { width:100%; max-width:100%; margin:0 auto; background-color:#0b1421; }
-
-  /* --- меню: без отступов у UL, кликабельная зона по высоте --- */
-  #stylefour ul { margin:0; padding:0; list-style:none; display:flex; flex-wrap:wrap; }
-  #stylefour ul li { display:block; }
-  #stylefour a { display:block; padding:10px 12px; font-size:16px; -webkit-text-size-adjust:100%; }
 
   /* --- сама «лента» шапки: страхуемся от 1px-щелей на iOS --- */
   #header-wrap {

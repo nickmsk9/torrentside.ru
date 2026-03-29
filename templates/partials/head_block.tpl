@@ -33,7 +33,6 @@
     <script src="/js/functions.js" defer></script>
     <script src="/js/show_hide.js" defer></script>
     <script src="/js/overlib.js" defer></script>
-	<script src="/js/scroll-dock.js" defer></script>
 	
 	<style>
   /* --- базовый сброс + фон страницы --- */

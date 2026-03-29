@@ -408,6 +408,35 @@ if (!function_exists('details_comments_supports_threads')) {
     }
 }
 
+if (!function_exists('details_comments_pager_wrap')) {
+    function details_comments_pager_wrap(string $pagerHtml, int $count, int $rpp, bool $lastPageDefault = true): string {
+        $pagerHtml = trim($pagerHtml);
+        if ($pagerHtml === '' || $count <= 0) {
+            return '';
+        }
+
+        $pages = max(1, (int)ceil($count / max(1, $rpp)));
+        $pageDefault = $lastPageDefault ? max((int)floor(($count - 1) / max(1, $rpp)), 0) : 0;
+        $page = isset($_GET['page']) ? max(0, (int)$_GET['page']) : $pageDefault;
+        $page = min($page, max(0, $pages - 1));
+        $currentPage = $page + 1;
+
+        if (preg_match('~(<table class="pager-bubble".*?</table>)~si', $pagerHtml, $m)) {
+            $pagerNav = $m[1];
+        } else {
+            $pagerNav = $pagerHtml;
+        }
+
+        $summary = 'Комментарии: ' . $count . ' <span style="opacity:.45;">•</span> Страница ' . $currentPage . ' из ' . $pages;
+        $meta = '<span style="display:inline-flex;align-items:center;padding:7px 12px;border:1px solid rgba(125,141,160,.26);border-radius:999px;background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(243,246,250,.92));box-shadow:0 1px 0 rgba(255,255,255,.7) inset;color:#6b7d92;font-size:12px;line-height:1.2;font-weight:700;max-width:100%;box-sizing:border-box;">' . $summary . '</span>';
+
+        return '<div class="details-comments-pager" style="width:calc(100% - 24px);max-width:calc(100% - 24px);box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:0 auto 12px;padding:0 8px;">'
+            . '<div class="details-comments-pager__meta" style="max-width:100%;">' . $meta . '</div>'
+            . '<div class="details-comments-pager__nav">' . $pagerNav . '</div>'
+            . '</div>';
+    }
+}
+
 $id = (int)$id;
 $limited = 10;
 $commentsHaveThreads = details_comments_supports_threads();
@@ -447,6 +476,8 @@ if ($commentsCount === 0) {
 } else {
     // Пагинация
     [$pagertop, $pagerbottom, $limit] = pager($limited, $commentsCount, "details.php?id={$id}&", ['lastpagedefault' => 1]);
+    $pagertop = details_comments_pager_wrap($pagertop, $commentsCount, $limited, true);
+    $pagerbottom = details_comments_pager_wrap($pagerbottom, $commentsCount, $limited, true);
 
     // Можно ли голосовать за карму комментария? (0/1 строка — считаем как количество оценок текущего юзера)
     $canrateCol = $isLogged

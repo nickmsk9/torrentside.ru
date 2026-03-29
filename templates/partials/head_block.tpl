@@ -44,17 +44,6 @@
   /* --- контейнеры шапки/меню должны красить фон на всю ширину --- */
   #header-wrap, #menucase { width:100%; max-width:100%; margin:0 auto; background-color:#0b1421; }
 
-  /* --- меню: без отступов у UL, кликабельная зона по высоте --- */
-  #stylefour ul { margin:0; padding:0; list-style:none; display:flex; flex-wrap:wrap; }
-  #stylefour ul li { display:block; }
-  #stylefour a {
-    display: block;
-    padding: 8px 12px;
-    font-size: 13px;
-    line-height: 1.1;
-    -webkit-text-size-adjust: none;
-  }
-
   /* --- сама «лента» шапки: страхуемся от 1px-щелей на iOS --- */
   #header-wrap {
     min-height:146px;

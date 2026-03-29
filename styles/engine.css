@@ -1239,29 +1239,22 @@ border-top : 4px solid #b30000;
 -moz-osx-font-smoothing: grayscale;
 text-rendering: optimizeLegibility;
 } 
-#stylefour2 { 
-position : relative; 
-display : block; 
-height : 39px; 
-font-size : 11px; 
-font-weight : 600; 
-background : transparent url(images/bgOFF.gif) repeat-x top left; 
-font-family : Tahoma, Verdana, Arial, Helvetica, sans-serif; 
-} 
 #stylefour ul { 
 margin : 0; 
 padding : 0; 
 list-style-type : none; 
 width : auto; 
+display : flex;
+flex-wrap : wrap;
 } 
 #stylefour ul li { 
 display : block; 
-float : left; 
+float : none; 
 margin : 0; 
 } 
 #stylefour ul li a { 
 display : block; 
-float : left; 
+float : none; 
 color : #666; 
 text-decoration : none; 
 padding : 11px 20px 0 20px; 
@@ -1339,67 +1332,6 @@ background : #cc4400;
 .barmax { 
 background : #0033cc; 
 } 
-
-#menu { 
-font-family : Arial, sans-serif; 
-font-weight : bold; 
-text-transform : uppercase; 
-padding : 0; 
-list-style-type : none; 
-background-color : #eee; 
-font-size : 13px; 
-height : 40px; 
-border-top : 2px solid #eee; 
-border-bottom : 2px solid #ccc; 
-} 
-#menu li { 
-float : left; 
-margin : 0; 
-} 
-#menu li a { 
-text-decoration : none; 
-display : block; 
-padding : 0 20px; 
-line-height : 40px; 
-color : #666; 
-} 
-#menu li a:hover, #menu li.active a { 
-background-color : #f5f5f5; 
-border-bottom : 2px solid #ddd; 
-color : #999; 
-} 
-#menu_wrapper ul { 
-margin-left : 12px; 
-} 
-#menu_wrapper { 
-padding : 0 16px 0 0; 
-background : url(images/grey.png) no-repeat right; 
-} 
-#menu_wrapper div { 
-float : left; 
-height : 44px; 
-width : 12px; 
-background : url(images/grey.png) no-repeat left; 
-} 
-#menu_wrapper.red ul { 
-border-top : 2px solid #660000; 
-border-bottom : 2px solid #450000; 
-background : #660000; 
-} 
-#menu_wrapper.red a { 
-color : #fff; 
-} 
-#menu_wrapper.red li a:hover, #menu_wrapper.red li.active a { 
-color : #f27f84; 
-background : #990000; 
-border-bottom : 2px solid #660000; 
-} 
-#menu_wrapper.red { 
-background : url(images/red.png) no-repeat right; 
-} 
-#menu_wrapper.red div { 
-background : url(images/red.png) no-repeat left; 
-}
 table.pager-bubble {
     margin-top: 10px;
     border-spacing: 5px;

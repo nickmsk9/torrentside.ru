@@ -283,14 +283,15 @@ padding-left : 40px;
 } 
 .comment-avatar-cell {
 padding : 0;
-width : clamp(58px, 9vw, 112px);
+width : 1%;
+white-space : nowrap;
 }
 .comment-avatar {
 display : block;
-width : min(100%, var(--avatar-max, 100px));
+width : clamp(52px, 9vw, 96px);
 max-width : var(--avatar-max, 100px);
-height : auto;
-aspect-ratio : 1 / 1;
+height : clamp(52px, 9vw, 96px);
+max-height : var(--avatar-max, 100px);
 object-fit : cover;
 border-radius : 8px;
 margin : 0 auto;
@@ -303,7 +304,11 @@ white-space : normal;
 text-align : center;
 }
 .comment-avatar-cell {
-width : clamp(46px, 16vw, 84px);
+width : 1%;
+}
+.comment-avatar {
+width : clamp(44px, 14vw, 72px);
+height : clamp(44px, 14vw, 72px);
 }
 }
 #friends div.friend { 

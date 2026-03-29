@@ -2157,6 +2157,8 @@ function commenttable(array $rows, string $redaktor = "comment"): void
                         <img
                             src="<?= $esc($avatarUrl) ?>"
                             class="comment-avatar"
+                            width="<?= $avatarW ?>"
+                            height="<?= $avatarW ?>"
                             alt="avatar"
                             loading="lazy"
                             decoding="async"

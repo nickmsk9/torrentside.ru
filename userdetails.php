@@ -56,11 +56,12 @@ $safeCountryName = htmlspecialchars($user['country_name'] ?? '');
 $safeFlag        = htmlspecialchars($user['country_flag'] ?? '');
 
 // IP-адрес (только для модераторов или владельца)
+$ipPlain = '';
 $addr = '';
 if (!empty($user['ip']) && (get_user_class() >= UC_MODERATOR || (int)$user['id'] === $uid)) {
-    $ip  = $user['ip'];
-    $dom = @gethostbyaddr($ip);
-    $addr = ($dom === $ip || @gethostbyname($dom) !== $ip) ? $ip : "{$ip} (" . strtoupper($dom) . ")";
+    $ipPlain = (string)$user['ip'];
+    $dom = @gethostbyaddr($ipPlain);
+    $addr = ($dom === $ipPlain || @gethostbyname($dom) !== $ipPlain) ? $ipPlain : "{$ipPlain} (" . strtoupper($dom) . ")";
 }
 
 // Дата регистрации
@@ -232,9 +233,6 @@ $avatarEsc = htmlspecialchars($avatarUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $userClassName = get_user_class_name($user['class']); // ← текст
 // ВАЖНО: get_user_class_color возвращает готовый HTML — НЕ экранируем:
 $userClassHtml = get_user_class_color($user['class'], $userClassName);
-
-// Доп.поля только как текст
-$rangclass = htmlspecialchars((string)($user['rangclass'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
 // Фолбэк для onerror
 $fallback = htmlspecialchars(($DEFAULTBASEURL ?? '') . '/pic/default_avatar.gif', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -446,8 +444,8 @@ echo '</div></td></tr>';
 </div>
 <div class="profile-right">
 <table class="mainp" cellpadding="4" cellspacing="0">
-<tr><td class="rowhead" width="1%">Зарегистрирован</td><td class="lol" width="99%" align="left"><?= $joindate ?></td></tr>
-<tr><td class="rowhead" width="1%">Был на трекере</td><td class="lol" width="99%" align="left"><?= $lastseen ?></td></tr>
+<tr><td class="rowhead">Зарегистрирован</td><td class="lol" align="left"><?= $joindate ?></td></tr>
+<tr><td class="rowhead">Был на трекере</td><td class="lol" align="left"><?= $lastseen ?></td></tr>
 
 <?php
 // --- Контакты модераторам ---
@@ -461,10 +459,11 @@ if (get_user_class() >= UC_MODERATOR) {
 // --- IP (2ip/WHOIS) ---
 if (!empty($addr)) {
     $addrSafe = htmlspecialchars($addr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $infoUrl  = 'https://2ip.ru/lookup/?ip=' . rawurlencode($addr);
-    $whoisUrl = 'https://2ip.ru/whois/?query=' . rawurlencode($addr);
-    $isLocal = filter_var($addr, FILTER_VALIDATE_IP)
-        && (filter_var($addr, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
+    $lookupIp = (string)$ipPlain;
+    $infoUrl  = 'https://2ip.ru/lookup/?ip=' . rawurlencode($lookupIp);
+    $whoisUrl = 'https://2ip.ru/whois/?query=' . rawurlencode($lookupIp);
+    $isLocal = filter_var($lookupIp, FILTER_VALIDATE_IP)
+        && (filter_var($lookupIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
     $badge = $isLocal ? ' <span title="Частный/локальный диапазон">[локальный]</span>' : '';
     echo '<tr><td class="rowhead">IP</td><td class="lol" align="left">'
        . $addrSafe . $badge
@@ -549,6 +548,7 @@ echo "</td></tr>\n";
 /* =================== ПОСЛЕДНЯЯ ПОСЕЩЁННАЯ СТРАНИЦА =================== */
 $uidLocal = (int)($user['id'] ?? 0);
 $lastUrl = null;
+global $memcached, $mc;
 
 // поддержка $memcached и $mc
 $cacheGet = static function (string $key) use (&$memcached, &$mc) {
@@ -585,15 +585,15 @@ if (!empty($lastUrl)) {
 
 /* =================== ВИЗИТЁРЫ СТРАНИЦЫ =================== */
 // CSRF (оставлено)
-if (session_status() !== PHP_SESSION_ACTIVE) {
+if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
     session_start();
 }
-if (empty($_SESSION['csrf_token'])) {
+if (session_status() === PHP_SESSION_ACTIVE && empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 $visUrl     = htmlspecialchars($VIS_URL ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $visTimeout = (int)($VIS_TIMEOUT ?? 15);
-$csrfRaw    = $_SESSION['csrf_token'];
+$csrfRaw    = (string)($_SESSION['csrf_token'] ?? '');
 $csrfAttr   = htmlspecialchars($csrfRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $wid      = 'vh_' . (int)($user['id'] ?? random_int(1, 999999));
 $boxId    = "visitors-$wid";
@@ -642,6 +642,10 @@ echo "</table>\n</div>\n</div>\n";
 
   const CSRF = '<?= $csrfRaw ?>';
   const ENDPOINT = '<?= $endpoint ?>';
+  if (!CSRF) {
+    status.textContent = 'CSRF недоступен';
+    return;
+  }
 
   async function loadVisitors() {
     status.textContent = 'Обновляю...';

@@ -2,6 +2,49 @@
 // Защита от прямого вызова
 if (!defined('IN_TRACKER')) die('Hacking attempt!');
 
+function cleanup_should_run_tag_recount(): bool {
+	global $mysqli;
+
+	$arg = 'lasttagrecount';
+	$now = time();
+	$interval = 86400; // не чаще одного раза в сутки
+
+	$res = sql_query("SELECT value_u FROM avps WHERE arg = " . sqlesc($arg) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
+	$row = mysqli_fetch_assoc($res) ?: null;
+	$last = (int)($row['value_u'] ?? 0);
+
+	if ($last > 0 && ($now - $last) < $interval) {
+		return false;
+	}
+
+	if ($row) {
+		sql_query("UPDATE avps SET value_u = {$now} WHERE arg = " . sqlesc($arg)) or sqlerr(__FILE__, __LINE__);
+	} else {
+		sql_query("INSERT INTO avps (arg, value_u) VALUES (" . sqlesc($arg) . ", {$now})") or sqlerr(__FILE__, __LINE__);
+	}
+
+	return true;
+}
+
+function cleanup_recount_tags(): void {
+	// Точное, но тяжёлое обслуживание тегов. Запускаем редко.
+	sql_query("
+		UPDATE tags AS t
+		LEFT JOIN (
+			SELECT
+				t2.id AS tag_id,
+				COUNT(ts.id) AS exact_count
+			FROM tags AS t2
+			LEFT JOIN torrents AS ts
+				ON ts.category = t2.category
+				AND ts.tags <> ''
+				AND FIND_IN_SET(t2.name, REPLACE(ts.tags, ', ', ',')) > 0
+			GROUP BY t2.id
+		) AS stats ON stats.tag_id = t.id
+		SET t.howmuch = COALESCE(stats.exact_count, 0)
+	") or sqlerr(__FILE__, __LINE__);
+}
+
 function docleanup(): void {
 	global $torrent_dir, $use_ttl, $autoclean_interval, $ttl_days, $tracker_lang, $mysqli;
 
@@ -177,7 +220,13 @@ while ($row = mysqli_fetch_assoc($res)) {
 	$dt = time() - 86400;
 	sql_query("DELETE FROM karma WHERE added < $dt") or sqlerr(__FILE__, __LINE__);
 
-	// Пересчёт тэгов
-	sql_query("UPDATE tags AS t SET t.howmuch = (SELECT COUNT(*) FROM torrents AS ts WHERE ts.tags LIKE CONCAT('%', t.name, '%') AND ts.category = t.category)");
-	sql_query("DELETE FROM tags WHERE howmuch = 0");
+	// Быстрая чистка тегов на каждом проходе, без полного сканирования torrents
+	sql_query("UPDATE tags SET howmuch = 0 WHERE howmuch < 0") or sqlerr(__FILE__, __LINE__);
+	sql_query("DELETE FROM tags WHERE howmuch <= 0") or sqlerr(__FILE__, __LINE__);
+
+	// Глубокая сверка тегов — редко и только точным сравнением CSV-тегов
+	if (cleanup_should_run_tag_recount()) {
+		cleanup_recount_tags();
+		sql_query("DELETE FROM tags WHERE howmuch <= 0") or sqlerr(__FILE__, __LINE__);
+	}
 }

@@ -26,7 +26,7 @@ stderr($tracker_lang['error'], $tracker_lang['invalid_id']);
 $id = 0 + $_POST["id"];
 
 
-$res = sql_query("SELECT name,owner,seeders,image1,image2,image3,image4,image5,tags FROM torrents WHERE id = $id");
+$res = sql_query("SELECT name,owner,seeders,image1,image2,image3,image4,image5,tags,category FROM torrents WHERE id = $id");
 $row = mysql_fetch_array($res);
 if (!$row)
 	stderr($tracker_lang['error'],"Такого торрента не существует.");
@@ -35,10 +35,11 @@ if ($CURUSER["id"] != $row["owner"] && get_user_class() < UC_MODERATOR)
 	bark("Вы не владелец! Как такое могло произойти?\n");
 
 
-$tags = explode(",", $row["tags"]);
+$tags = array_filter(array_map('trim', explode(",", (string)$row["tags"])));
+$tagCategory = (int)$row["category"];
 
 foreach ($tags as $tag) {
-		@sql_query('UPDATE tags SET howmuch=howmuch-1 WHERE name LIKE CONCAT(\'%\', '.sqlesc($tag).', \'%\')') or sqlerr(__FILE__, __LINE__);
+		@sql_query("UPDATE tags SET howmuch = GREATEST(howmuch - 1, 0) WHERE category = {$tagCategory} AND name = " . sqlesc($tag)) or sqlerr(__FILE__, __LINE__);
 	}
 
 $rt = (int) $_POST["reasontype"];

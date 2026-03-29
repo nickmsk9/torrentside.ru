@@ -1,0 +1,59 @@
+services:
+  php:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: torrentside-php
+    restart: unless-stopped
+    ports:
+      - "8084:80"
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - db
+      - memcached
+    networks:
+      - torrentside-net
+
+  db:
+    image: mysql:8.4
+    container_name: torrentside-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: torrent2
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    ports:
+      - "3308:3306"
+    volumes:
+      - ./docker-data/mysql:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - torrentside-net
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: torrentside-phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 0
+    ports:
+      - "8085:80"
+    networks:
+      - torrentside-net
+
+  memcached:
+    image: memcached:latest
+    container_name: torrentside-memcached
+    restart: unless-stopped
+    ports:
+      - "11212:11211"
+    networks:
+      - torrentside-net
+
+networks:
+  torrentside-net:
+    driver: bridge

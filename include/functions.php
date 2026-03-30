@@ -985,8 +985,6 @@ function userlogin(bool $lightmode = false): void {
             'warned',
             'warneduntil',
             'torrentsperpage',
-            'topicsperpage',
-            'postsperpage',
             'deletepms',
             'savepms',
             'gender',
@@ -1004,8 +1002,6 @@ function userlogin(bool $lightmode = false): void {
             'hidebid',
             'last_access',
             'last_post',
-            'forum_access',
-            'forum_com',
             'schoutboxpos',
             'bot_pos',
             'rangclass',
@@ -1014,8 +1010,6 @@ function userlogin(bool $lightmode = false): void {
             'karma',
             'moderated',
             'pss',
-            'signature',
-            'signatrue',
         ]);
         $res = sql_query("SELECT {$userColumns} FROM users WHERE id = {$id} AND enabled = 'yes' AND status = 'confirmed' LIMIT 1");
         if ($res instanceof mysqli_result) {
@@ -1370,33 +1364,71 @@ function gzip(): void
 
 gzip();
 
+function tracker_is_reserved_ipv6(string $ip): bool
+{
+    $packed = @inet_pton($ip);
+    if ($packed === false || strlen($packed) !== 16) {
+        return true;
+    }
+
+    if ($packed === str_repeat("\x00", 16) || $packed === str_repeat("\x00", 15) . "\x01") {
+        return true;
+    }
+
+    $first = ord($packed[0]);
+    $second = ord($packed[1]);
+
+    if (($first & 0xFE) === 0xFC) {
+        return true;
+    }
+
+    if ($first === 0xFE && ($second & 0xC0) === 0x80) {
+        return true;
+    }
+
+    if ($first === 0xFF) {
+        return true;
+    }
+
+    return substr($packed, 0, 4) === "\x20\x01\x0D\xB8";
+}
+
 // IP Validation
 function validip(string $ip): bool {
-    if ($ip === '' || $ip !== long2ip(ip2long($ip))) {
+    $ip = trim($ip);
+    if ($ip === '') {
         return false;
     }
 
-    // reserved IANA IPv4 addresses
-    $reserved_ips = [
-        ['0.0.0.0','2.255.255.255'],
-        ['10.0.0.0','10.255.255.255'],       // private
-        ['127.0.0.0','127.255.255.255'],     // loopback
-        ['169.254.0.0','169.254.255.255'],   // link-local
-        ['172.16.0.0','172.31.255.255'],     // private
-        ['192.0.2.0','192.0.2.255'],         // TEST-NET-1
-        ['192.168.0.0','192.168.255.255'],   // private
-        ['198.18.0.0','198.19.255.255'],     // benchmark
-        ['224.0.0.0','239.255.255.255'],     // multicast
-        ['240.0.0.0','255.255.255.255'],     // reserved/broadcast
-    ];
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+        $reserved_ips = [
+            ['0.0.0.0','2.255.255.255'],
+            ['10.0.0.0','10.255.255.255'],
+            ['127.0.0.0','127.255.255.255'],
+            ['169.254.0.0','169.254.255.255'],
+            ['172.16.0.0','172.31.255.255'],
+            ['192.0.2.0','192.0.2.255'],
+            ['192.168.0.0','192.168.255.255'],
+            ['198.18.0.0','198.19.255.255'],
+            ['224.0.0.0','239.255.255.255'],
+            ['240.0.0.0','255.255.255.255'],
+        ];
 
-    $ipl = ip2long($ip);
-    foreach ($reserved_ips as $r) {
-        if ($ipl >= ip2long($r[0]) && $ipl <= ip2long($r[1])) {
-            return false;
+        $ipl = ip2long($ip);
+        foreach ($reserved_ips as $r) {
+            if ($ipl >= ip2long($r[0]) && $ipl <= ip2long($r[1])) {
+                return false;
+            }
         }
+
+        return true;
     }
-    return true; // глобальный, «валидный» IP
+
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+        return false;
+    }
+
+    return !tracker_is_reserved_ipv6($ip);
 }
 
 // Определение локальных пиров (LAN, loopback, CGNAT, IPv6 link-local)
@@ -1434,25 +1466,53 @@ function is_local_peer(string $ip): bool {
 
 
 function getip() {
-	if (isset($_SERVER)) {
-		if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && validip($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-			$ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
-		} elseif (isset($_SERVER['HTTP_CLIENT_IP']) && validip($_SERVER['HTTP_CLIENT_IP'])) {
-			$ip = $_SERVER['HTTP_CLIENT_IP'];
-		} else {
-			$ip = $_SERVER['REMOTE_ADDR'];
-		}
-	} else {
-		if (getenv('HTTP_X_FORWARDED_FOR') && validip(getenv('HTTP_X_FORWARDED_FOR'))) {
-			$ip = getenv('HTTP_X_FORWARDED_FOR');
-		} elseif (getenv('HTTP_CLIENT_IP') && validip(getenv('HTTP_CLIENT_IP'))) {
-			$ip = getenv('HTTP_CLIENT_IP');
-		} else {
-			$ip = getenv('REMOTE_ADDR');
-		 }
-	}
+    $candidates = [];
 
-	return $ip;
+    if (isset($_SERVER)) {
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            foreach (explode(',', (string)$_SERVER['HTTP_X_FORWARDED_FOR']) as $part) {
+                $candidate = trim($part);
+                if (validip($candidate)) {
+                    return $candidate;
+                }
+                if (filter_var($candidate, FILTER_VALIDATE_IP) !== false) {
+                    $candidates[] = $candidate;
+                }
+            }
+        }
+
+        if (!empty($_SERVER['HTTP_CLIENT_IP']) && filter_var((string)$_SERVER['HTTP_CLIENT_IP'], FILTER_VALIDATE_IP) !== false) {
+            $candidates[] = trim((string)$_SERVER['HTTP_CLIENT_IP']);
+        }
+        if (!empty($_SERVER['REMOTE_ADDR']) && filter_var((string)$_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP) !== false) {
+            $candidates[] = trim((string)$_SERVER['REMOTE_ADDR']);
+        }
+    } else {
+        $xff = (string)getenv('HTTP_X_FORWARDED_FOR');
+        if ($xff !== '') {
+            foreach (explode(',', $xff) as $part) {
+                $candidate = trim($part);
+                if (validip($candidate)) {
+                    return $candidate;
+                }
+                if (filter_var($candidate, FILTER_VALIDATE_IP) !== false) {
+                    $candidates[] = $candidate;
+                }
+            }
+        }
+
+        $clientIp = (string)getenv('HTTP_CLIENT_IP');
+        if ($clientIp !== '' && filter_var($clientIp, FILTER_VALIDATE_IP) !== false) {
+            $candidates[] = trim($clientIp);
+        }
+
+        $remoteAddr = (string)getenv('REMOTE_ADDR');
+        if ($remoteAddr !== '' && filter_var($remoteAddr, FILTER_VALIDATE_IP) !== false) {
+            $candidates[] = trim($remoteAddr);
+        }
+    }
+
+    return $candidates[0] ?? '0.0.0.0';
 }
 
 function autoclean(): void {
@@ -1813,6 +1873,63 @@ function tracker_message_cache_namespace(int $userId): string
 function tracker_comment_cache_namespace(int $torrentId): string
 {
     return 'comments:torrent:' . max(0, $torrentId);
+}
+
+function tracker_invalidate_tag_cache(int ...$categoryIds): void
+{
+    $categoryIds = array_values(array_unique(array_filter(array_map('intval', $categoryIds), static fn(int $id): bool => $id > 0)));
+
+    tracker_cache_delete_many(array_map(
+        static fn(int $categoryId): string => tracker_cache_key('categories', 'tags', 'cat' . $categoryId),
+        $categoryIds
+    ));
+
+    $mc = tracker_cache_instance();
+    if ($mc instanceof Memcached) {
+        $mc->delete('tags');
+    }
+}
+
+function tracker_recount_tags_for_categories(int ...$categoryIds): void
+{
+    $categoryIds = array_values(array_unique(array_filter(array_map('intval', $categoryIds), static fn(int $id): bool => $id > 0)));
+    if (!$categoryIds) {
+        return;
+    }
+
+    $in = implode(',', $categoryIds);
+
+    sql_query("
+        UPDATE tags AS t
+        LEFT JOIN (
+            SELECT
+                t2.id AS tag_id,
+                COUNT(ts.id) AS exact_count
+            FROM tags AS t2
+            LEFT JOIN torrents AS ts
+                ON ts.category = t2.category
+                AND ts.tags <> ''
+                AND FIND_IN_SET(t2.name, REPLACE(ts.tags, ', ', ',')) > 0
+            WHERE t2.category IN ({$in})
+            GROUP BY t2.id
+        ) AS stats ON stats.tag_id = t.id
+        SET t.howmuch = COALESCE(stats.exact_count, 0)
+        WHERE t.category IN ({$in})
+    ") or sqlerr(__FILE__, __LINE__);
+
+    sql_query("DELETE FROM tags WHERE category IN ({$in}) AND howmuch <= 0") or sqlerr(__FILE__, __LINE__);
+    tracker_invalidate_tag_cache(...$categoryIds);
+}
+
+function tracker_comments_supports_threads(): bool
+{
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    $check = sql_query("SHOW COLUMNS FROM comments LIKE 'parent_id'");
+    return $ready = ($check instanceof mysqli_result && mysqli_num_rows($check) > 0);
 }
 
 function tracker_invalidate_online_blocks(): void
@@ -2983,7 +3100,6 @@ function get_user_icons(array $arr, bool $big = false): string {
         'donor'        => 'star16.gif',
         'warned'       => $big ? 'warnedbig.gif' : 'warned.gif',
         'chatwarned'   => 'chatwarned.gif',
-        'forumwarned'  => 'forumwarned.gif',
         'disabled'     => $big ? 'disabledbig.gif' : 'disabled.gif',
         'parked'       => 'parked.gif',
     ];
@@ -3011,11 +3127,6 @@ function get_user_icons(array $arr, bool $big = false): string {
     // Бан в чате
     if (($arr['schoutboxpos'] ?? '') === 'no') {
         $pics .= "<img src='pic/{$icons['chatwarned']}' alt='Забанен в чате' $style>";
-    }
-
-    // Бан на форуме
-    if (($arr['forumban'] ?? '') === 'no') {
-        $pics .= "<img src='pic/{$icons['forumwarned']}' alt='Забанен на форуме' $style>";
     }
 
     // Припаркован

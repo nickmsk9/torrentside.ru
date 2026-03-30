@@ -7,14 +7,19 @@ define('IN_ANNOUNCE', true);
 // === Зависимости ===
 require_once __DIR__ . '/include/secrets.php';      // инициализирует $mysqli
 require_once __DIR__ . '/include/cache.php';
-require_once __DIR__ . '/include/core_announce.php';
-require_once __DIR__ . '/include/functions_announce.php';
 require_once __DIR__ . '/include/benc.php';
 require_once __DIR__ . '/include/config.php';       // $announce_interval
 
+function announce_benc_resp_raw(string $payload): void
+{
+    header('Content-Type: text/plain');
+    header('Pragma: no-cache');
+    echo $payload;
+}
+
 // === Проверяем $mysqli ===
 if (!isset($mysqli) || !($mysqli instanceof mysqli)) {
-    benc_resp_raw(benc([
+    announce_benc_resp_raw(benc([
         'type' => 'dictionary',
         'value' => [
             'failure reason' => ['type' => 'string', 'value' => 'DB unavailable'],
@@ -37,7 +42,7 @@ function announce_log(string $msg): void {
 }
 
 function announce_fail(string $reason): void {
-    benc_resp_raw(benc([
+    announce_benc_resp_raw(benc([
         'type' => 'dictionary',
         'value' => [
             'failure reason' => ['type' => 'string', 'value' => $reason],
@@ -48,7 +53,7 @@ function announce_fail(string $reason): void {
 
 function announce_send(array $payload): void
 {
-    benc_resp_raw(benc([
+    announce_benc_resp_raw(benc([
         'type' => 'dictionary',
         'value' => $payload,
     ]));
@@ -118,8 +123,37 @@ function announce_cached_peer_pool(mysqli $mysqli, int $torrentId, int $limit): 
     return is_array($rows) ? $rows : [];
 }
 
+function announce_normalize_ip(string $ip): string
+{
+    $ip = trim($ip);
+    if ($ip === '') {
+        return '';
+    }
+
+    $packed = @inet_pton($ip);
+    if ($packed === false) {
+        return '';
+    }
+
+    $normalized = @inet_ntop($packed);
+    return is_string($normalized) && $normalized !== '' ? $normalized : $ip;
+}
+
+function announce_ip_equals(string $left, string $right): bool
+{
+    $leftRaw = trim($left);
+    $rightRaw = trim($right);
+    $left = announce_normalize_ip($left);
+    $right = announce_normalize_ip($right);
+    if ($left === '' || $right === '') {
+        return $leftRaw === $rightRaw;
+    }
+
+    return $left === $right;
+}
+
 // === Безопасный IP-детектор с учётом списков в XFF ===
-function getip(): string {
+function announce_get_ip(): string {
     $candidates = [];
     if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
         // Берём первый «реальный» IP слева
@@ -163,7 +197,8 @@ $event      = (string)($_GET['event'] ?? '');              // '', 'started', 'st
 $compact    = (int)($_GET['compact'] ?? 0);
 $no_peer_id = (int)($_GET['no_peer_id'] ?? 0);
 $numwant    = max(0, min(100, (int)($_GET['numwant'] ?? 50))); // верхний предел 100 — нормально
-$ip         = getip();
+$ip         = announce_get_ip();
+$requestIsIpv6 = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
 $agent      = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? '-'), 0, 200); // капнем длину
 
 // === Валидация бинарных полей и прочего ===
@@ -197,7 +232,7 @@ $userid = (int)$user['id'];
 
 // === Проверка закрепления IP для passkey (если включено) ===
 $passkey_ip = (string)($user['passkey_ip'] ?? '');
-if ($passkey_ip !== '' && $passkey_ip !== $ip) {
+if ($passkey_ip !== '' && !announce_ip_equals($passkey_ip, $ip)) {
     announce_fail('IP mismatch for this passkey');
 }
 
@@ -223,44 +258,63 @@ $seeder    = ($left === 0) ? 'yes' : 'no';
 $now       = date('Y-m-d H:i:s');
 
 // === Выдаем список пиров (numwant) ===
-$peers_compact = '';
-$peers_list    = [];
+$peers_compact_v4 = '';
+$peers_compact_v6 = '';
+$peers_list = [];
 
 if ($numwant > 0) {
     $peerPool = announce_cached_peer_pool($mysqli, $torrentid, max($numwant + 20, 80));
+    $ipv4Peers = [];
+    $ipv6Peers = [];
 
     foreach ($peerPool as $row) {
         if (($row['peer_id'] ?? '') === $peer_id) {
             continue;
         }
 
-        if ($compact) {
-            if (!filter_var((string)$row['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                continue;
-            }
+        $peerIp = announce_normalize_ip((string)($row['ip'] ?? ''));
+        $peerPort = (int)($row['port'] ?? 0);
+        if ($peerIp === '' || $peerPort < 1 || $peerPort > 65535) {
+            continue;
+        }
 
-            $ipParts = array_map('intval', explode('.', (string)$row['ip']));
-            if (count($ipParts) !== 4) {
-                continue;
-            }
+        $peer = [
+            'ip'   => $peerIp,
+            'port' => $peerPort,
+        ];
+        if (!$no_peer_id && isset($row['peer_id'])) {
+            $peer['peer id'] = (string)$row['peer_id'];
+        }
 
-            $peers_compact .= pack('C4n', $ipParts[0], $ipParts[1], $ipParts[2], $ipParts[3], (int)$row['port']);
-            if ((strlen($peers_compact) / 6) >= $numwant) {
-                break;
-            }
+        if (filter_var($peerIp, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            $ipv6Peers[] = $peer;
         } else {
-            $peer = [
-                'ip'   => (string)$row['ip'],
-                'port' => (int)$row['port'],
-            ];
-            if (!$no_peer_id) {
-                $peer['peer id'] = (string)$row['peer_id'];
+            $ipv4Peers[] = $peer;
+        }
+    }
+
+    $selectedPeers = $requestIsIpv6
+        ? array_merge($ipv6Peers, $ipv4Peers)
+        : array_merge($ipv4Peers, $ipv6Peers);
+    $selectedPeers = array_slice($selectedPeers, 0, $numwant);
+
+    if ($compact) {
+        foreach ($selectedPeers as $peer) {
+            if (filter_var((string)$peer['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+                $ipParts = array_map('intval', explode('.', (string)$peer['ip']));
+                if (count($ipParts) === 4) {
+                    $peers_compact_v4 .= pack('C4n', $ipParts[0], $ipParts[1], $ipParts[2], $ipParts[3], (int)$peer['port']);
+                }
+                continue;
             }
-            $peers_list[] = $peer;
-            if (count($peers_list) >= $numwant) {
-                break;
+
+            $packedIpv6 = @inet_pton((string)$peer['ip']);
+            if ($packedIpv6 !== false && strlen($packedIpv6) === 16) {
+                $peers_compact_v6 .= $packedIpv6 . pack('n', (int)$peer['port']);
             }
         }
+    } else {
+        $peers_list = $selectedPeers;
     }
 }
 
@@ -351,11 +405,13 @@ if ($event === 'stopped') {
     }
 
     // если клиент сообщил 'completed' — увеличим счётчик завершений
-    if ($event === 'completed') {
+    $completedDelta = 0;
+    if ($event === 'completed' && $seeder === 'yes' && $previousSeeder !== 'yes') {
         $stmt = $mysqli->prepare('UPDATE torrents SET times_completed = times_completed + 1 WHERE id = ?');
         $stmt->bind_param('i', $torrentid);
         $stmt->execute();
         $stmt->close();
+        $completedDelta = 1;
     }
 }
 
@@ -373,12 +429,36 @@ if ($deltaSeeders !== 0 || $deltaLeechers !== 0) {
 }
 
 // === Формируем ответ клиенту ===
+$complete = max(0, (int)($torrent['seeders'] ?? 0) + $deltaSeeders);
+$incomplete = max(0, (int)($torrent['leechers'] ?? 0) + $deltaLeechers);
+$downloadedCount = max(0, (int)($torrent['times_completed'] ?? 0) + ($completedDelta ?? 0));
+
+tracker_cache_set(
+    tracker_cache_key('announce', 'torrent', $info_hash_hex),
+    [
+        'id' => $torrentid,
+        'banned' => (string)($torrent['banned'] ?? 'no'),
+        'free' => (int)($torrent['free'] ?? 0),
+        'seeders' => $complete,
+        'leechers' => $incomplete,
+        'times_completed' => $downloadedCount,
+    ],
+    60
+);
+tracker_cache_delete(tracker_cache_key('announce', 'peerpool', 't' . $torrentid, 'l' . max($numwant + 20, 80)));
+
 $response = [
     'interval' => ['type' => 'integer', 'value' => (int)($announce_interval ?? 1800)],
+    'min interval' => ['type' => 'integer', 'value' => (int)($announce_interval ?? 1800)],
+    'complete' => ['type' => 'integer', 'value' => $complete],
+    'incomplete' => ['type' => 'integer', 'value' => $incomplete],
 ];
 
 if ($compact) {
-    $response['peers'] = ['type' => 'string', 'value' => $peers_compact];
+    $response['peers'] = ['type' => 'string', 'value' => $peers_compact_v4];
+    if ($peers_compact_v6 !== '') {
+        $response['peers6'] = ['type' => 'string', 'value' => $peers_compact_v6];
+    }
 } else {
     $peerNodes = [];
     foreach ($peers_list as $peer) {

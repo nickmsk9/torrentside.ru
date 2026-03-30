@@ -164,7 +164,6 @@ function dltable($name, $arr, $torrent)
 }
 
 dbconn(false);
-multitracker_ensure_schema();
 
 $id = 0 + (int)$_GET["id"];
 
@@ -189,8 +188,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['refresh_multitracker'
     tracker_cache_delete(tracker_cache_key('details', 'trackers', 't' . $id));
     $multitrackerRefreshDone = true;
 }
-
-multitracker_refresh_torrent_stats($id, 10);
 
 $row = tracker_cache_remember(
     tracker_cache_key('details', 'torrent', 't' . $id),
@@ -466,23 +463,7 @@ echo '<a id="startcomments"></a>' . "\n"; // без лишнего <p>
 
 if (!function_exists('details_comments_supports_threads')) {
     function details_comments_supports_threads(): bool {
-        static $ready = null;
-        if ($ready !== null) {
-            return $ready;
-        }
-
-        $check = sql_query("SHOW COLUMNS FROM comments LIKE 'parent_id'");
-        if ($check && mysqli_num_rows($check) > 0) {
-            return $ready = true;
-        }
-
-        $alter = sql_query("
-            ALTER TABLE comments
-            ADD COLUMN parent_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER torrent,
-            ADD KEY idx_torrent_parent_added (torrent, parent_id, added)
-        ");
-
-        return $ready = (bool)$alter;
+        return tracker_comments_supports_threads();
     }
 }
 

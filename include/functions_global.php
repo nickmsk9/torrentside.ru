@@ -133,6 +133,16 @@ function get_user_class_color($class, $username): string
 {
     global $tracker_lang;
 
+    if (function_exists('class_permissions_get_class_meta') && ($meta = class_permissions_get_class_meta((int)$class))) {
+        $title = htmlspecialchars(class_permissions_effective_class_name($meta), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $style = trim(class_permissions_class_style($meta));
+        if ($style !== '') {
+            return '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" title="' . $title . '">' . $username . '</span>';
+        }
+
+        return '<span title="' . $title . '">' . $username . '</span>';
+    }
+
     switch ($class) {
         case UC_SYSOP:
             return "<span style=\"background: linear-gradient(90deg, #00FFFF, #007FFF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: bold;\" title=\"{$tracker_lang['class_sysop']}\">$username</span>";
@@ -876,6 +886,11 @@ function is_debug_mode_enabled(): bool {
 
 function get_user_class_name($class) {
   global $tracker_lang;
+
+  if (function_exists('class_permissions_get_class_meta') && ($meta = class_permissions_get_class_meta((int)$class))) {
+    return class_permissions_effective_class_name($meta);
+  }
+
   switch ($class) {
     case UC_USER: return $tracker_lang['class_user'];
 
@@ -895,7 +910,16 @@ function get_user_class_name($class) {
 }
 
 function is_valid_user_class($class) {
-  return is_numeric($class) && floor($class) == $class && $class >= UC_USER && $class <= UC_SYSOP;
+  if (!is_numeric($class) || floor($class) != $class) {
+    return false;
+  }
+
+  $class = (int)$class;
+  if (function_exists('class_permissions_get_class_meta')) {
+    return class_permissions_get_class_meta($class) !== null;
+  }
+
+  return $class >= UC_USER && $class <= UC_SYSOP;
 }
 
 //----------------------------------
@@ -1306,54 +1330,52 @@ function textbbcode2(string $form, string $name, string $content = ''): void
                               'height=500,width=450,resizable=no,scrollbars=yes'); return false;" />
             </div>
 
-            <?php if ($scriptBase !== 'forums.php'): ?>
-              <script type="text/javascript">
-                (function($){
-                  var textarea, staticOffset, iLastMousePos = 0, iMin = 32;
-                  $.fn.TextAreaResizer = function(){
-                    return this.each(function(){
-                      textarea = $(this).addClass('processed'), staticOffset = null;
-                      $(this).wrap('<div class="resizable-textarea"><span></span></div>')
-                        .parent()
-                        .append($('<div class="grippie"></div>').on("mousedown",{el:this}, startDrag));
-                      var grippie = $('div.grippie', $(this).parent())[0];
-                      if (grippie) { grippie.style.marginRight = (grippie.offsetWidth - $(this)[0].offsetWidth) + 'px'; }
-                    });
+            <script type="text/javascript">
+              (function($){
+                var textarea, staticOffset, iLastMousePos = 0, iMin = 32;
+                $.fn.TextAreaResizer = function(){
+                  return this.each(function(){
+                    textarea = $(this).addClass('processed'), staticOffset = null;
+                    $(this).wrap('<div class="resizable-textarea"><span></span></div>')
+                      .parent()
+                      .append($('<div class="grippie"></div>').on("mousedown",{el:this}, startDrag));
+                    var grippie = $('div.grippie', $(this).parent())[0];
+                    if (grippie) { grippie.style.marginRight = (grippie.offsetWidth - $(this)[0].offsetWidth) + 'px'; }
+                  });
+                };
+                function startDrag(e){
+                  textarea = $(e.data.el);
+                  textarea.blur();
+                  iLastMousePos = mousePosition(e).y;
+                  staticOffset = textarea.height() - iLastMousePos;
+                  textarea.css('opacity', 0.25);
+                  $(document).on('mousemove', performDrag).on('mouseup', endDrag);
+                  return false;
+                }
+                function performDrag(e){
+                  var iThisMousePos = mousePosition(e).y;
+                  var iMousePos = staticOffset + iThisMousePos;
+                  if (iLastMousePos >= iThisMousePos) { iMousePos -= 5; }
+                  iLastMousePos = iThisMousePos;
+                  iMousePos = Math.max(iMin, iMousePos);
+                  textarea.height(iMousePos + 'px');
+                  if (iMousePos < iMin) endDrag(e);
+                  return false;
+                }
+                function endDrag(){
+                  $(document).off('mousemove', performDrag).off('mouseup', endDrag);
+                  textarea.css('opacity', 1).focus();
+                  textarea = null; staticOffset = null; iLastMousePos = 0;
+                }
+                function mousePosition(e){
+                  return {
+                    x: e.clientX + document.documentElement.scrollLeft,
+                    y: e.clientY + document.documentElement.scrollTop
                   };
-                  function startDrag(e){
-                    textarea = $(e.data.el);
-                    textarea.blur();
-                    iLastMousePos = mousePosition(e).y;
-                    staticOffset = textarea.height() - iLastMousePos;
-                    textarea.css('opacity', 0.25);
-                    $(document).on('mousemove', performDrag).on('mouseup', endDrag);
-                    return false;
-                  }
-                  function performDrag(e){
-                    var iThisMousePos = mousePosition(e).y;
-                    var iMousePos = staticOffset + iThisMousePos;
-                    if (iLastMousePos >= iThisMousePos) { iMousePos -= 5; }
-                    iLastMousePos = iThisMousePos;
-                    iMousePos = Math.max(iMin, iMousePos);
-                    textarea.height(iMousePos + 'px');
-                    if (iMousePos < iMin) endDrag(e);
-                    return false;
-                  }
-                  function endDrag(){
-                    $(document).off('mousemove', performDrag).off('mouseup', endDrag);
-                    textarea.css('opacity', 1).focus();
-                    textarea = null; staticOffset = null; iLastMousePos = 0;
-                  }
-                  function mousePosition(e){
-                    return {
-                      x: e.clientX + document.documentElement.scrollLeft,
-                      y: e.clientY + document.documentElement.scrollTop
-                    };
-                  }
-                  $(function(){ $('textarea.resizable:not(.processed)').TextAreaResizer(); });
-                })(jQuery);
-              </script>
-            <?php endif; ?>
+                }
+                $(function(){ $('textarea.resizable:not(.processed)').TextAreaResizer(); });
+              })(jQuery);
+            </script>
 
             <textarea class="resizable" id="area" name="<?= $nameEsc; ?>" style="width:100%;"
                       rows="<?= (int)$col; ?>"

@@ -332,8 +332,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         stderr($tracker_lang['error'] ?? 'Ошибка', $tracker_lang['unable_to_create_account'] ?? 'Не удалось создать аккаунт.');
     }
 
-    @include_once('./include/community.php');
-
     __log_app('REDIRECT', ['to' => "$DEFAULTBASEURL/userdetails.php?id=$id"]);
     header("Location: $DEFAULTBASEURL/userdetails.php?id=$id");
     exit;

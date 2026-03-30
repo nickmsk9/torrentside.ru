@@ -4,7 +4,6 @@ require_once("include/multitracker.php");
 gzip();
 
 dbconn(false);
-multitracker_ensure_schema();
 
 /* ===== per-user browse mode (list/thumbs) ===== */
 function get_browse_mode(): string {

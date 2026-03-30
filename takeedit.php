@@ -41,7 +41,6 @@ function dict_get(array $d, string $k, string $t) {
 
 /** Bootstrap */
 dbconn();
-multitracker_ensure_schema();
 loggedinorreturn();
 global $CURUSER, $mysqli_charset, $torrent_dir, $max_torrent_size, $announce_urls, $DEFAULTBASEURL, $SITENAME;
 
@@ -57,7 +56,7 @@ if (isset($_POST['id'])) $id = (int)$_POST['id'];
 if ($id <= 0) die("Access denied: Wrong ID");
 
 /** Permission + base row */
-$res = sql_query("SELECT owner, filename, save_as, image1, image2, image3, image4, image5 FROM torrents WHERE id = " . sqlesc($id));
+$res = sql_query("SELECT owner, filename, save_as, image1, image2, image3, image4, image5, tags, category FROM torrents WHERE id = " . sqlesc($id));
 $row = mysqli_fetch_assoc($res);
 if (!$row) die("Торрент не найден");
 if (((int)$CURUSER["id"] !== (int)$row["owner"] && get_user_class() < UC_MODERATOR) || !user_has_module('torrent_edit')) {
@@ -68,7 +67,6 @@ if (((int)$CURUSER["id"] !== (int)$row["owner"] && get_user_class() < UC_MODERAT
 $name    = trim((string)($_POST['name']  ?? ''));
 $descr   = (string)($_POST['descr'] ?? '');
 $tags    = (string)($_POST['tags']  ?? '');
-$oldtags = (string)($_POST['oldtags'] ?? '');
 $typeIn  = (int)($_POST['type'] ?? 0);
 
 if ($name === '' || $descr === '' || $typeIn <= 0) {
@@ -174,13 +172,15 @@ if ($update_torrent) {
 $replace = [", ", " , ", " ,"];
 $tagsNorm = mb_convert_case(unesc($tags), MB_CASE_LOWER, 'UTF-8');
 $tagsNorm = trim(str_replace($replace, ",", $tagsNorm), " ,");
-$oldtagsNorm = trim(unesc($oldtags), " ,");
+$oldtagsNorm = trim(mb_convert_case((string)($row['tags'] ?? ''), MB_CASE_LOWER, 'UTF-8'), " ,");
 
-$tagsArr    = $tagsNorm === '' ? [] : array_filter(array_map('trim', explode(',', $tagsNorm)));
-$oldTagsArr = $oldtagsNorm === '' ? [] : array_filter(array_map('trim', explode(',', $oldtagsNorm)));
+$tagsArr    = $tagsNorm === '' ? [] : array_values(array_unique(array_filter(array_map('trim', explode(',', $tagsNorm)))));
+$oldTagsArr = $oldtagsNorm === '' ? [] : array_values(array_unique(array_filter(array_map('trim', explode(',', $oldtagsNorm)))));
 
 $toAdd   = array_values(array_diff($tagsArr, $oldTagsArr));
 $toMinus = array_values(array_diff($oldTagsArr, $tagsArr));
+$oldCategory = (int)($row['category'] ?? 0);
+$affectedTagCategories = array_values(array_unique(array_filter([$oldCategory, $typeIn], static fn(int $category): bool => $category > 0)));
 
 /** Build search_text */
 $search_text = trim($shortfname . ' ' . $dname . ' ' . $name);
@@ -236,25 +236,46 @@ $updateset[] = "category    = " . sqlesc($typeIn);
 /** DB ops: transaction */
 sql_query("START TRANSACTION");
 
-/** Update tags stats (only within chosen category) */
-$ret = [];
-$res = sql_query("SELECT name FROM tags WHERE category = " . sqlesc($typeIn));
-while ($r = mysqli_fetch_assoc($res)) {
-    $ret[] = $r["name"];
-}
-$knownSet = array_flip($ret);
-$toPlusKnown   = array_values(array_intersect($tagsArr, array_keys($knownSet)));     // будут в tags (обновим)
-$toInsertNew   = array_values(array_diff($tagsArr, array_keys($knownSet)));          // новых нет в tags
-$toDecrement   = $toMinus; // всё, что убрали, уменьшаем
+/** Update tags stats (strict diff, with category-aware handling) */
+if ($oldCategory === $typeIn) {
+    $ret = [];
+    $res = sql_query("SELECT name FROM tags WHERE category = " . sqlesc($typeIn));
+    while ($r = mysqli_fetch_assoc($res)) {
+        $ret[] = $r["name"];
+    }
+    $knownSet = array_flip($ret);
+    $toPlusKnown = array_values(array_intersect($toAdd, array_keys($knownSet)));
+    $toInsertNew = array_values(array_diff($toAdd, array_keys($knownSet)));
 
-foreach ($toPlusKnown as $tag) {
-    sql_query("UPDATE tags SET howmuch = howmuch + 1 WHERE category = " . sqlesc($typeIn) . " AND name = " . sqlesc($tag));
-}
-foreach ($toDecrement as $tag) {
-    sql_query("UPDATE tags SET howmuch = GREATEST(howmuch - 1, 0) WHERE category = " . sqlesc($typeIn) . " AND name = " . sqlesc($tag));
-}
-foreach ($toInsertNew as $tag) {
-    sql_query("INSERT INTO tags (category, name, howmuch) VALUES (" . sqlesc($typeIn) . ", " . sqlesc($tag) . ", 1)");
+    foreach ($toPlusKnown as $tag) {
+        sql_query("UPDATE tags SET howmuch = howmuch + 1 WHERE category = " . sqlesc($typeIn) . " AND name = " . sqlesc($tag));
+    }
+    foreach ($toMinus as $tag) {
+        sql_query("UPDATE tags SET howmuch = GREATEST(howmuch - 1, 0) WHERE category = " . sqlesc($typeIn) . " AND name = " . sqlesc($tag));
+    }
+    foreach ($toInsertNew as $tag) {
+        sql_query("INSERT INTO tags (category, name, howmuch) VALUES (" . sqlesc($typeIn) . ", " . sqlesc($tag) . ", 1)");
+    }
+} else {
+    foreach ($oldTagsArr as $tag) {
+        sql_query("UPDATE tags SET howmuch = GREATEST(howmuch - 1, 0) WHERE category = " . sqlesc($oldCategory) . " AND name = " . sqlesc($tag));
+    }
+
+    $ret = [];
+    $res = sql_query("SELECT name FROM tags WHERE category = " . sqlesc($typeIn));
+    while ($r = mysqli_fetch_assoc($res)) {
+        $ret[] = $r["name"];
+    }
+    $knownSet = array_flip($ret);
+    $toPlusKnown = array_values(array_intersect($tagsArr, array_keys($knownSet)));
+    $toInsertNew = array_values(array_diff($tagsArr, array_keys($knownSet)));
+
+    foreach ($toPlusKnown as $tag) {
+        sql_query("UPDATE tags SET howmuch = howmuch + 1 WHERE category = " . sqlesc($typeIn) . " AND name = " . sqlesc($tag));
+    }
+    foreach ($toInsertNew as $tag) {
+        sql_query("INSERT INTO tags (category, name, howmuch) VALUES (" . sqlesc($typeIn) . ", " . sqlesc($tag) . ", 1)");
+    }
 }
 
 /** If torrent file was replaced: rebuild files table */
@@ -272,6 +293,7 @@ sql_query("UPDATE torrents SET " . implode(", ", $updateset) . " WHERE id = " . 
 
 sql_query("COMMIT");
 
+tracker_recount_tags_for_categories(...$affectedTagCategories);
 tracker_invalidate_torrent_cache($id, true);
 
 /** Log */

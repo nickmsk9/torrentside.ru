@@ -126,13 +126,6 @@ if (isset($_GET['id'], $_GET['secret'])) {
         fail('Невозможно обновить данные. Свяжитесь с администрацией.');
     }
 
-    // Лог
-    define('REGISTER', true);
-    define('TYPE', 'change_forum_password_admin');
-    $userid     = $id;
-    $chpassword = $newpassword;
-    include_once 'include/community.php';
-
     $body = <<<EOD
 Здравствуйте!
 

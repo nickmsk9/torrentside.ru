@@ -21,7 +21,6 @@ $navItems = [
     ['href' => 'browse.php',     'label' => 'Скачать'],
     ['href' => 'upload.php',     'label' => 'Залить'],
     ['href' => 'persons.php',    'label' => '<span class="text-blue">Актёры</span>', 'raw' => true],
-    ['href' => 'forums.php',      'label' => 'Форум'],
     ['href' => 'hit.php',        'label' => 'Топ 20'],
     ['href' => 'casino.php',     'label' => 'Казино'],
     ['href' => 'super_loto.php', 'label' => 'Лото'],

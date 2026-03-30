@@ -103,28 +103,34 @@ if (!empty($user['birthday']) && $user['birthday'] !== '0000-00-00') {
     }
 }
 
-// Формируем список всех рангов (1 запрос, без повторного запроса на картинку)
-$rangclass1 = "<option value=\"0\">---Выбрать ранг---</option>\n";
-$currentRankPic  = '';
-$currentRankName = '';
-
-$res = sql_query("SELECT id, name, rangpic FROM rangclass ORDER BY name") or sqlerr(__FILE__, __LINE__);
-while ($rank = mysqli_fetch_assoc($res)) {
-    $rid      = (int)$rank['id'];
-    $rname    = htmlspecialchars($rank['name'] ?? '');
-    $selected = ((int)$user['rangclass'] === $rid) ? ' selected' : '';
-    $rangclass1 .= "<option value=\"{$rid}\"{$selected}>{$rname}</option>\n";
-
-    if ($selected) {
-        $currentRankPic  = htmlspecialchars($rank['rangpic'] ?? '');
-        $currentRankName = $rname;
-    }
-}
-
-// Картинка текущего ранга (если есть)
+// Текущий ранг / переходящий кубок
+$currentRank = ((int)($user['rangclass'] ?? 0) > 0)
+    ? class_permissions_get_trophy((int)$user['rangclass'])
+    : null;
 $rangclass = '';
-if ($currentRankPic !== '') {
-    $rangclass = "<img src=\"/pic/{$currentRankPic}\" alt=\"{$currentRankName}\" title=\"{$currentRankName}\" style='margin-left:5pt' align=\"top\">";
+$rangclassLabel = 'Ранг';
+if ($currentRank) {
+    $currentRankPic = htmlspecialchars((string)($currentRank['rangpic'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $currentRankName = htmlspecialchars((string)($currentRank['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $extra = '';
+
+    if (($currentRank['is_transition'] ?? 'no') === 'yes') {
+        $rangclassLabel = 'Переходящий кубок';
+        $assignedAt = trim((string)($currentRank['holder_assigned_at'] ?? ''));
+        $holderComment = trim((string)($currentRank['holder_comment'] ?? ''));
+        if ($assignedAt !== '') {
+            $extra .= '<br><small>С ' . htmlspecialchars($assignedAt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</small>';
+        }
+        if ($holderComment !== '') {
+            $extra .= '<br><small>' . htmlspecialchars($holderComment, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</small>';
+        }
+    }
+
+    $image = $currentRankPic !== ''
+        ? "<img src=\"/pic/{$currentRankPic}\" alt=\"{$currentRankName}\" title=\"{$currentRankName}\" style='margin-left:5pt' align=\"top\">"
+        : '';
+
+    $rangclass = $image . '<span style="margin-left:6px"><b>' . $currentRankName . '</b>' . $extra . '</span>';
 }
 
 // Заголовок страницы
@@ -375,7 +381,7 @@ HTML;
 
 // ------ Ранг
 if ($rangclass !== '') {
-    echo '<tr><td class="rowhead">Ранг <img src="pic/logs.gif"></td><td class="lol" align="left">' . $rangclass . '</td></tr>';
+    echo '<tr><td class="rowhead">' . htmlspecialchars($rangclassLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ' <img src="pic/logs.gif"></td><td class="lol" align="left">' . $rangclass . '</td></tr>';
 }
 
 // ------ Бонусы

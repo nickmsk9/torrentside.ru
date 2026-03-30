@@ -60,8 +60,7 @@ ignored unless relevant for the type of search chosen.</li>
 'Отключенные IP' к тем чьи IP отключены.</li>
 <li>The 'p' columns in the results show partial stats, that is, those
 of the torrents in progress.</li>
-<li>Колонка история отображает количество постов в форуме и комментариев к торрентам,
-соотвественно, как и ведет на страницу истории.
+<li>Колонка история отображает историю комментариев к торрентам и ведет на страницу истории.
 <?
 	end_frame();
 }

@@ -213,11 +213,6 @@ if ($birthdayIn !== '') {
     $birthday = $birthdayIn;
 }
 
-// Подпись форума
-$signature = trim((string)($_POST['signature'] ?? ''));
-$signature = mb_substr($signature, 0, 255);
-$signatrue = !empty($_POST['signatrue']) ? 'yes' : 'no';
-
 /* ---------- Уведомления ---------- */
 $pmnotif    = (($_POST["pmnotif"]    ?? "no") === "yes") ? "yes" : "no";
 $emailnotif = (($_POST["emailnotif"] ?? "no") === "yes") ? "yes" : "no";
@@ -235,9 +230,7 @@ while ($arr = mysqli_fetch_assoc($res)) {
 }
 
 /* ---------- На страницу ---------- */
-$tpp    = min(100, max(0, (int)($_POST["torrentsperpage"] ?? 0)));
-$toppp  = min(100, max(0, (int)($_POST["topicsperpage"]  ?? 0)));
-$postpp = min(100, max(0, (int)($_POST["postsperpage"]   ?? 0)));
+$tpp = min(100, max(0, (int)($_POST["torrentsperpage"] ?? 0)));
 
 /* ---------- Telegram (вместо ICQ) ---------- */
 $telegram_in = trim((string)unesc($_POST['telegram'] ?? ''));
@@ -268,13 +261,9 @@ $updateset[] = "skype = " . sqlesc($skype);
 $updateset[] = "country = " . (int)$country;
 $updateset[] = "stylesheet = " . (int)$stylesheet;
 $updateset[] = "torrentsperpage = " . (int)$tpp;
-$updateset[] = "topicsperpage = " . (int)$toppp;
-$updateset[] = "postsperpage = " . (int)$postpp;
 $updateset[] = "telegram = " . sqlesc($telegram);
 $updateset[] = "website = " . sqlesc($website_out);
 $updateset[] = "language = " . sqlesc($language);
-$updateset[] = "signature = " . sqlesc($signature);
-$updateset[] = "signatrue = " . sqlesc($signatrue);
 
 if ($birthday === null) {
     $updateset[] = "birthday = NULL";

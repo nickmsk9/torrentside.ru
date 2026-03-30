@@ -4,12 +4,63 @@ if (!function_exists('bdec')) {
     require_once __DIR__ . '/benc.php';
 }
 
+if (!function_exists('multitracker_safe_query')) {
+    function multitracker_safe_query(string $query)
+    {
+        global $mysqli;
+
+        if (!($mysqli instanceof mysqli)) {
+            return null;
+        }
+
+        try {
+            return $mysqli->query($query);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('multitracker_table_exists')) {
+    function multitracker_table_exists(string $table): bool
+    {
+        if (!isset($GLOBALS['multitracker_table_exists_cache']) || !is_array($GLOBALS['multitracker_table_exists_cache'])) {
+            $GLOBALS['multitracker_table_exists_cache'] = [];
+        }
+        $cache =& $GLOBALS['multitracker_table_exists_cache'];
+
+        $table = preg_replace('/[^a-z0-9_]/i', '', $table);
+        if ($table === '') {
+            return false;
+        }
+
+        if (array_key_exists($table, $cache)) {
+            return $cache[$table];
+        }
+
+        $res = multitracker_safe_query("SHOW TABLES LIKE " . sqlesc($table));
+        return $cache[$table] = ($res instanceof mysqli_result && mysqli_num_rows($res) > 0);
+    }
+}
+
+if (!function_exists('multitracker_schema_ready')) {
+    function multitracker_schema_ready(): bool
+    {
+        return multitracker_table_exists('torrent_external_trackers')
+            && multitracker_table_exists('torrent_external_tracker_stats');
+    }
+}
+
 if (!function_exists('multitracker_ensure_schema')) {
-    function multitracker_ensure_schema(): void
+    function multitracker_ensure_schema(bool $allowMigrations = false): bool
     {
         static $ready = false;
         if ($ready) {
-            return;
+            return true;
+        }
+
+        if (!$allowMigrations) {
+            return $ready = multitracker_schema_ready();
         }
 
         sql_query("
@@ -46,7 +97,8 @@ if (!function_exists('multitracker_ensure_schema')) {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
 
-        $ready = true;
+        unset($GLOBALS['multitracker_table_exists_cache']);
+        return $ready = multitracker_schema_ready();
     }
 }
 
@@ -248,7 +300,9 @@ if (!function_exists('multitracker_save_trackers')) {
     {
         global $mysqli;
 
-        multitracker_ensure_schema();
+        if (!multitracker_ensure_schema(true)) {
+            return;
+        }
         $torrentId = (int)$torrentId;
         if ($torrentId <= 0) {
             return;
@@ -289,7 +343,9 @@ if (!function_exists('multitracker_save_trackers')) {
 if (!function_exists('multitracker_get_stored_trackers')) {
     function multitracker_get_stored_trackers(int $torrentId): array
     {
-        multitracker_ensure_schema();
+        if (!multitracker_schema_ready()) {
+            return [];
+        }
 
         $torrentId = (int)$torrentId;
         if ($torrentId <= 0) {
@@ -338,7 +394,16 @@ if (!function_exists('multitracker_tracker_urls_for_download')) {
 if (!function_exists('multitracker_stats_summary_sql')) {
     function multitracker_stats_summary_sql(string $torrentAlias = 'torrents'): string
     {
-        multitracker_ensure_schema();
+        if (!multitracker_schema_ready()) {
+            return "LEFT JOIN (
+                SELECT
+                    0 AS torrent_id,
+                    0 AS external_seeders,
+                    0 AS external_leechers,
+                    0 AS external_completed,
+                    NULL AS external_fetched_at
+            ) mts ON 1 = 0";
+        }
 
         return "LEFT JOIN (
             SELECT
@@ -356,7 +421,9 @@ if (!function_exists('multitracker_stats_summary_sql')) {
 if (!function_exists('multitracker_get_tracker_details')) {
     function multitracker_get_tracker_details(int $torrentId): array
     {
-        multitracker_ensure_schema();
+        if (!multitracker_schema_ready()) {
+            return [];
+        }
 
         $torrentId = (int)$torrentId;
         if ($torrentId <= 0) {
@@ -798,7 +865,9 @@ if (!function_exists('multitracker_store_tracker_stats')) {
     {
         global $mysqli;
 
-        multitracker_ensure_schema();
+        if (!multitracker_ensure_schema(true)) {
+            return;
+        }
 
         $trackerId = (int)$trackerId;
         $torrentId = (int)$torrentId;
@@ -831,7 +900,9 @@ if (!function_exists('multitracker_store_tracker_stats')) {
 if (!function_exists('multitracker_refresh_due_stats')) {
     function multitracker_refresh_due_stats(?int $limit = null): int
     {
-        multitracker_ensure_schema();
+        if (!multitracker_schema_ready()) {
+            return 0;
+        }
 
         $ttl = multitracker_stats_ttl();
         $limit = $limit ?? multitracker_scrape_limit();
@@ -871,7 +942,9 @@ if (!function_exists('multitracker_refresh_due_stats')) {
 if (!function_exists('multitracker_refresh_torrent_stats')) {
     function multitracker_refresh_torrent_stats(int $torrentId, int $limit = 3, bool $force = false): int
     {
-        multitracker_ensure_schema();
+        if (!multitracker_schema_ready()) {
+            return 0;
+        }
 
         $torrentId = (int)$torrentId;
         if ($torrentId <= 0) {

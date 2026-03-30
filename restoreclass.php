@@ -47,6 +47,7 @@ if ($memcached instanceof Memcached) {
         $memcached->delete("user_session_{$userId}_{$pass}");
     }
 }
+class_permissions_invalidate_user_auth_cache($userId);
 
 // Перезагрузка CURUSER и обновление сессии + кэша
 reload_user($userId);

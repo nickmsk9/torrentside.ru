@@ -60,8 +60,12 @@ if ($CURUSER['override_class'] != 255) {
 // === Обработка запроса смены класса ===
 if (isset($_GET['action']) && $_GET['action'] === 'editclass') {
     $newclass = (int)($_GET['class'] ?? 0);
+    $allowedClasses = array_map(
+        static fn(array $meta): int => (int)$meta['base_class'],
+        class_permissions_get_selectable_classes((int)$CURUSER['class'] - 1, true)
+    );
 
-    if ($newclass > $CURUSER['class']) {
+    if ($newclass > $CURUSER['class'] || !in_array($newclass, $allowedClasses, true)) {
         stderr($tracker_lang['error'], $tracker_lang['class_override_denied']);
     }
 
@@ -72,6 +76,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'editclass') {
 
     // Удаление и перезагрузка CURUSER
     clear_user_login_cache($userId);
+    class_permissions_invalidate_user_auth_cache($userId);
     reload_user($userId);
 
     header("Location: $returnto");
@@ -94,8 +99,9 @@ begin_frame("Смена класса");
                 <select name="class">
                     <?php
                     $maxclass = get_user_class() - 1;
-                    for ($i = 0; $i <= $maxclass; ++$i) {
-                        echo "<option value=\"$i\">" . htmlspecialchars(get_user_class_name($i)) . "</option>\n";
+                    foreach (class_permissions_get_selectable_classes($maxclass, true) as $classMeta) {
+                        $baseClass = (int)$classMeta['base_class'];
+                        echo "<option value=\"{$baseClass}\">" . htmlspecialchars(get_user_class_name($baseClass), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</option>\n";
                     }
                     ?>
                 </select>

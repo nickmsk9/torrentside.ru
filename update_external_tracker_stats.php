@@ -5,7 +5,7 @@ require_once __DIR__ . '/include/bittorrent.php';
 require_once __DIR__ . '/include/multitracker.php';
 
 dbconn(false);
-multitracker_ensure_schema();
+multitracker_ensure_schema(true);
 
 $limit = isset($_GET['limit']) ? max(1, min(50, (int)$_GET['limit'])) : multitracker_scrape_limit();
 $processed = multitracker_refresh_due_stats($limit);

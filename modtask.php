@@ -70,7 +70,7 @@ if ($action === 'edituser') {
     }
 
     // Текущие данные пользователя
-    $res = sql_query("SELECT warned, enabled, username, schoutboxpos, class, hiderating, uploaded, downloaded, modcomment 
+    $res = sql_query("SELECT warned, enabled, username, schoutboxpos, class, hiderating, uploaded, downloaded, modcomment, rangclass
                       FROM users WHERE id = " . sqlesc($userid))
            or sqlerr(__FILE__, __LINE__);
     $arr = mysqli_fetch_assoc($res) or puke("Ошибка MySQL");
@@ -83,6 +83,7 @@ if ($action === 'edituser') {
     $curUploaded    = (float)$arr['uploaded'];
     $curDownloaded  = (float)$arr['downloaded'];
     $dbModcomment   = (string)($arr['modcomment'] ?? '');
+    $curRangclass   = (int)($arr['rangclass'] ?? 0);
 
     // Модкоммент можно редактировать только SYSOP
     if (get_user_class() == UC_SYSOP) {
@@ -237,9 +238,25 @@ $updateset[] = "supportfor = " . sqlesc($supportfor);
 $updateset[] = "support = " . sqlesc($support);
 $updateset[] = "avatar = " . sqlesc($avatar);
 $updateset[] = "hiderating = " . sqlesc($hiderating);
-$updateset[] = "rangclass = " . (int)$rangclass;
 $updateset[] = "username = " . sqlesc($username);
 $updateset[] = "class_profile_id = " . max(0, $classProfileId);
+
+    if ($curRangclass !== $rangclass) {
+        $oldRank = $curRangclass > 0 ? class_permissions_get_trophy($curRangclass) : null;
+        $newRank = $rangclass > 0 ? class_permissions_get_trophy($rangclass) : null;
+        $oldRankName = $oldRank ? (string)$oldRank['name'] : 'без ранга';
+        $newRankName = $newRank ? (string)$newRank['name'] : 'без ранга';
+
+        if ($rangclass <= 0) {
+            $rankAction = 'Снят ранг/кубок';
+        } elseif (($newRank['is_transition'] ?? 'no') === 'yes') {
+            $rankAction = 'Выдан переходящий кубок';
+        } else {
+            $rankAction = 'Изменен ранг';
+        }
+
+        $modcomment = gmdate("Y-m-d") . " - {$rankAction}: \"{$oldRankName}\" -> \"{$newRankName}\" пользователем {$CURUSER['username']}.\n" . $modcomment;
+    }
 
 
     if ($modcomm !== '') {
@@ -255,6 +272,11 @@ $updateset[] = "class_profile_id = " . max(0, $classProfileId);
 
     sql_query("UPDATE users SET " . implode(", ", $updateset) . " $birthdayClause WHERE id = " . (int)$userid)
         or sqlerr(__FILE__, __LINE__);
+
+    if ($curRangclass !== $rangclass) {
+        class_permissions_set_user_rank($userid, $rangclass, (int)$CURUSER['id'], 'Изменено из модерации пользователя.');
+    }
+    class_permissions_invalidate_user_auth_cache($userid);
 
     // --- Удаление пользователя ---
     if ($deluser) {

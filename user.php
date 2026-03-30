@@ -320,11 +320,18 @@ if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_ME
 
         print("<h2>Модерирование</h2>\n");
 
-        $rangclass1 = "<option value='0'>---Выбрать ранг---</option>\n";
-        $res28 = mysqli_query($mysqli, "SELECT * FROM rangclass ORDER BY name") or sqlerr(__FILE__, __LINE__);
-        while ($rank = mysqli_fetch_assoc($res28)) {
-            $selected = ((int)$user['rangclass'] === (int)$rank['id']) ? " selected" : "";
-            $rangclass1 .= "<option value='" . (int)$rank['id'] . "'$selected>" . htmlspecialchars($rank['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</option>\n";
+        $rangclass1 = "<option value='0'>--- Без ранга / кубка ---</option>\n";
+        foreach (class_permissions_get_trophies(false) as $rank) {
+            $rankId = (int)($rank['id'] ?? 0);
+            $selected = ((int)$user['rangclass'] === $rankId) ? " selected" : "";
+            $label = htmlspecialchars((string)($rank['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            if (($rank['is_transition'] ?? 'no') === 'yes') {
+                $label .= ' [переходящий кубок]';
+                if (!empty($rank['holder_username']) && (int)($rank['holder_user_id'] ?? 0) !== (int)$user['id']) {
+                    $label .= ' [' . htmlspecialchars((string)$rank['holder_username'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ']';
+                }
+            }
+            $rangclass1 .= "<option value='{$rankId}'{$selected}>{$label}</option>\n";
         }
 
         print("<form method=\"post\" action=\"modtask.php\">\n");
@@ -352,8 +359,9 @@ if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_ME
             } else {
                 $maxclass = get_user_class() - 1;
             }
-            for ($i = 0; $i <= $maxclass; ++$i) {
-                print("<option value=\"$i\"" . ((int)$user["class"] === $i ? " selected" : "") . ">" . get_user_class_name($i) . "</option>\n");
+            foreach (class_permissions_get_selectable_classes($maxclass) as $classMeta) {
+                $baseClass = (int)$classMeta['base_class'];
+                print("<option value=\"{$baseClass}\"" . ((int)$user["class"] === $baseClass ? " selected" : "") . ">" . htmlspecialchars(get_user_class_name($baseClass), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</option>\n");
             }
             print("</select></td></tr>\n");
         }
@@ -393,7 +401,7 @@ if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_ME
         if ($CURUSER["class"] < UC_ADMINISTRATOR) {
             print("<input type=\"hidden\" name=\"rangclass\" value=\"" . (int)$user['rangclass'] . "\">\n");
         } else {
-            print("<tr><td class=\"rowhead\">Ранг</td><td colspan=\"2\" align=\"left\"><select name=\"rangclass\">\n" . $rangclass1 . "\n</select></td></tr>\n");
+            print("<tr><td class=\"rowhead\">Ранг / кубок</td><td colspan=\"2\" align=\"left\"><select name=\"rangclass\">\n" . $rangclass1 . "\n</select><br><small>Переходящий кубок сразу сменит текущего владельца.</small></td></tr>\n");
         }
 
         $enabled = (($user['enabled'] ?? '') === 'yes');

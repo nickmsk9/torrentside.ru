@@ -4,7 +4,6 @@ require_once "include/benc.php";
 require_once "include/multitracker.php";
 
 dbconn();
-multitracker_ensure_schema();
 
 /* ===================== helpers ===================== */
 

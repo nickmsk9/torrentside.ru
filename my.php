@@ -107,8 +107,6 @@ tr(
 
 /* -------- Пагинация -------- */
 tr("Торрентов на страницу", "<input type=\"text\" size=\"10\" name=\"torrentsperpage\" value=\"" . (int)($CURUSER["torrentsperpage"] ?? 0) . "\"> (0 — по умолчанию)", 1);
-tr("Тем на страницу", "<input type=\"text\" size=\"10\" name=\"topicsperpage\" value=\"" . (int)($CURUSER["topicsperpage"] ?? 0) . "\"> (0 — по умолчанию)", 1);
-tr("Сообщений на страницу", "<input type=\"text\" size=\"10\" name=\"postsperpage\" value=\"" . (int)($CURUSER["postsperpage"] ?? 0) . "\"> (0 — по умолчанию)", 1);
 
 /* -------- ЛС -------- */
 tr(
@@ -229,12 +227,6 @@ ob_start();
 textbbcode("profileform", "info", (string)($CURUSER["info"] ?? ""));
 $bbcode_editor = ob_get_clean();
 tr("О себе", $bbcode_editor . "<br>Показывается на вашей публичной странице. Допустимы <a href=\"tags.php\" target=\"_blank\">BB-коды</a>.", 1);
-
-/* -------- Подпись форума -------- */
-$signature = h((string)($CURUSER['signature'] ?? ''));
-$signatureOn = ((string)($CURUSER['signatrue'] ?? 'yes') === 'yes') ? ' checked' : '';
-tr("Подпись форума", "<textarea name=\"signature\" rows=\"3\" cols=\"60\">{$signature}</textarea>", 1);
-tr("Показывать подпись в форуме", "<input type='checkbox' name='signatrue' value='yes'{$signatureOn}>", 1);
 ?>
 
 <tr><td class="lol" colspan="2" align="center">

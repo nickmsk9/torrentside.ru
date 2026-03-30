@@ -9,7 +9,6 @@ require_once __DIR__ . "/include/multitracker.php";
 global $mysqli, $mysqli_charset, $announce_urls, $DEFAULTBASEURL, $SITENAME, $torrent_dir, $max_torrent_size, $tracker_lang, $CURUSER;
 
 dbconn(false);
-multitracker_ensure_schema();
 loggedinorreturn();
 parked();
 
@@ -249,6 +248,7 @@ foreach ($toInsert as $tag) {
     sql_query("INSERT INTO tags (category, name, howmuch) VALUES (" . sqlesc($catid) . ", " . sqlesc($tag) . ", 1)") or sqlerr(__FILE__, __LINE__);
 }
 
+tracker_recount_tags_for_categories((int)$catid);
 tracker_invalidate_torrent_cache($id, true);
 
 // --- Лог

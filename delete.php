@@ -71,6 +71,8 @@ else
 }
 
 deletetorrent($id);
+tracker_recount_tags_for_categories($tagCategory);
+tracker_invalidate_torrent_cache($id, true);
 
 write_log("Торрент $id ($row[name]) был удален пользователем $CURUSER[username] ($reasonstr)\n","F25B61","torrent");
 

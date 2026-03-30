@@ -66,23 +66,7 @@ function clean_text(?string $s): string {
 }
 
 function comments_supports_threads(): bool {
-    static $ready = null;
-    if ($ready !== null) {
-        return $ready;
-    }
-
-    $check = sql_query("SHOW COLUMNS FROM comments LIKE 'parent_id'");
-    if ($check && mysqli_num_rows($check) > 0) {
-        return $ready = true;
-    }
-
-    $alter = sql_query("
-        ALTER TABLE comments
-        ADD COLUMN parent_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER torrent,
-        ADD KEY idx_torrent_parent_added (torrent, parent_id, added)
-    ");
-
-    return $ready = (bool)$alter;
+    return tracker_comments_supports_threads();
 }
 
 function comment_editor_html(string $formName, string $textareaName, string $text = '', ?string $sendJs = null, ?string $cancelJs = null): string {

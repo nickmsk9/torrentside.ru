@@ -568,12 +568,76 @@ function encode_php($text) {
     return $text;
 }
 
+function tracker_person_names_map(): array {
+    global $mysqli;
+
+    if (!($mysqli instanceof mysqli)) {
+        return [];
+    }
+
+    $resolver = static function () use ($mysqli): array {
+        $pages = [];
+        $hasAliases = false;
+
+        if ($check = mysqli_query($mysqli, "SHOW TABLES LIKE 'person_aliases'")) {
+            $hasAliases = mysqli_num_rows($check) > 0;
+            mysqli_free_result($check);
+        }
+
+        if ($hasAliases) {
+            $sql = "
+                SELECT p.id, p.name AS alias_name
+                FROM pages p
+                WHERE p.is_published = 'yes'
+                UNION ALL
+                SELECT pa.person_id AS id, pa.alias_name
+                FROM person_aliases pa
+            ";
+        } else {
+            $sql = "SELECT id, name AS alias_name FROM pages";
+        }
+
+        if ($res = mysqli_query($mysqli, $sql)) {
+            while ($row = mysqli_fetch_assoc($res)) {
+                $name = trim((string)($row['alias_name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+                $pages[mb_strtolower($name, 'UTF-8')] = (int)$row['id'];
+            }
+            mysqli_free_result($res);
+        }
+
+        return $pages;
+    };
+
+    if (function_exists('tracker_cache_remember')) {
+        $cached = tracker_cache_remember('persons:names_map_v3', 300, $resolver);
+        return is_array($cached) ? $cached : [];
+    }
+
+    return $resolver();
+}
+
 function format_comment(string $text, bool $strip_html = true): string {
-    global $smilies, $privatesmilies, $mysqli, $memcached, $nummatch;
+    global $smilies, $privatesmilies, $mysqli, $nummatch;
 
     if (!isset($nummatch)) $nummatch = 0;
     if (!is_array($smilies))        $smilies = [];
     if (!is_array($privatesmilies)) $privatesmilies = [];
+
+    $cacheKey = null;
+    if (
+        $text !== ''
+        && function_exists('tracker_cache_get')
+        && stripos($text, '[spoiler') === false
+    ) {
+        $cacheKey = tracker_cache_key('fmt', 'comment', 's' . (int)$strip_html, 'h' . md5($text));
+        $cached = tracker_cache_get($cacheKey, $cacheHit);
+        if ($cacheHit && is_string($cached)) {
+            return $cached;
+        }
+    }
 
     // Безопасная экранизация до парсинга BB
     $s = $strip_html
@@ -588,69 +652,7 @@ function format_comment(string $text, bool $strip_html = true): string {
        пропуская содержимое [url], [img], [code].
     ================================================================= */
     try {
-        // 1) Получаем кэш имён
-        $pages = [];
-        $cacheKey = 'persons:names_map_v3'; // name(lower) => id
-        $haveMemc = class_exists('Memcached');
-
-        if ($haveMemc) {
-            if (!isset($memcached) || !($memcached instanceof Memcached)) {
-                $memcached = new Memcached();
-                $memcached->addServer('127.0.0.1', 11211);
-            }
-            $pages = $memcached->get($cacheKey);
-            if ($memcached->getResultCode() !== Memcached::RES_SUCCESS || !is_array($pages)) {
-                $pages = [];
-                $hasAliases = false;
-                if ($check = mysqli_query($mysqli, "SHOW TABLES LIKE 'person_aliases'")) {
-                    $hasAliases = mysqli_num_rows($check) > 0;
-                }
-                if ($hasAliases) {
-                    $sql = "
-                        SELECT p.id, p.name AS alias_name
-                        FROM pages p
-                        WHERE p.is_published = 'yes'
-                        UNION ALL
-                        SELECT pa.person_id AS id, pa.alias_name
-                        FROM person_aliases pa
-                    ";
-                } else {
-                    $sql = "SELECT id, name AS alias_name FROM pages";
-                }
-                if ($res = mysqli_query($mysqli, $sql)) {
-                    while ($row = mysqli_fetch_assoc($res)) {
-                        $name = trim((string)$row['alias_name']);
-                        if ($name === '') continue;
-                        $pages[mb_strtolower($name, 'UTF-8')] = (int)$row['id'];
-                    }
-                }
-                $memcached->set($cacheKey, $pages, 300);
-            }
-        } else {
-            $hasAliases = false;
-            if ($check = mysqli_query($mysqli, "SHOW TABLES LIKE 'person_aliases'")) {
-                $hasAliases = mysqli_num_rows($check) > 0;
-            }
-            if ($hasAliases) {
-                $sql = "
-                    SELECT p.id, p.name AS alias_name
-                    FROM pages p
-                    WHERE p.is_published = 'yes'
-                    UNION ALL
-                    SELECT pa.person_id AS id, pa.alias_name
-                    FROM person_aliases pa
-                ";
-            } else {
-                $sql = "SELECT id, name AS alias_name FROM pages";
-            }
-            if ($res = mysqli_query($mysqli, $sql)) {
-                while ($row = mysqli_fetch_assoc($res)) {
-                    $name = trim((string)$row['alias_name']);
-                    if ($name === '') continue;
-                    $pages[mb_strtolower($name, 'UTF-8')] = (int)$row['id'];
-                }
-            }
-        }
+        $pages = tracker_person_names_map();
 
         if ($pages) {
             // 2) Строим регэксп-альтернативу по именам (длинные вперёд)
@@ -846,7 +848,13 @@ function format_comment(string $text, bool $strip_html = true): string {
         }
     }
 
-    return function_exists('check_images') ? check_images($s) : $s;
+    $result = function_exists('check_images') ? check_images($s) : $s;
+
+    if ($cacheKey !== null && function_exists('tracker_cache_set')) {
+        tracker_cache_set($cacheKey, $result, 1800);
+    }
+
+    return $result;
 }
 
 

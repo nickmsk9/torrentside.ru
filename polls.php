@@ -49,6 +49,7 @@
 
 		sql_query("DELETE FROM pollanswers WHERE pollid = $pollid") or sqlerr(__FILE__, __LINE__);
 		sql_query("DELETE FROM polls WHERE id = $pollid") or sqlerr(__FILE__, __LINE__);
+        tracker_invalidate_home_blocks();
 		if ($returnto == "main")
 			header("Location: $DEFAULTBASEURL");
 		else

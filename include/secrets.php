@@ -24,5 +24,33 @@ if (!$mysqli->set_charset($mysqli_charset)) {
 $memcache_host = "memcached";
 $memcache_port = 11211;
 
-$memcached = new Memcached();
-$memcached->addServer($memcache_host, $memcache_port);
+$memcached = null;
+$mc = null;
+$mc1 = null;
+
+if (class_exists('Memcached')) {
+    $memcached = new Memcached('torrentside_pool');
+
+    if (empty($memcached->getServerList())) {
+        $memcached->addServer($memcache_host, $memcache_port);
+    }
+
+    if (defined('Memcached::OPT_BINARY_PROTOCOL')) {
+        $memcached->setOption(Memcached::OPT_BINARY_PROTOCOL, true);
+    }
+    if (defined('Memcached::OPT_TCP_NODELAY')) {
+        $memcached->setOption(Memcached::OPT_TCP_NODELAY, true);
+    }
+    if (defined('Memcached::OPT_CONNECT_TIMEOUT')) {
+        $memcached->setOption(Memcached::OPT_CONNECT_TIMEOUT, 80);
+    }
+    if (defined('Memcached::OPT_RETRY_TIMEOUT')) {
+        $memcached->setOption(Memcached::OPT_RETRY_TIMEOUT, 1);
+    }
+    if (defined('Memcached::OPT_POLL_TIMEOUT')) {
+        $memcached->setOption(Memcached::OPT_POLL_TIMEOUT, 80);
+    }
+
+    $mc = $memcached;
+    $mc1 = $memcached;
+}

@@ -871,11 +871,17 @@ function userlogin(bool $lightmode = false): void {
     $nip_u = ($nip !== false) ? sprintf('%u', $nip) : null;
 
     if ($use_ipbans && !$lightmode && $nip_u !== null) {
-        // Быстрое «есть ли бан на этот IP?»
-        $res = sql_query("SELECT 1 FROM bans WHERE {$nip_u} >= first AND {$nip_u} <= last LIMIT 1");
-        if ($res instanceof mysqli_result && $res->fetch_row()) {
+        $isIpBanned = tracker_cache_remember(
+            tracker_cache_key('ipban', 'check', $nip_u),
+            60,
+            static function () use ($nip_u): bool {
+                $res = sql_query("SELECT 1 FROM bans WHERE {$nip_u} >= first AND {$nip_u} <= last LIMIT 1");
+                return $res instanceof mysqli_result && (bool)$res->fetch_row();
+            }
+        );
+
+        if ($isIpBanned) {
             http_response_code(403);
-            // Минимум HTML, безопасно
             echo "<!doctype html><meta charset='utf-8'><title>403 Forbidden</title><h1>403 Forbidden</h1><p>Доступ с этого IP запрещён.</p>";
             exit;
         }
@@ -928,12 +934,12 @@ function userlogin(bool $lightmode = false): void {
 
     /** ----------------------- КЭШ СЕССИИ ----------------------- */
     $row = null;
-    $cache_key = "user:session:{$id}";
-    $have_memc = isset($memcached) && ($memcached instanceof Memcached);
+    $cache_key = tracker_cache_key('auth', 'user-session', 'id' . $id);
+    $have_memc = tracker_cache_instance() instanceof Memcached;
 
     if ($have_memc) {
-        $row = $memcached->get($cache_key);
-        if ($memcached->getResultCode() !== Memcached::RES_SUCCESS) {
+        $row = tracker_cache_get($cache_key, $rowCacheHit);
+        if (!$rowCacheHit || !is_array($row)) {
             $row = null;
         }
     }
@@ -1031,8 +1037,7 @@ function userlogin(bool $lightmode = false): void {
         }
 
         if ($row && $have_memc) {
-            // Короткий TTL — чтобы не «залипала» сессия при банах/изменениях
-            $memcached->set($cache_key, $row, 60);
+            tracker_cache_set($cache_key, $row, 60);
         }
     }
 
@@ -1051,7 +1056,8 @@ function userlogin(bool $lightmode = false): void {
     $should_update = true;
 
     if ($have_memc) {
-        $should_update = ($memcached->get($access_key) !== true);
+        tracker_cache_get($access_key, $lastAccessHit);
+        $should_update = !$lastAccessHit;
     }
 
     if ($should_update) {
@@ -1060,7 +1066,7 @@ function userlogin(bool $lightmode = false): void {
         sql_query("UPDATE users SET last_access = {$datetime}, ip = {$escaped_ip} WHERE id = {$row['id']}");
 
         if ($have_memc) {
-            $memcached->set($access_key, true, 300); // 5 минут
+            tracker_cache_set($access_key, true, 300); // 5 минут
         }
     }
 
@@ -1258,10 +1264,18 @@ function user_session(): void
         return;
     }
 
-    // --- Memcached (init один раз) ---
+    // --- общий Memcached pool ---
     if (!$memcached instanceof Memcached) {
-        $memcached = new Memcached();
-        $memcached->addServer('127.0.0.1', 11211);
+        $memcached = tracker_cache_instance();
+    }
+    if (!$memcached instanceof Memcached && class_exists('Memcached')) {
+        $memcached = new Memcached('torrentside_pool');
+        if (empty($memcached->getServerList())) {
+            $memcached->addServer($memcache_host ?? 'memcached', $memcache_port ?? 11211);
+        }
+    }
+    if (!$memcached instanceof Memcached) {
+        return;
     }
 
     // --- Входные данные ---
@@ -1339,12 +1353,22 @@ function unesc($x) {
     return $x;
 }
 
-function gzip() { 
-        global $use_gzip; 
-} 
-        if ($use_gzip) { 
-                @ob_start('ob_gzhandler'); 
-        } 
+function gzip(): void
+{
+    global $use_gzip;
+
+    static $started = false;
+    if ($started || empty($use_gzip) || headers_sent()) {
+        return;
+    }
+
+    if (@extension_loaded('zlib') && @ini_get('zlib.output_compression') != '1' && @ini_get('output_handler') != 'ob_gzhandler') {
+        @ob_start('ob_gzhandler');
+        $started = true;
+    }
+}
+
+gzip();
 
 // IP Validation
 function validip(string $ip): bool {
@@ -1781,6 +1805,77 @@ function sqlwildcardesc($x) {
 	);
 }
 
+function tracker_message_cache_namespace(int $userId): string
+{
+    return 'messages:user:' . max(0, $userId);
+}
+
+function tracker_comment_cache_namespace(int $torrentId): string
+{
+    return 'comments:torrent:' . max(0, $torrentId);
+}
+
+function tracker_invalidate_online_blocks(): void
+{
+    tracker_cache_delete_many([
+        'online:list:v2',
+        'today:list:v2',
+        'birthdays:block:v1:' . date('m-d'),
+    ]);
+}
+
+function tracker_invalidate_home_blocks(): void
+{
+    tracker_cache_bump_namespace('home');
+
+    tracker_cache_delete_many([
+        'home:news:last',
+        'home:new_torrents:block:v4:mod:0',
+        'home:new_torrents:block:v4:mod:1',
+        'heroes:block:v3',
+        'stats',
+        'poll:block:v1:mod:0',
+        'poll:block:v1:mod:1',
+    ]);
+}
+
+function tracker_invalidate_message_cache(int ...$userIds): void
+{
+    $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn(int $id): bool => $id > 0)));
+    foreach ($userIds as $userId) {
+        tracker_cache_bump_namespace(tracker_message_cache_namespace($userId));
+    }
+}
+
+function tracker_invalidate_torrent_cache(int $torrentId, bool $invalidateListings = false): void
+{
+    $torrentId = max(0, $torrentId);
+    if ($torrentId <= 0) {
+        if ($invalidateListings) {
+            tracker_cache_bump_namespace('browse');
+            tracker_invalidate_home_blocks();
+        }
+        return;
+    }
+
+    tracker_cache_delete_many([
+        'help_torrents:v2',
+        'torrent_table_row_v2_' . $torrentId,
+        tracker_cache_key('details', 'torrent', 't' . $torrentId),
+        tracker_cache_key('details', 'trackers', 't' . $torrentId),
+        tracker_cache_key('details', 'descr', 't' . $torrentId),
+        tracker_cache_key('announce', 'peerpool', 't' . $torrentId),
+        'comments:count:t' . $torrentId,
+    ]);
+
+    tracker_cache_bump_namespace(tracker_comment_cache_namespace($torrentId));
+
+    if ($invalidateListings) {
+        tracker_cache_bump_namespace('browse');
+        tracker_invalidate_home_blocks();
+    }
+}
+
 
 function urlparse($m) {
 	$t = $m[0];
@@ -2144,12 +2239,7 @@ function deletetorrent($id): bool
             }
         }
 
-        // опционально: инвалидация кэша, если используете memcache/memcached/apcu
-        if (function_exists('mc_delete')) {
-            @mc_delete("torrents:details:$id");
-            @mc_delete("torrents:peers:$id");
-            @mc_delete("torrents:comments:$id");
-        }
+        tracker_invalidate_torrent_cache($id, true);
 
         mysqli_report($prevReport);
         return true;
@@ -2589,22 +2679,35 @@ function searchfield(string $s): string {
 
 // Получение списка жанров (категорий)
 function genrelist(): array {
-    $ret = [];
-    $res = sql_query("SELECT id, name, image FROM categories ORDER BY name ASC") or sqlerr(__FILE__, __LINE__);
-    while ($row = mysqli_fetch_assoc($res)) {
-        $ret[] = $row;
-    }
-    return $ret;
+    $cacheKey = tracker_cache_key('categories', 'genrelist', 'v1');
+
+    $rows = tracker_cache_remember($cacheKey, 900, static function (): array {
+        $ret = [];
+        $res = sql_query("SELECT id, name, image FROM categories ORDER BY name ASC") or sqlerr(__FILE__, __LINE__);
+        while ($row = mysqli_fetch_assoc($res)) {
+            $ret[] = $row;
+        }
+        return $ret;
+    });
+
+    return is_array($rows) ? $rows : [];
 }
 
 // Получение списка тэгов по категории
 function taggenrelist(int $cat): array {
-    $ret = [];
-    $res = sql_query("SELECT id, name, howmuch FROM tags WHERE category = " . (int)$cat . " ORDER BY name ASC") or sqlerr(__FILE__, __LINE__);
-    while ($row = mysqli_fetch_assoc($res)) {
-        $ret[] = $row;
-    }
-    return $ret;
+    $cat = (int)$cat;
+    $cacheKey = tracker_cache_key('categories', 'tags', 'cat' . $cat);
+
+    $rows = tracker_cache_remember($cacheKey, 900, static function () use ($cat): array {
+        $ret = [];
+        $res = sql_query("SELECT id, name, howmuch FROM tags WHERE category = " . $cat . " ORDER BY name ASC") or sqlerr(__FILE__, __LINE__);
+        while ($row = mysqli_fetch_assoc($res)) {
+            $ret[] = $row;
+        }
+        return $ret;
+    });
+
+    return is_array($rows) ? $rows : [];
 }
 
 // Генерация HTML-ссылок на тэги
@@ -2651,7 +2754,7 @@ function writecomment(int $userid, string $comment): bool {
 
 
 
-function torrenttable(mysqli_result $res, string $variant = "index"): void
+function torrenttable($res, string $variant = "index"): void
 {
     global $pic_base_url, $CURUSER, $use_wait, $tracker_lang, $mc1;
 
@@ -2705,7 +2808,7 @@ function torrenttable(mysqli_result $res, string $variant = "index"): void
     }
 
     echo '<td class="colhead" align="center"><a href="browse.php?' . $oldlink . 'sort=3&type=' . $h($dirFor(3)) . '" class="altlink_white"><img src="pic/torrenttable/comments.gif" alt="Комментарии" loading="lazy" decoding="async"></a></td>'
-       . '<td class="colhead" align="center"><a href="browse.php?' . $oldlink . 'sort=8&type=' . $h($dirFor(8)) . '" class="altlink_white"><img src="pic/torrenttable/snatched.gif" alt="Скачиваний" loading="lazy" decoding="async"></a></td>'
+       . '<td class="colhead" align="center"><a href="browse.php?' . $oldlink . 'sort=6&type=' . $h($dirFor(6)) . '" class="altlink_white"><img src="pic/torrenttable/snatched.gif" alt="Скачиваний" loading="lazy" decoding="async"></a></td>'
        . '<td class="colhead" align="center">'
        . '<a href="browse.php?' . $oldlink . 'sort=7&type=' . $h($dirFor(7)) . '" class="altlink_white"><img src="pic/torrenttable/seeders.gif" alt="Сидеры" loading="lazy" decoding="async"></a>'
        . ' | '
@@ -2714,8 +2817,27 @@ function torrenttable(mysqli_result $res, string $variant = "index"): void
        . '<td class="colhead" align="center"><a href="browse.php?' . $oldlink . 'sort=9&type=' . $h($dirFor(9)) . '" class="altlink_white"><img src="pic/torrenttable/upped.gif" alt="Аплоадер" loading="lazy" decoding="async"></a></td>'
        . '</tr><tbody>';
 
+    $rowSource = static function ($source): iterable {
+        if ($source instanceof mysqli_result) {
+            while ($row = mysqli_fetch_assoc($source)) {
+                if (is_array($row)) {
+                    yield $row;
+                }
+            }
+            return;
+        }
+
+        if (is_array($source) || $source instanceof Traversable) {
+            foreach ($source as $row) {
+                if (is_array($row)) {
+                    yield $row;
+                }
+            }
+        }
+    };
+
     // ===== rows (cache per row; build once, echo once) =====
-    while ($row = mysqli_fetch_assoc($res)) {
+    foreach ($rowSource($res) as $row) {
         // fast scalars & sanitization
         $id        = (int)$row['id'];
         $stickyYes = ($row['sticky'] ?? '') === 'yes';

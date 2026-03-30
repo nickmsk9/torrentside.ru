@@ -52,6 +52,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         sql_query("INSERT INTO polls VALUES($values)") or sqlerr(__FILE__, __LINE__);
     }
 
+    tracker_invalidate_home_blocks();
+
     $location = $returnto === "main" ? $DEFAULTBASEURL :
         ($pollid ? "$DEFAULTBASEURL/polls.php#$pollid" : $DEFAULTBASEURL);
     header("Location: $location");

@@ -8,6 +8,7 @@ if (!defined("IN_TRACKER")) {
 require_once($rootpath . 'include/init.php');
 require_once($rootpath . 'include/global.php');
 require_once($rootpath . 'include/config.php');
+require_once($rootpath . 'include/cache.php');
 
 if (!function_exists('tracker_normalize_base_url')) {
     function tracker_normalize_base_url(string $url): string

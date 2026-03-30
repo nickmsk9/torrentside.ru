@@ -22,19 +22,21 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
     $onlineCut = $now - 300; // считаем онлайн за последние 5 минут
 
     // Получаем список из кэша или из БД
-    $result = $memcached->get($ONLINE_CACHE_KEY);
-    if ($result === false) {
+    $result = tracker_cache_remember($ONLINE_CACHE_KEY, $ONLINE_TTL, static function () use ($onlineCut): array {
         $q = sql_query("
             SELECT s.uid, s.username, s.class, s.ip
             FROM sessions AS s
             WHERE s.time > " . (int)$onlineCut . "
             ORDER BY s.class DESC, s.username ASC
         ");
-        $result = [];
-        while ($row = mysqli_fetch_assoc($q)) {
-            $result[] = $row;
+        $rows = [];
+        while ($q && ($row = mysqli_fetch_assoc($q))) {
+            $rows[] = $row;
         }
-        $memcached->set($ONLINE_CACHE_KEY, $result, $ONLINE_TTL);
+        return $rows;
+    });
+    if (!is_array($result)) {
+        $result = [];
     }
 
     // Разделяем пользователей и гостей
@@ -67,8 +69,7 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
     $total = $staff + $users + $guests; // всего онлайн
 
     // ====================== БЛОК «ПОСЕТИЛИ СЕГОДНЯ» ======================
-    $res = $memcached->get($TODAY_CACHE_KEY);
-    if ($res === false) {
+    $res = tracker_cache_remember($TODAY_CACHE_KEY, $TODAY_TTL, static function (): array {
         $sql = "
             SELECT id, username, class
             FROM users
@@ -76,11 +77,14 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
             ORDER BY username ASC
         ";
         $query = sql_query($sql);
-        $res = [];
-        while ($row = mysqli_fetch_assoc($query)) {
-            $res[] = $row;
+        $rows = [];
+        while ($query && ($row = mysqli_fetch_assoc($query))) {
+            $rows[] = $row;
         }
-        $memcached->set($TODAY_CACHE_KEY, $res, $TODAY_TTL);
+        return $rows;
+    });
+    if (!is_array($res)) {
+        $res = [];
     }
 
     // Формируем ссылки для списка «сегодня»
@@ -111,7 +115,14 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
             'users' => $links,
         ]);
         $smarty->assign('daysAlive', $daysAlive);
-        echo $smarty->fetch('partials/online_block.tpl');
+        $onlineBlockKey = tracker_cache_key(
+            'tpl',
+            'online-block',
+            md5(json_encode([$total, $title_who, $usersactivetoday, $links, $daysAlive], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: (string)$total)
+        );
+        echo tracker_cache_render($onlineBlockKey, 30, static function () use ($smarty): string {
+            return (string)$smarty->fetch('partials/online_block.tpl');
+        });
 
         // Админка (только для UC_SYSOP)
         $is_admin = isset($CURUSER['class']) && (int)$CURUSER['class'] >= UC_SYSOP;
@@ -125,10 +136,7 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
         // === БЛОК «Именинники» (PHP 8.1 + Memcached) ===
 $BIRTH_TTL  = 6 * 3600;                  // 6 часов
 $birthKey   = 'birthdays:block:v1:' . date('m-d');
-$birthdays  = $memcached->get($birthKey);
-
-if ($birthdays === false || !is_array($birthdays)) {
-    // Универсальный запрос: подойдёт и для DATE/DATETIME, и для строкового поля вида 'YYYY-mm-dd'
+$birthdays = tracker_cache_remember($birthKey, $BIRTH_TTL, static function (): array {
     $sql = "
         SELECT id, username, class, gender
         FROM users
@@ -138,17 +146,13 @@ if ($birthdays === false || !is_array($birthdays)) {
         LIMIT 100
     ";
     $q = sql_query($sql);
-    $birthdays = [];
-    while ($row = mysqli_fetch_assoc($q)) {
+    $rows = [];
+    while ($q && ($row = mysqli_fetch_assoc($q))) {
         $id       = (int)$row['id'];
         $username = (string)$row['username'];
         $class    = isset($row['class']) ? (int)$row['class'] : 0;
         $gender   = isset($row['gender']) ? (int)$row['gender'] : 0;
 
-        // Цветное имя по классу (HTML):
-        $nameHtml = get_user_class_color($class, $username);
-
-        // Иконка пола (если есть):
         $genderIcon = null;
         if ($gender === 2) {
             $genderIcon = ['alt' => 'Девушка', 'src' => 'pic/ico_f.gif'];
@@ -156,19 +160,32 @@ if ($birthdays === false || !is_array($birthdays)) {
             $genderIcon = ['alt' => 'Парень',  'src' => 'pic/ico_m.gif'];
         }
 
-        $birthdays[] = [
+        $rows[] = [
             'id'         => $id,
-            'name_html'  => $nameHtml,   // уже раскрашено (HTML)
-            'genderIcon' => $genderIcon, // либо null
+            'name_html'  => get_user_class_color($class, $username),
+            'genderIcon' => $genderIcon,
         ];
     }
-    $memcached->set($birthKey, $birthdays, $BIRTH_TTL);
+    return $rows;
+});
+if (!is_array($birthdays)) {
+    $birthdays = [];
 }
 
 // Проброс в Smarty и рендер:
 $smarty->assign('birthdays_title', 'Именинники');
 $smarty->assign('birthdays', $birthdays);
-echo $smarty->fetch('partials/birthdays_block.tpl');
+echo tracker_cache_render(
+    tracker_cache_key(
+        'tpl',
+        'birthdays-block',
+        md5(json_encode($birthdays, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: date('m-d'))
+    ),
+    $BIRTH_TTL,
+    static function () use ($smarty): string {
+        return (string)$smarty->fetch('partials/birthdays_block.tpl');
+    }
+);
 
     }
 
@@ -209,4 +226,3 @@ if (isset($smarty)) {
 
 // Закрытие HTML-документа
 echo "</body></html>\n";
-

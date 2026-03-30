@@ -164,14 +164,20 @@ $newText  = '';
 
 if (!empty($CURUSER['id'])) {
     $uid = (int)$CURUSER['id'];
-    $res = sql_query(
-        "SELECT COUNT(*) AS unread_cnt
-         FROM messages
-         WHERE receiver = " . sqlesc($uid) . " AND unread = 'yes'"
-    ) or sqlerr(__FILE__, __LINE__);
+    $unread = (int)tracker_cache_remember(
+        tracker_cache_ns_key(tracker_message_cache_namespace($uid), 'unread-count'),
+        45,
+        static function () use ($uid): int {
+            $res = sql_query(
+                "SELECT COUNT(*) AS unread_cnt
+                 FROM messages
+                 WHERE receiver = " . sqlesc($uid) . " AND unread = 'yes'"
+            ) or sqlerr(__FILE__, __LINE__);
 
-    $row = mysqli_fetch_assoc($res) ?: ['unread_cnt' => 0];
-    $unread = (int)$row['unread_cnt'];
+            $row = mysqli_fetch_assoc($res) ?: ['unread_cnt' => 0];
+            return (int)$row['unread_cnt'];
+        }
+    );
 
     if ($unread > 0) {
         $inboxUrl = $baseUrl . '/message.php';

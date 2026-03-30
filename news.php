@@ -26,6 +26,7 @@ if ($action === 'delete') {
     }
 
     sql_query("DELETE FROM news WHERE id = $newsid") or sqlerr(__FILE__, __LINE__);
+    tracker_invalidate_home_blocks();
 
     if ($returnto !== '') {
         header("Location: $returnto");
@@ -52,6 +53,7 @@ if ($action === 'add') {
     $added = sqlesc(get_date_time());
 
     sql_query("INSERT INTO news (userid, added, body, subject) VALUES (" . (int)$CURUSER['id'] . ", $added, " . sqlesc($body) . ", " . sqlesc($subject) . ")") or sqlerr(__FILE__, __LINE__);
+    tracker_invalidate_home_blocks();
 
     $warning = "Новость <b>успешно</b> добавлена";
 }
@@ -83,6 +85,7 @@ if ($action === 'edit') {
         }
 
         sql_query("UPDATE news SET subject = " . sqlesc($subject) . ", body = " . sqlesc($body) . " WHERE id = $newsid") or sqlerr(__FILE__, __LINE__);
+        tracker_invalidate_home_blocks();
 
         if (!empty($_POST['returnto'])) {
             header("Location: " . htmlspecialchars($_POST['returnto']));

@@ -11,18 +11,7 @@ if (!ini_get('date.timezone')) {
     date_default_timezone_set('Europe/Amsterdam');
 }
 
-// ---- Memcached (persistent) ----
-if (!isset($memcached) || !($memcached instanceof Memcached)) {
-    $memcached = new Memcached('tbdev-persistent');
-    if (empty($memcached->getServerList())) {
-        $memcached->addServer('127.0.0.1', 11211);
-    }
-    $memcached->setOption(Memcached::OPT_BINARY_PROTOCOL, true);
-    $memcached->setOption(Memcached::OPT_TCP_NODELAY, true);
-    $memcached->setOption(Memcached::OPT_CONNECT_TIMEOUT, 80);
-    $memcached->setOption(Memcached::OPT_RETRY_TIMEOUT, 1);
-    $memcached->setOption(Memcached::OPT_POLL_TIMEOUT, 80);
-}
+$homeMemcached = tracker_cache_instance();
 
 /** =========================
  *  Ключи кэша/локов
@@ -32,7 +21,6 @@ const MC_KEY_CFG         = NS . 'cfg:active_super_loto';
 const MC_TTL_CFG         = 300;
 const MC_LOCK_KEY_PREFIX = NS . 'loto:lock:';               // + YYYY-MM-DD
 const MC_LOCK_SHORT      = 300;                              // 5 мин
-const MC_NEWS_KEY        = NS . 'news:last';
 const MC_NEWS_TTL        = 300;
 
 function home_truncate_text(string $text, int $limit = 400): string {
@@ -56,6 +44,10 @@ function home_truncate_text(string $text, int $limit = 400): string {
     return rtrim(substr($text, 0, $limit)) . '...';
 }
 
+function home_cache_key(...$parts): string {
+    return tracker_cache_ns_key('home', ...$parts);
+}
+
 /** =========================
  *  Время и границы
  *  ========================= */
@@ -67,13 +59,11 @@ $today = date('Y-m-d');
 /** =========================
  *  active_super_loto (кэш флага)
  *  ========================= */
-$active_loto = (int)$memcached->get(MC_KEY_CFG);
-if ($memcached->getResultCode() !== Memcached::RES_SUCCESS) {
+$active_loto = (int)tracker_cache_remember(MC_KEY_CFG, MC_TTL_CFG, static function (): int {
     $res = sql_query("SELECT `value` FROM `config` WHERE `config`='active_super_loto' LIMIT 1");
     $row = ($res && mysqli_num_rows($res) > 0) ? mysqli_fetch_row($res) : null;
-    $active_loto = (int)($row[0] ?? 0);
-    $memcached->set(MC_KEY_CFG, $active_loto, MC_TTL_CFG);
-}
+    return (int)($row[0] ?? 0);
+});
 
 /** =========================
  *  Доп. защиты
@@ -86,7 +76,7 @@ if ($qAlready) {
     $already = (int)mysqli_fetch_row($qAlready)[0];
     if ($already === 1 && $active_loto != 0) {
         sql_query("UPDATE `config` SET `value`=0 WHERE `config`='active_super_loto'");
-        $memcached->set(MC_KEY_CFG, 0, MC_TTL_CFG);
+        tracker_cache_set(MC_KEY_CFG, 0, MC_TTL_CFG);
     }
 }
 
@@ -103,27 +93,28 @@ if ($qTickets) {
 if ($day === 7 && $hour >= 18 && $active_loto === 0 && $already === 0 && $hasTickets === 1) {
     $lockKey = MC_LOCK_KEY_PREFIX . $today;
 
-    if ($memcached->add($lockKey, 1, MC_LOCK_SHORT)) {
+    $lockAcquired = $homeMemcached instanceof Memcached ? $homeMemcached->add($lockKey, 1, MC_LOCK_SHORT) : true;
+    if ($lockAcquired) {
         // поднять флаг на время розыгрыша
         sql_query("UPDATE `config` SET `value`=1 WHERE `config`='active_super_loto'");
-        $memcached->set(MC_KEY_CFG, 1, MC_TTL_CFG);
+        tracker_cache_set(MC_KEY_CFG, 1, MC_TTL_CFG);
 
         try {
             // ВАЖНО: корректный файл с логикой розыгрыша
             include __DIR__ . '/get_loto_winners1.php';
 
             // суточный лок, чтобы повторно не запустили сегодня
-            $memcached->set($lockKey, 1, $secTillMidnight);
+            tracker_cache_set($lockKey, 1, $secTillMidnight);
         } finally {
             // в любом случае опускаем флаг
             sql_query("UPDATE `config` SET `value`=0 WHERE `config`='active_super_loto'");
-            $memcached->set(MC_KEY_CFG, 0, MC_TTL_CFG);
+            tracker_cache_set(MC_KEY_CFG, 0, MC_TTL_CFG);
         }
     }
 } elseif ($day !== 7 && $active_loto === 1) {
     // вне воскресенья — флаг должен быть опущен
     sql_query("UPDATE `config` SET `value`=0 WHERE `config`='active_super_loto'");
-    $memcached->set(MC_KEY_CFG, 0, MC_TTL_CFG);
+    tracker_cache_set(MC_KEY_CFG, 0, MC_TTL_CFG);
 }
 
 /** =========================
@@ -172,15 +163,14 @@ function mySubmit(){ setTimeout(()=>document.shbox.reset(),10); }
  *  Раньше тянули 10 штук и брали первую; теперь — сразу LIMIT 1.
  *  Кэшируем ровно то, что выводим.
  */
-$news = $memcached->get(MC_NEWS_KEY);
-if ($memcached->getResultCode() !== Memcached::RES_SUCCESS) {
+$news = tracker_cache_remember(home_cache_key('news', 'latest'), MC_NEWS_TTL, static function () {
     $q = sql_query("SELECT id, body FROM news ORDER BY added DESC LIMIT 1") or sqlerr(__FILE__, __LINE__);
     $news = $q && mysqli_num_rows($q) ? mysqli_fetch_assoc($q) : null;
     if (!empty($news)) {
         $news['body_html'] = format_comment((string)$news['body']);
     }
-    $memcached->set(MC_NEWS_KEY, $news, MC_NEWS_TTL);
-}
+    return $news;
+});
 
 $content = '';
 if (!empty($news)) {
@@ -270,19 +260,8 @@ if ($can_show_poll) {
         $votetitle .= ' - <font class="small">[<a href="makepoll.php?returnto=/index.php"><b>Создать</b></a>]</font>';
     }
 
-    // ---- Memcached (lazy, с единым persistent-имени) ----
-    if (!isset($memcached) || !($memcached instanceof Memcached)) {
-        $memcached = new Memcached('tbdev-persistent');
-        if (empty($memcached->getServerList())) {
-            $memcached->addServer('127.0.0.1', 11211);
-        }
-    }
-
-    // Кэшируем блок в двух вариантах (mod/non-mod), 5 минут
-    $cache_key   = 'poll:block:v1:mod:' . (int)$is_mod;
-    $poll_block  = $memcached->get($cache_key);
-
-    if ($poll_block === false) {
+    $pollBlockKey = home_cache_key('poll-block', 'mod' . (int)$is_mod);
+    $poll_block = tracker_cache_render($pollBlockKey, 300, static function () use ($votetitle): string {
         ob_start();
 
         begin_frame($votetitle);
@@ -315,9 +294,8 @@ if ($can_show_poll) {
         <?php
         end_frame();
 
-        $poll_block = ob_get_clean();
-        $memcached->set($cache_key, $poll_block, 300);
-    }
+        return (string)ob_get_clean();
+    });
 
     echo $poll_block;
 }
@@ -337,11 +315,11 @@ if ($can_show_poll) {
 //   CREATE INDEX idx_torrents_vis_mod_cat_id ON torrents (visible, moderated, category, id DESC);
 
 $isModeratorHome = get_user_class() >= UC_MODERATOR;
-$newTorrentsCacheKey = 'home:new_torrents:block:v4:mod:' . (int)$isModeratorHome;
-$newTorrentsBlock = $memcached->get($newTorrentsCacheKey);
-
-if (!is_string($newTorrentsBlock) || $newTorrentsBlock === '') {
-    $sql = "
+$newTorrentsBlock = tracker_cache_render(
+    home_cache_key('new-torrents', 'mod' . (int)$isModeratorHome),
+    180,
+    static function (): string {
+        $sql = "
         SELECT
             id,
             name,
@@ -360,34 +338,34 @@ if (!is_string($newTorrentsBlock) || $newTorrentsBlock === '') {
         ORDER BY id DESC
         LIMIT 5
     ";
-    $result = sql_query($sql) or sqlerr(__FILE__, __LINE__);
+        $result = sql_query($sql) or sqlerr(__FILE__, __LINE__);
 
-    ob_start();
-    while ($row = mysqli_fetch_assoc($result)) {
-        $row['id']              = (int)$row['id'];
-        $row['size']            = (int)$row['size'];
-        $row['leechers']        = (int)$row['leechers'];
-        $row['seeders']         = (int)$row['seeders'];
-        $row['times_completed'] = (int)$row['times_completed'];
-        $row['free']            = (int)$row['free'];
+        ob_start();
+        while ($row = mysqli_fetch_assoc($result)) {
+            $row['id']              = (int)$row['id'];
+            $row['size']            = (int)$row['size'];
+            $row['leechers']        = (int)$row['leechers'];
+            $row['seeders']         = (int)$row['seeders'];
+            $row['times_completed'] = (int)$row['times_completed'];
+            $row['free']            = (int)$row['free'];
 
-        if (isset($row['leechers_net']))        $row['leechers']        += (int)$row['leechers_net'];
-        if (isset($row['seeders_net']))         $row['seeders']         += (int)$row['seeders_net'];
-        if (isset($row['times_completed_net'])) $row['times_completed'] += (int)$row['times_completed_net'];
+            if (isset($row['leechers_net']))        $row['leechers']        += (int)$row['leechers_net'];
+            if (isset($row['seeders_net']))         $row['seeders']         += (int)$row['seeders_net'];
+            if (isset($row['times_completed_net'])) $row['times_completed'] += (int)$row['times_completed_net'];
 
-        $size = mksize($row['size']);
-        $nameSafe = htmlspecialchars((string)$row['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $freeLabel = $row['free'] > 0 ? ($row['free'] . '%') : '0%';
+            $size = mksize($row['size']);
+            $nameSafe = htmlspecialchars((string)$row['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $freeLabel = $row['free'] > 0 ? ($row['free'] . '%') : '0%';
 
-        $img = '';
-        if (!empty($row['image1'])) {
-            $imgUrl = htmlspecialchars((string)$row['image1'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $img = "<div class='glass-frame'><img loading='lazy' src='{$imgUrl}' alt='Постер'></div><br>";
-        }
+            $img = '';
+            if (!empty($row['image1'])) {
+                $imgUrl = htmlspecialchars((string)$row['image1'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $img = "<div class='glass-frame'><img loading='lazy' src='{$imgUrl}' alt='Постер'></div><br>";
+            }
 
-        $descFormatted = format_comment(home_truncate_text((string)$row['descr'], 420));
+            $descFormatted = format_comment(home_truncate_text((string)$row['descr'], 420));
 
-        echo "
+            echo "
 <div class=\"c\">
 <div class=\"c1\">
     <div class=\"c2\">
@@ -446,11 +424,11 @@ if (!is_string($newTorrentsBlock) || $newTorrentsBlock === '') {
     </div>
 </div>
 ";
-    }
+        }
 
-    $newTorrentsBlock = ob_get_clean();
-    $memcached->set($newTorrentsCacheKey, $newTorrentsBlock, 180);
-}
+        return (string)ob_get_clean();
+    }
+);
 
 $blocktitle = "Новые поступления" . ($isModeratorHome
     ? "<font class=\"small\"> - [<a class=\"altlink\" href=\"upload.php\"><b>Загрузить</b></a>]</font>"
@@ -467,12 +445,7 @@ echo $newTorrentsBlock;
 $heroestitle = "Наши герои";
 begin_frame($heroestitle);
 
-// Один кэш-ключ на весь блок (меньше сетевых хитов к Memcached)
-$CACHE_KEY = 'heroes:block:v3';
-$TTL       = 300; // 5 минут
-$data = $memcached->get($CACHE_KEY);
-
-if ($data === false) {
+$data = tracker_cache_remember(home_cache_key('heroes-data'), 300, static function (): array {
     $data = [
         'bonus'    => [],
         'karma'    => [],
@@ -491,7 +464,6 @@ if ($data === false) {
     while ($row = mysqli_fetch_assoc($rs)) {
         $row['id']    = (int)$row['id'];
         $row['class'] = (int)$row['class'];
-        // bonus оставляем как строку/десятичное, форматнём при выводе
         $data['bonus'][] = $row;
     }
 
@@ -534,8 +506,8 @@ if ($data === false) {
         $data['comments'][] = $row;
     }
 
-    $memcached->set($CACHE_KEY, $data, $TTL);
-}
+    return $data;
+});
 
 // безопасная обёртка имени
 $h = static function (?string $s): string {
@@ -622,11 +594,7 @@ begin_frame("Статистика");
 
 global $tracker_lang, $ss_uri, $maxusers, $CURUSER, $use_sessions, $mysqli;
 
-$cache_key = 'stats';
-$stats = $memcached->get($cache_key);
-
-if ($memcached->getResultCode() !== Memcached::RES_SUCCESS) {
-    // Один SQL-запрос, собирающий все нужные агрегаты
+$stats = tracker_cache_remember(home_cache_key('stats'), 300, static function () use ($mysqli): array {
     $query = "
         SELECT
             (SELECT COUNT(*) FROM users) AS registered,
@@ -643,48 +611,34 @@ if ($memcached->getResultCode() !== Memcached::RES_SUCCESS) {
     $res = mysqli_query($mysqli, $query) or sqlerr(__FILE__, __LINE__);
     $row = mysqli_fetch_assoc($res);
 
-    // Форматируем значения
-    $registered = number_format((int)$row["registered"]);
-    $torrents = number_format((int)$row["torrents"]);
     $seeders = (int)$row["seeders"];
     $leechers = (int)$row["leechers"];
-    $seeders_fmt = number_format($seeders);
-    $leechers_fmt = number_format($leechers);
-    $male = number_format((int)$row["male"]);
-    $female = number_format((int)$row["female"]);
-    $total_size = $row["total_size"] ?? 0;
-    $total_downloaded = $row["totaldl"] ?? 0;
-    $total_uploaded = $row["totalul"] ?? 0;
-    $test = mksize($total_uploaded + $total_downloaded);
+    $totalDownloaded = (int)($row["totaldl"] ?? 0);
+    $totalUploaded = (int)($row["totalul"] ?? 0);
 
-    $stats = [
-        "registered" => $registered,
-        "torrents" => $torrents,
-        "seeders" => $seeders_fmt,
-        "leechers" => $leechers_fmt,
-        "male" => $male,
-        "female" => $female,
-        "total_size" => $total_size,
-        "test" => $test
+    return [
+        "registered" => number_format((int)$row["registered"]),
+        "torrents" => number_format((int)$row["torrents"]),
+        "seeders" => number_format($seeders),
+        "leechers" => number_format($leechers),
+        "male" => number_format((int)$row["male"]),
+        "female" => number_format((int)$row["female"]),
+        "total_size" => (int)($row["total_size"] ?? 0),
+        "test" => mksize($totalUploaded + $totalDownloaded),
     ];
+});
 
-    // Кэшируем на 5 минут (300 секунд)
-    $memcached->set($cache_key, $stats, 300);
-} else {
-    // Получаем из кэша
-    $registered = $stats["registered"];
-    $torrents = $stats["torrents"];
-    $seeders_fmt = $stats["seeders"];
-    $leechers_fmt = $stats["leechers"];
-    $male = $stats["male"];
-    $female = $stats["female"];
-    $total_size = $stats["total_size"];
-    $test = $stats["test"];
+$registered = $stats["registered"];
+$torrents = $stats["torrents"];
+$seeders_fmt = $stats["seeders"];
+$leechers_fmt = $stats["leechers"];
+$male = $stats["male"];
+$female = $stats["female"];
+$total_size = $stats["total_size"];
+$test = $stats["test"];
 
-    // Преобразуем в int для подсчёта
-    $seeders = (int)str_replace(",", "", $seeders_fmt);
-    $leechers = (int)str_replace(",", "", $leechers_fmt);
-}
+$seeders = (int)str_replace(",", "", $seeders_fmt);
+$leechers = (int)str_replace(",", "", $leechers_fmt);
 
 // Суммарное количество пиров
 $peers = $seeders + $leechers;
@@ -726,22 +680,17 @@ end_frame();
  *    format_comment(), get_user_class_color(), $CURUSER, $memcached.
  */
 
-global $CURUSER, $memcached;
+global $CURUSER;
 
 $blocktitle = ".:: <a title=\"На главную форума\" href='forums.php'>Главная</a> :: <a title=\"Поиск выражений на форуме\" href='forums.php?action=search'>Поиск на форуме</a> :: <a title=\"Перейти к непрочитанным сообщениям\" href='forums.php?action=viewunread'>К непрочитанным сообщениям</a> :: <a title=\"Пометить все сообщения как прочитанные\" href='forums.php?action=catchup'>Пометить прочитанным</a> ::.";
 
 // Определяем класс пользователя (fallback = 1)
 $curuserclass = isset($CURUSER['class']) && (int)$CURUSER['class'] > 0 ? (int)$CURUSER['class'] : 1;
 
-// Ключ и TTL кэша (1 час)
-$CACHE_KEY = "block:forum:tabs:class:{$curuserclass}:v3";
-$CACHE_TTL = 3600;
-
-// Пытаемся взять из кэша
-$content = $memcached->get($CACHE_KEY);
-if (!is_string($content) || $content === '') {
-
-    // Собираем контент с нуля
+$content = tracker_cache_render(
+    home_cache_key('forum-tabs', 'class' . $curuserclass),
+    180,
+    static function () use ($CURUSER, $curuserclass): string {
     ob_start();
     ?>
     <style type="text/css">
@@ -949,11 +898,9 @@ if (!is_string($content) || $content === '') {
         </div>
     </div>
     <?php
-    $content = ob_get_clean();
-
-    // Пишем в кэш
-    $memcached->set($CACHE_KEY, $content, $CACHE_TTL);
-}
+    return (string)ob_get_clean();
+    }
+);
 
 // Вывод блока
 begin_frame($blocktitle);

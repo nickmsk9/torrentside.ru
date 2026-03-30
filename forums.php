@@ -7,10 +7,12 @@ define('IN_FORUM', true);
  * Мини-хелперы для кэша (общий persistent Memcached)
  */
 if (!isset($memcached) || !($memcached instanceof Memcached)) {
-    $memcached = new Memcached('tbdev-persistent');
+    $memcached = tracker_cache_instance();
+}
+if (!($memcached instanceof Memcached) && class_exists('Memcached')) {
+    $memcached = new Memcached('torrentside_pool');
     if (empty($memcached->getServerList())) {
-        // подстрой под свой хост/порт при необходимости
-        $memcached->addServer('127.0.0.1', 11211);
+        $memcached->addServer($memcache_host ?? 'memcached', $memcache_port ?? 11211);
     }
 }
 
@@ -1818,6 +1820,7 @@ sql_query(
     // обновим lastpost у темы и почистим хвосты
     update_topic_last_post((int)$topicid, $added);
     unlinks();
+    tracker_invalidate_home_blocks();
 
     // редирект
     if ($newtopic) {
@@ -2217,8 +2220,8 @@ break;
     case 'deletepost':
     case 'editpost':
     case 'deletetopic':
-    case 'editpostmod';
-    case 'edittopicmod';  
+    case 'editpostmod':
+    case 'edittopicmod':
 	{
     if ($CURUSER["forum_com"]<>"0000-00-00 00:00:00"){
    	
@@ -2267,10 +2270,11 @@ break;
   	
   	mysql_query("DELETE FROM topics WHERE id=".sqlesc($topicid)) or sqlerr(__FILE__, __LINE__);
 	mysql_query("DELETE FROM posts WHERE topicid=".sqlesc($topicid)) or sqlerr(__FILE__, __LINE__);
-	mysql_query("DELETE FROM polls WHERE forum=".sqlesc($topicid)) or sqlerr(__FILE__, __LINE__);
+  	mysql_query("DELETE FROM polls WHERE forum=".sqlesc($topicid)) or sqlerr(__FILE__, __LINE__);
 	mysql_query("DELETE FROM pollanswers WHERE forum=".sqlesc($topicid)) or sqlerr(__FILE__, __LINE__);
   	//// удаляем посты и тему и опросы и ответы на опросы
   	unlinks(); /// очищаем кеш
+    tracker_invalidate_home_blocks();
 	
 	    header("Refresh: 5; url=".$DEFAULTBASEURL."/forums.php?action=viewforum&forumid=".$arr["forumid"]."");
 		stderr_f("Успешно автопереход через 5 сек", "Удаленна тема с ее сообщениями.<br /> Нажмите <a href=\"".$DEFAULTBASEURL."/forums.php?action=viewforum&forumid=".$arr["forumid"]."\">ЗДЕСЬ</a>, если не хотите ждать.");
@@ -2357,6 +2361,7 @@ break;
    sql_query("UPDATE topics SET " . implode(", ", $updateset) . " WHERE id=".sqlesc($topicid)) or sqlerr(__FILE__, __LINE__);
     
    unlinks(); /// очищаем кеш
+   tracker_invalidate_home_blocks();
 
 ///$returnto = htmlspecialchars($_POST["returnto"]);
 ///	$returnto .= "&page=p$postid#$postid";
@@ -2440,6 +2445,7 @@ header("Refresh: 3; url=$DEFAULTBASEURL/forums.php?action=edittopic&topicid=$top
     mysql_query("UPDATE topics SET t_com=".sqlesc($modi)." WHERE id=".sqlesc($arr["topicid"])."") or sqlerr(__FILE__, __LINE__);
     
   unlinks(); /// очищаем кеш
+  tracker_invalidate_home_blocks();
 
 
 		///$returnto = htmlspecialchars($_POST["returnto"]);
@@ -2771,6 +2777,7 @@ stderr_f("Подтверждение", "Данное сообщение связ
      $added = "0";
     update_topic_last_post($topicid,$added,$postid);
     unlinks();
+    tracker_invalidate_home_blocks();
   
   	header("Refresh: 3; url=$DEFAULTBASEURL/forums.php?action=viewtopic&topicid=$topicid");
 		stderr_f("Успешно", "Сообщение было удалено, автопереход через 3 сек.<br /> Нажмите <a href=\"$DEFAULTBASEURL/forums.php?action=viewtopic&topicid=$topicid\">ЗДЕСЬ</a>, если не хотите ждать.");
@@ -2819,6 +2826,7 @@ stderr_f("Подтверждение", "Данное сообщение связ
 	mysql_query("DELETE FROM pollanswers WHERE forum=".sqlesc($topicid)) or sqlerr(__FILE__, __LINE__);
 			
   unlinks();
+  tracker_invalidate_home_blocks();
   
   if ($forumfid){
   	

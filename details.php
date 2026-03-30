@@ -6,35 +6,17 @@ require_once 'classes/rating.class.php';
 gzip();
 
 function details_cache_get(string $key) {
-    global $memcached;
-
-    if (function_exists('mc_get')) {
-        return mc_get($key);
-    }
-
-    if (isset($memcached) && $memcached instanceof Memcached) {
-        return $memcached->get($key);
-    }
-
-    return false;
+    $value = tracker_cache_get($key, $hit);
+    return $hit ? $value : false;
 }
 
 function details_cache_set(string $key, $value, int $ttl = 300): void {
-    global $memcached;
-
-    if (function_exists('mc_set')) {
-        mc_set($key, $value, $ttl);
-        return;
-    }
-
-    if (isset($memcached) && $memcached instanceof Memcached) {
-        $memcached->set($key, $value, $ttl);
-    }
+    tracker_cache_set($key, $value, $ttl);
 }
 
 function details_render_descr_html(int $torrentId, string $descr): string {
     $hash = md5($descr);
-    $key = "details:descr:v1:t{$torrentId}:{$hash}";
+    $key = tracker_cache_key('details', 'descr', 't' . $torrentId, 'h' . $hash);
     $cached = details_cache_get($key);
     if (is_string($cached) && $cached !== '') {
         return $cached;
@@ -203,32 +185,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['refresh_multitracker'
     }
 
     multitracker_refresh_torrent_stats($id, 20, true);
+    tracker_cache_delete(tracker_cache_key('details', 'torrent', 't' . $id));
+    tracker_cache_delete(tracker_cache_key('details', 'trackers', 't' . $id));
     $multitrackerRefreshDone = true;
 }
 
 multitracker_refresh_torrent_stats($id, 10);
 
-$res = sql_query("
-    SELECT
-        torrents.id,
-        torrents.name,
-        torrents.owner,
-        torrents.descr,
-        torrents.filename,
-        torrents.free,
-        torrents.image1,
-        torrents.seeders,
-        torrents.leechers,
-        COALESCE(mts.external_seeders, 0) AS external_seeders,
-        COALESCE(mts.external_leechers, 0) AS external_leechers,
-        COALESCE(mts.external_completed, 0) AS external_completed,
-        mts.external_fetched_at
-    FROM torrents
-    " . multitracker_stats_summary_sql('torrents') . "
-    WHERE torrents.id = {$id}
-    LIMIT 1
-") or sqlerr(__FILE__, __LINE__);
-$row = mysqli_fetch_array($res);
+$row = tracker_cache_remember(
+    tracker_cache_key('details', 'torrent', 't' . $id),
+    60,
+    static function () use ($id): array {
+        $res = sql_query("
+            SELECT
+                torrents.id,
+                torrents.name,
+                torrents.owner,
+                torrents.descr,
+                torrents.filename,
+                torrents.free,
+                torrents.image1,
+                torrents.seeders,
+                torrents.leechers,
+                COALESCE(mts.external_seeders, 0) AS external_seeders,
+                COALESCE(mts.external_leechers, 0) AS external_leechers,
+                COALESCE(mts.external_completed, 0) AS external_completed,
+                mts.external_fetched_at
+            FROM torrents
+            " . multitracker_stats_summary_sql('torrents') . "
+            WHERE torrents.id = {$id}
+            LIMIT 1
+        ") or sqlerr(__FILE__, __LINE__);
+
+        return mysqli_fetch_array($res) ?: [];
+    }
+);
 
  
 // Заголовок (имя — безопасно)
@@ -378,7 +369,16 @@ $externalFetchedAt = trim((string)($row['external_fetched_at'] ?? ''));
 $totalSeedersCount = $seedersCount + $externalSeedersCount;
 $totalLeechersCount = $leechersCount + $externalLeechersCount;
 $hasActivePeers = ($totalSeedersCount + $totalLeechersCount) > 0;
-$trackerRows = multitracker_get_tracker_details($torrentId);
+$trackerRows = tracker_cache_remember(
+    tracker_cache_key('details', 'trackers', 't' . $torrentId),
+    60,
+    static function () use ($torrentId): array {
+        return multitracker_get_tracker_details($torrentId);
+    }
+);
+if (!is_array($trackerRows)) {
+    $trackerRows = [];
+}
 
 // если нужно бейдж «Скидка N%»
 $discountPct = $freePct; // используем то же число
@@ -523,7 +523,6 @@ $commentsHaveThreads = details_comments_supports_threads();
 $isLogged = isset($CURUSER) && is_array($CURUSER) && !empty($CURUSER['id']);
 $uid      = $isLogged ? (int)$CURUSER['id'] : 0;
 
-// --- Счётчик комментариев (с мягким кешем, если есть) ---
 $commentsCount = details_cache_get("comments:count:t{$id}");
 if (!is_int($commentsCount)) {
     $subres = $mysqli->query("SELECT COUNT(*) AS cnt FROM comments WHERE torrent = {$id}");
@@ -532,38 +531,60 @@ if (!is_int($commentsCount)) {
     details_cache_set("comments:count:t{$id}", $commentsCount, 60);
 }
 
-// Блок для AJAX
-echo '<div id="comments_list" class="comments-list">' . "\n";
+$commentsPages = max(1, (int)ceil($commentsCount / max(1, $limited)));
+$commentsDefaultPage = $commentsCount > 0 ? max((int)floor(($commentsCount - 1) / max(1, $limited)), 0) : 0;
+$commentsPage = isset($_GET['page']) ? max(0, (int)$_GET['page']) : $commentsDefaultPage;
+$commentsPage = min($commentsPage, max(0, $commentsPages - 1));
 
-if ($commentsCount === 0) {
-    if ($isLogged) {
-        // Пусто → сразу форма
-        begin_frame("Комментарии");
-        echo '<form name="comment" id="comment" method="post" action="#">';
-        echo '<table style="margin-top:2px;" cellpadding="5" width="100%">';
-        echo '<tr><td align="center">';
-        $text = $_POST['text'] ?? '';
-        // ВАЖНО: имя формы = "comment", иначе редактор может не повеситься
-        textbbcode("comment", "text", $text);
-        echo '</td></tr><tr><td align="center">';
-        echo '<input type="button" class="btn" value="Разместить комментарий" onclick="SE_SendComment(' . $id . ')" id="send_comment" />';
-        echo '</td></tr></table>';
-        echo '</form>';
-        end_frame();
+$commentsCacheKey = tracker_cache_ns_key(
+    tracker_comment_cache_namespace($id),
+    'details-block',
+    'page' . $commentsPage,
+    'user' . ($isLogged ? $uid : 0),
+    'class' . (int)get_user_class()
+);
+
+echo tracker_cache_render($commentsCacheKey, 60, static function () use (
+    $commentsCount,
+    $id,
+    $isLogged,
+    $uid,
+    $limited,
+    $commentsHaveThreads,
+    $mysqli
+): string {
+    ob_start();
+
+    echo '<div id="comments_list" class="comments-list">' . "\n";
+
+    if ($commentsCount === 0) {
+        if ($isLogged) {
+            begin_frame("Комментарии");
+            echo '<form name="comment" id="comment" method="post" action="#">';
+            echo '<table style="margin-top:2px;" cellpadding="5" width="100%">';
+            echo '<tr><td align="center">';
+            $text = $_POST['text'] ?? '';
+            textbbcode("comment", "text", $text);
+            echo '</td></tr><tr><td align="center">';
+            echo '<input type="button" class="btn" value="Разместить комментарий" onclick="SE_SendComment(' . $id . ')" id="send_comment" />';
+            echo '</td></tr></table>';
+            echo '</form>';
+            end_frame();
+        }
+
+        echo "</div>\n";
+        return (string)ob_get_clean();
     }
-} else {
-    // Пагинация
+
     [$pagertop, $pagerbottom, $limit] = pager($limited, $commentsCount, "details.php?id={$id}&", ['lastpagedefault' => 1]);
     $pagertop = details_comments_pager_wrap($pagertop, $commentsCount, $limited, true);
     $pagerbottom = details_comments_pager_wrap($pagerbottom, $commentsCount, $limited, true);
 
-    // Можно ли голосовать за карму комментария? (0/1 строка — считаем как количество оценок текущего юзера)
     $canrateCol = $isLogged
         ? ", (SELECT COUNT(*) FROM karma WHERE type = 'comment' AND value = c.id AND user = {$uid}) AS canrate"
         : "";
     $parentCol = $commentsHaveThreads ? "c.parent_id AS parent_id" : "0 AS parent_id";
 
-    // Получаем страницу комментариев
     $sql = "
         SELECT
             c.id,
@@ -600,28 +621,18 @@ if ($commentsCount === 0) {
         $allrows[] = $r;
     }
 
-    // Рисуем список
     echo '<table class="main" cellspacing="0" cellpadding="5" width="100%">';
     echo '<tr><td>';
-
-    // верхний пейджер
     if (!empty($pagertop)) {
         echo '<div class="pager-wrap pager-wrap--top">', $pagertop, '</div>';
     }
-
-    // список комментариев
     commenttable($allrows);
-
     echo '</td></tr><tr><td>';
-
-    // нижний пейджер
     if (!empty($pagerbottom)) {
         echo '<div class="pager-wrap pager-wrap--bottom">', $pagerbottom, '</div>';
     }
-
     echo '</td></tr></table>';
 
-    // форма добавления — только для залогиненных
     if ($isLogged) {
         begin_frame("Комментарии");
         echo '<form name="comment" id="comment" method="post" action="#">';
@@ -635,8 +646,9 @@ if ($commentsCount === 0) {
         echo '</form>';
         end_frame();
     }
-}
 
-echo "</div>\n"; // #comments_list
+    echo "</div>\n";
+    return (string)ob_get_clean();
+});
 
 stdfoot();

@@ -6,6 +6,7 @@ define('IN_ANNOUNCE', true);
 
 // === Зависимости ===
 require_once __DIR__ . '/include/secrets.php';      // инициализирует $mysqli
+require_once __DIR__ . '/include/cache.php';
 require_once __DIR__ . '/include/core_announce.php';
 require_once __DIR__ . '/include/functions_announce.php';
 require_once __DIR__ . '/include/benc.php';
@@ -13,7 +14,12 @@ require_once __DIR__ . '/include/config.php';       // $announce_interval
 
 // === Проверяем $mysqli ===
 if (!isset($mysqli) || !($mysqli instanceof mysqli)) {
-    benc_resp_raw(['failure reason' => 'DB unavailable']);
+    benc_resp_raw(benc([
+        'type' => 'dictionary',
+        'value' => [
+            'failure reason' => ['type' => 'string', 'value' => 'DB unavailable'],
+        ],
+    ]));
     exit;
 }
 
@@ -28,6 +34,88 @@ if (stripos($ae, 'gzip') !== false) {
 // === Простой лог (по желанию подключайте) ===
 function announce_log(string $msg): void {
     @error_log(date('[Y-m-d H:i:s] ') . $msg . "\n", 3, __DIR__ . '/logs/announce.log');
+}
+
+function announce_fail(string $reason): void {
+    benc_resp_raw(benc([
+        'type' => 'dictionary',
+        'value' => [
+            'failure reason' => ['type' => 'string', 'value' => $reason],
+        ],
+    ]));
+    exit;
+}
+
+function announce_send(array $payload): void
+{
+    benc_resp_raw(benc([
+        'type' => 'dictionary',
+        'value' => $payload,
+    ]));
+    exit;
+}
+
+function announce_cached_user(mysqli $mysqli, string $passkey): ?array
+{
+    $key = tracker_cache_key('announce', 'user', $passkey);
+
+    $row = tracker_cache_remember($key, 60, static function () use ($mysqli, $passkey): ?array {
+        $stmt = $mysqli->prepare('SELECT id, passkey_ip, class, parked, hiderating FROM users WHERE passkey = ? LIMIT 1');
+        $stmt->bind_param('s', $passkey);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc() ?: null;
+        $stmt->close();
+
+        return $row;
+    });
+
+    return is_array($row) ? $row : null;
+}
+
+function announce_cached_torrent(mysqli $mysqli, string $infoHashHex): ?array
+{
+    $key = tracker_cache_key('announce', 'torrent', $infoHashHex);
+
+    $row = tracker_cache_remember($key, 60, static function () use ($mysqli, $infoHashHex): ?array {
+        $stmt = $mysqli->prepare('SELECT id, banned, free, seeders, leechers, times_completed FROM torrents WHERE info_hash = UNHEX(?) LIMIT 1');
+        $stmt->bind_param('s', $infoHashHex);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc() ?: null;
+        $stmt->close();
+
+        return $row;
+    });
+
+    return is_array($row) ? $row : null;
+}
+
+function announce_cached_peer_pool(mysqli $mysqli, int $torrentId, int $limit): array
+{
+    $limit = max(50, min(200, $limit));
+    $key = tracker_cache_key('announce', 'peerpool', 't' . $torrentId, 'l' . $limit);
+
+    $rows = tracker_cache_remember($key, 5, static function () use ($mysqli, $torrentId, $limit): array {
+        $stmt = $mysqli->prepare('
+            SELECT peer_id, ip, port, seeder
+            FROM peers
+            WHERE torrent = ?
+            ORDER BY last_action DESC
+            LIMIT ?
+        ');
+        $stmt->bind_param('ii', $torrentId, $limit);
+        $stmt->execute();
+        $res = $stmt->get_result();
+
+        $rows = [];
+        while ($row = $res->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $stmt->close();
+
+        return $rows;
+    });
+
+    return is_array($rows) ? $rows : [];
 }
 
 // === Безопасный IP-детектор с учётом списков в XFF ===
@@ -56,8 +144,7 @@ function getip(): string {
 $required = ['passkey', 'info_hash', 'peer_id', 'port', 'uploaded', 'downloaded', 'left'];
 foreach ($required as $key) {
     if (!array_key_exists($key, $_GET)) {
-        benc_resp_raw(['failure reason' => 'Missing key: ' . $key]);
-        exit;
+        announce_fail('Missing key: ' . $key);
     }
 }
 
@@ -81,12 +168,10 @@ $agent      = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? '-'), 0, 200); // �
 
 // === Валидация бинарных полей и прочего ===
 if (strlen($info_hash) !== 20 || strlen($peer_id) !== 20 || strlen($passkey) !== 32) {
-    benc_resp_raw(['failure reason' => 'Invalid info_hash, peer_id, or passkey']);
-    exit;
+    announce_fail('Invalid info_hash, peer_id, or passkey');
 }
 if ($port < 1 || $port > 65535) {
-    benc_resp_raw(['failure reason' => 'Invalid port']);
-    exit;
+    announce_fail('Invalid port');
 }
 
 // === Бан клиентов (учитываем бинарность peer_id) ===
@@ -97,21 +182,15 @@ $prefix4 = substr($peer_id, 0, 4);
 $prefix8 = substr($peer_id, 0, 8);
 foreach ($banned_clients as $pref) {
     if ($pref === $prefix4 || $pref === $prefix8 || strncmp($peer_id, $pref, strlen($pref)) === 0) {
-        benc_resp_raw(['failure reason' => 'Banned client']);
-        exit;
+        announce_fail('Banned client');
     }
 }
 
 // === Пользователь по passkey ===
-$stmt = $mysqli->prepare('SELECT id, passkey_ip, class, parked, hiderating FROM users WHERE passkey = ? LIMIT 1');
-$stmt->bind_param('s', $passkey);
-$stmt->execute();
-$user = $stmt->get_result()->fetch_assoc();
-$stmt->close();
+$user = announce_cached_user($mysqli, $passkey);
 
 if (!$user) {
-    benc_resp_raw(['failure reason' => 'Invalid passkey']);
-    exit;
+    announce_fail('Invalid passkey');
 }
 
 $userid = (int)$user['id'];
@@ -119,27 +198,24 @@ $userid = (int)$user['id'];
 // === Проверка закрепления IP для passkey (если включено) ===
 $passkey_ip = (string)($user['passkey_ip'] ?? '');
 if ($passkey_ip !== '' && $passkey_ip !== $ip) {
-    benc_resp_raw(['failure reason' => 'IP mismatch for this passkey']);
-    exit;
+    announce_fail('IP mismatch for this passkey');
 }
 
 // === Parked-аккаунты не пускаем ===
 if (($user['parked'] ?? 'no') === 'yes') {
-    benc_resp_raw(['failure reason' => 'Account is parked']);
-    exit;
+    announce_fail('Account is parked');
 }
 
 // === Поиск торрента по info_hash (бинарный) ===
 $info_hash_hex = bin2hex($info_hash);
-$stmt = $mysqli->prepare('SELECT id, banned, free, seeders, leechers, times_completed FROM torrents WHERE info_hash = UNHEX(?) LIMIT 1');
-$stmt->bind_param('s', $info_hash_hex);
-$stmt->execute();
-$torrent = $stmt->get_result()->fetch_assoc();
-$stmt->close();
+$torrent = announce_cached_torrent($mysqli, $info_hash_hex);
 
 if (!$torrent) {
-    benc_resp_raw(['failure reason' => 'Torrent not found']);
-    exit;
+    announce_fail('Torrent not found');
+}
+
+if (($torrent['banned'] ?? 'no') === 'yes') {
+    announce_fail('Torrent is banned');
 }
 
 $torrentid = (int)$torrent['id'];
@@ -147,43 +223,46 @@ $seeder    = ($left === 0) ? 'yes' : 'no';
 $now       = date('Y-m-d H:i:s');
 
 // === Выдаем список пиров (numwant) ===
-// Не возвращаем самого себя (по peer_id)
-$stmt = $mysqli->prepare('
-    SELECT peer_id, ip, port, seeder
-    FROM peers
-    WHERE torrent = ? AND peer_id <> ?
-    ORDER BY last_action DESC
-    LIMIT ?
-');
-$stmt->bind_param('isi', $torrentid, $peer_id, $numwant);
-$stmt->execute();
-$res = $stmt->get_result();
-
 $peers_compact = '';
 $peers_list    = [];
 
-while ($row = $res->fetch_assoc()) {
-    // В compact-режиме — только IPv4; пропускаем иное
-    if ($compact) {
-        if (filter_var($row['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            $ipParts = array_map('intval', explode('.', $row['ip']));
-            if (count($ipParts) === 4) {
-                $peers_compact .= pack('C4n', $ipParts[0], $ipParts[1], $ipParts[2], $ipParts[3], (int)$row['port']);
+if ($numwant > 0) {
+    $peerPool = announce_cached_peer_pool($mysqli, $torrentid, max($numwant + 20, 80));
+
+    foreach ($peerPool as $row) {
+        if (($row['peer_id'] ?? '') === $peer_id) {
+            continue;
+        }
+
+        if ($compact) {
+            if (!filter_var((string)$row['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                continue;
+            }
+
+            $ipParts = array_map('intval', explode('.', (string)$row['ip']));
+            if (count($ipParts) !== 4) {
+                continue;
+            }
+
+            $peers_compact .= pack('C4n', $ipParts[0], $ipParts[1], $ipParts[2], $ipParts[3], (int)$row['port']);
+            if ((strlen($peers_compact) / 6) >= $numwant) {
+                break;
+            }
+        } else {
+            $peer = [
+                'ip'   => (string)$row['ip'],
+                'port' => (int)$row['port'],
+            ];
+            if (!$no_peer_id) {
+                $peer['peer id'] = (string)$row['peer_id'];
+            }
+            $peers_list[] = $peer;
+            if (count($peers_list) >= $numwant) {
+                break;
             }
         }
-    } else {
-        $peer = [
-            'ip'   => $row['ip'],
-            'port' => (int)$row['port'],
-        ];
-        if (!$no_peer_id) {
-            // В неcompact-режиме BitTorrent-спеки ждут ключ 'peer id'
-            $peer['peer id'] = $row['peer_id'];
-        }
-        $peers_list[] = $peer;
     }
 }
-$stmt->close();
 
 // === Проверяем, есть ли уже запись этого пира ===
 $stmt = $mysqli->prepare('SELECT id, uploaded, downloaded, seeder FROM peers WHERE torrent = ? AND peer_id = ? LIMIT 1');
@@ -191,6 +270,9 @@ $stmt->bind_param('is', $torrentid, $peer_id);
 $stmt->execute();
 $self = $stmt->get_result()->fetch_assoc();
 $stmt->close();
+$previousSeeder = $self ? (((string)($self['seeder'] ?? 'no') === 'yes') ? 'yes' : 'no') : null;
+$deltaSeeders = 0;
+$deltaLeechers = 0;
 
 // === Обработка события stopped: корректно удаляем (без чейнинга методов) ===
 if ($event === 'stopped') {
@@ -199,66 +281,73 @@ if ($event === 'stopped') {
     $stmt->execute();
     $stmt->close();
 
-    // (опционально) быстрый подсчет сид/лич (можно держать триггерами/cron)
-    // $mysqli->query("UPDATE torrents SET seeders = (SELECT COUNT(*) FROM peers WHERE torrent=$torrentid AND seeder='yes'),
-    //                 leechers = (SELECT COUNT(*) FROM peers WHERE torrent=$torrentid AND seeder='no') WHERE id=$torrentid");
+    if ($previousSeeder === 'yes') {
+        $deltaSeeders = -1;
+    } elseif ($previousSeeder === 'no') {
+        $deltaLeechers = -1;
+    }
 
 } else {
+    $uploaded   = $self ? max($uploaded, (int)$self['uploaded']) : $uploaded;
+    $downloaded = $self ? max($downloaded, (int)$self['downloaded']) : $downloaded;
+
+    $connectable = 'yes';
+    $stmt = $mysqli->prepare('
+        INSERT INTO peers
+            (torrent, peer_id, ip, port, uploaded, downloaded, to_go, seeder, userid, agent, started, last_action, prev_action, passkey, connectable)
+        VALUES
+            (?,       ?,       ?,  ?,    ?,        ?,          ?,     ?,      ?,     ?,     ?,       ?,           ?,          ?,       ?)
+        ON DUPLICATE KEY UPDATE
+            ip           = VALUES(ip),
+            port         = VALUES(port),
+            uploaded     = GREATEST(uploaded, VALUES(uploaded)),
+            downloaded   = GREATEST(downloaded, VALUES(downloaded)),
+            to_go        = VALUES(to_go),
+            seeder       = VALUES(seeder),
+            userid       = VALUES(userid),
+            agent        = VALUES(agent),
+            prev_action  = last_action,
+            last_action  = VALUES(last_action),
+            passkey      = VALUES(passkey),
+            connectable  = VALUES(connectable)
+    ');
+    $stmt->bind_param(
+        'issiiiisissssss',
+        $torrentid,
+        $peer_id,
+        $ip,
+        $port,
+        $uploaded,
+        $downloaded,
+        $left,
+        $seeder,
+        $userid,
+        $agent,
+        $now,
+        $now,
+        $now,
+        $passkey,
+        $connectable
+    );
+    $stmt->execute();
+    $stmt->close();
+
     if ($self) {
-        // апдейт существующего пира
-        $uploaded   = max($uploaded,   (int)$self['uploaded']);
-        $downloaded = max($downloaded, (int)$self['downloaded']);
-
-        $stmt = $mysqli->prepare('
-            UPDATE peers
-               SET uploaded = ?, downloaded = ?, to_go = ?, seeder = ?, last_action = ?, ip = ?, port = ?, agent = ?, connectable = ?
-             WHERE torrent = ? AND peer_id = ?
-        ');
-        $connectable = 'yes'; // упрощённо; при желании добавьте fsockopen-тест
-        $stmt->bind_param(
-            'iiisssissis',
-            $uploaded,
-            $downloaded,
-            $left,
-            $seeder,
-            $now,
-            $ip,
-            $port,
-            $agent,
-            $connectable,
-            $torrentid,
-            $peer_id
-        );
-        $stmt->execute();
-        $stmt->close();
-
+        if ($previousSeeder !== $seeder) {
+            if ($seeder === 'yes') {
+                $deltaSeeders = 1;
+                $deltaLeechers = -1;
+            } else {
+                $deltaSeeders = -1;
+                $deltaLeechers = 1;
+            }
+        }
     } else {
-        // вставка нового пира
-        $connectable = 'yes';
-        $stmt = $mysqli->prepare('
-            INSERT INTO peers
-                (torrent, peer_id, ip, port, uploaded, downloaded, to_go, seeder, userid, agent, last_action, passkey, connectable)
-            VALUES
-                (?,       ?,       ?,  ?,    ?,        ?,          ?,     ?,      ?,     ?,     ?,           ?,       ?)
-        ');
-        $stmt->bind_param(
-            'issiiississss',
-            $torrentid,
-            $peer_id,
-            $ip,
-            $port,
-            $uploaded,
-            $downloaded,
-            $left,
-            $seeder,
-            $userid,
-            $agent,
-            $now,
-            $passkey,
-            $connectable
-        );
-        $stmt->execute();
-        $stmt->close();
+        if ($seeder === 'yes') {
+            $deltaSeeders = 1;
+        } else {
+            $deltaLeechers = 1;
+        }
     }
 
     // если клиент сообщил 'completed' — увеличим счётчик завершений
@@ -270,16 +359,39 @@ if ($event === 'stopped') {
     }
 }
 
+if ($deltaSeeders !== 0 || $deltaLeechers !== 0) {
+    $stmt = $mysqli->prepare('
+        UPDATE torrents
+           SET seeders = GREATEST(seeders + ?, 0),
+               leechers = GREATEST(leechers + ?, 0),
+               last_action = NOW()
+         WHERE id = ?
+    ');
+    $stmt->bind_param('iii', $deltaSeeders, $deltaLeechers, $torrentid);
+    $stmt->execute();
+    $stmt->close();
+}
+
 // === Формируем ответ клиенту ===
 $response = [
-    'interval' => (int)($announce_interval ?? 1800),
+    'interval' => ['type' => 'integer', 'value' => (int)($announce_interval ?? 1800)],
 ];
 
 if ($compact) {
-    // compact должен быть бинарной строкой (не массив!)
-    $response['peers'] = $peers_compact;
+    $response['peers'] = ['type' => 'string', 'value' => $peers_compact];
 } else {
-    $response['peers'] = $peers_list;
+    $peerNodes = [];
+    foreach ($peers_list as $peer) {
+        $value = [
+            'ip'   => ['type' => 'string', 'value' => (string)$peer['ip']],
+            'port' => ['type' => 'integer', 'value' => (int)$peer['port']],
+        ];
+        if (!$no_peer_id && isset($peer['peer id'])) {
+            $value['peer id'] = ['type' => 'string', 'value' => (string)$peer['peer id']];
+        }
+        $peerNodes[] = ['type' => 'dictionary', 'value' => $value];
+    }
+    $response['peers'] = ['type' => 'list', 'value' => $peerNodes];
 }
 
-benc_resp_raw($response);
+announce_send($response);

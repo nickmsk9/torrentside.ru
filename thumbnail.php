@@ -12,8 +12,9 @@ declare(strict_types=1);
 define('IMAGE_BASE', __DIR__ . '/torrents/images'); // абсолютный путь на сервере
 define('MAX_WIDTH',  1280);
 define('MAX_HEIGHT', 1024);
-define('JPEG_QUALITY', 85);  // 0..100
-define('PNG_COMP', 6);       // 0..9
+define('JPEG_QUALITY', 90);  // 0..100
+define('PNG_COMP', 5);       // 0..9
+define('THUMB_CACHE_DIR', __DIR__ . '/cache/thumbs');
 
 //// helpers ////
 function send_404(): void {
@@ -41,6 +42,75 @@ function real_under_base(string $absPath, string $base): bool {
     $rp = realpath($absPath);
     $rb = realpath($base);
     return $rp !== false && $rb !== false && str_starts_with($rp, $rb);
+}
+function thumb_mime_by_ext(string $ext): string {
+    return match ($ext) {
+        'jpg', 'jpeg' => 'image/jpeg',
+        'png'         => 'image/png',
+        'gif'         => 'image/gif',
+        default       => 'application/octet-stream',
+    };
+}
+function thumb_cache_file(string $relPath, int $mtime, string $ext, int $origW, int $origH): string {
+    $signature = sha1(implode('|', [
+        $relPath,
+        (string)$mtime,
+        $ext,
+        (string)$origW,
+        (string)$origH,
+        (string)MAX_WIDTH,
+        (string)MAX_HEIGHT,
+        (string)JPEG_QUALITY,
+        (string)PNG_COMP,
+    ]));
+
+    $dir = THUMB_CACHE_DIR . '/' . substr($signature, 0, 2) . '/' . substr($signature, 2, 2);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+
+    return $dir . '/' . $signature . '.' . $ext;
+}
+function thumb_etag(string $cacheFile, int $mtime): string {
+    return '"' . sha1($cacheFile . '|' . $mtime . '|' . (is_file($cacheFile) ? (string)filesize($cacheFile) : '0')) . '"';
+}
+function thumb_is_not_modified(string $etag, int $mtime): bool {
+    $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
+    if ($ifNoneMatch !== '' && $ifNoneMatch === $etag) {
+        return true;
+    }
+
+    $ifModifiedSince = trim((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? ''));
+    if ($ifModifiedSince !== '') {
+        $since = strtotime($ifModifiedSince);
+        if ($since !== false && $since >= $mtime) {
+            return true;
+        }
+    }
+
+    return false;
+}
+function thumb_send_file(string $file, string $ext, int $mtime): void {
+    if (!is_file($file)) {
+        send_404();
+    }
+
+    $etag = thumb_etag($file, $mtime);
+    if (thumb_is_not_modified($etag, $mtime)) {
+        http_response_code(304);
+        header('ETag: ' . $etag);
+        header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
+        header('Cache-Control: public, max-age=2592000, immutable');
+        exit;
+    }
+
+    header('Content-Type: ' . thumb_mime_by_ext($ext));
+    header('Content-Length: ' . (string)filesize($file));
+    header('ETag: ' . $etag);
+    header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
+    header('Cache-Control: public, max-age=2592000, immutable');
+    readfile($file);
+    exit;
 }
 function auto_orient_jpeg($img, string $file): GdImage {
     if (!function_exists('exif_read_data')) return $img;
@@ -99,19 +169,25 @@ if ($ext === 'jpg' || $ext === 'jpeg') {
 // Если правки не нужны — отдадим оригинал с корректным типом и кэшем
 if (!$needsResize && !$needsOrient) {
     $mtime = filemtime($absPath) ?: time();
-    $mime  = match ($ext) {
-        'jpg','jpeg' => 'image/jpeg',
-        'png'        => 'image/png',
-        'gif'        => 'image/gif',
-        default      => 'application/octet-stream',
-    };
+    thumb_send_file($absPath, $ext, $mtime);
+}
 
-    header('Content-Type: ' . $mime);
-    header('Content-Length: ' . filesize($absPath));
-    header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
-    header('Cache-Control: public, max-age=2592000, immutable'); // 30 дней
-    readfile($absPath);
-    exit;
+$mtime = filemtime($absPath) ?: time();
+$cacheFile = thumb_cache_file($relPath, $mtime, $ext, $origW, $origH);
+$lockFile = $cacheFile . '.lock';
+$lockHandle = @fopen($lockFile, 'c');
+
+if ($lockHandle) {
+    @flock($lockHandle, LOCK_EX);
+}
+
+clearstatcache(true, $cacheFile);
+if (is_file($cacheFile) && filesize($cacheFile) > 0) {
+    if ($lockHandle) {
+        @flock($lockHandle, LOCK_UN);
+        @fclose($lockHandle);
+    }
+    thumb_send_file($cacheFile, $ext, $mtime);
 }
 
 //// load ////
@@ -155,27 +231,39 @@ if ($needsResize) {
     $img = $dst;
 }
 
-// Output
-$mtime = filemtime($absPath) ?: time();
+// Output to disk cache first, then serve cached file
+$tmpFile = $cacheFile . '.tmp';
+$writeOk = false;
 switch ($ext) {
     case 'jpg':
     case 'jpeg':
-        header('Content-Type: image/jpeg');
-        header('Cache-Control: public, max-age=2592000, immutable');
-        header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
-        imagejpeg($img, null, JPEG_QUALITY);
+        imageinterlace($img, true);
+        $writeOk = imagejpeg($img, $tmpFile, JPEG_QUALITY);
         break;
     case 'png':
-        header('Content-Type: image/png');
-        header('Cache-Control: public, max-age=2592000, immutable');
-        header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
-        imagepng($img, null, PNG_COMP);
+        $writeOk = imagepng($img, $tmpFile, PNG_COMP);
         break;
     case 'gif':
-        header('Content-Type: image/gif');
-        header('Cache-Control: public, max-age=2592000, immutable');
-        header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
-        imagegif($img);
+        $writeOk = imagegif($img, $tmpFile);
         break;
 }
 imagedestroy($img);
+
+if ($writeOk) {
+    @rename($tmpFile, $cacheFile);
+    @chmod($cacheFile, 0664);
+} elseif (is_file($tmpFile)) {
+    @unlink($tmpFile);
+}
+
+if ($lockHandle) {
+    @flock($lockHandle, LOCK_UN);
+    @fclose($lockHandle);
+}
+
+clearstatcache(true, $cacheFile);
+if (is_file($cacheFile) && filesize($cacheFile) > 0) {
+    thumb_send_file($cacheFile, $ext, $mtime);
+}
+
+send_404();

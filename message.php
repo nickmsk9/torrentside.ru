@@ -89,6 +89,92 @@ define('PM_DELETED',0); // Message was deleted
 define('PM_INBOX',1); // Message located in Inbox for reciever
 define('PM_SENTBOX',-1); // GET value for sent box
 
+function message_mailbox_cache_key(int $userId, int $mailbox): string
+{
+    return tracker_cache_ns_key(
+        tracker_message_cache_namespace($userId),
+        'mailbox',
+        $mailbox === PM_SENTBOX ? 'sent' : 'inbox'
+    );
+}
+
+function message_cached_mailbox_rows(int $userId, int $mailbox): array
+{
+    $mailbox = ($mailbox === PM_SENTBOX) ? PM_SENTBOX : PM_INBOX;
+    $cacheKey = message_mailbox_cache_key($userId, $mailbox);
+
+    $rows = tracker_cache_remember($cacheKey, 45, static function () use ($userId, $mailbox): array {
+        if ($mailbox !== PM_SENTBOX) {
+            $res = sql_query("
+                SELECT m.*, u.username AS sender_username, s.id AS sfid, r.id AS rfid
+                FROM messages m
+                LEFT JOIN users u ON m.sender = u.id
+                LEFT JOIN friends r ON r.userid = {$userId} AND r.friendid = m.receiver
+                LEFT JOIN friends s ON s.userid = {$userId} AND s.friendid = m.sender
+                WHERE m.receiver = " . sqlesc($userId) . "
+                  AND m.location = " . sqlesc(PM_INBOX) . "
+                ORDER BY m.id DESC
+            ") or sqlerr(__FILE__, __LINE__);
+        } else {
+            $res = sql_query("
+                SELECT m.*, u.username AS receiver_username, s.id AS sfid, r.id AS rfid
+                FROM messages m
+                LEFT JOIN users u ON m.receiver = u.id
+                LEFT JOIN friends r ON r.userid = {$userId} AND r.friendid = m.receiver
+                LEFT JOIN friends s ON s.userid = {$userId} AND s.friendid = m.sender
+                WHERE m.sender = " . sqlesc($userId) . "
+                  AND m.saved  = 'yes'
+                ORDER BY m.id DESC
+            ") or sqlerr(__FILE__, __LINE__);
+        }
+
+        $rows = [];
+        while ($res && ($row = mysqli_fetch_assoc($res))) {
+            $rows[] = $row;
+        }
+        return $rows;
+    });
+
+    return is_array($rows) ? $rows : [];
+}
+
+function message_cached_pm_row(int $pmId, int $viewerId, bool $adminview = false): ?array
+{
+    $cacheKey = $adminview
+        ? tracker_cache_key('message', 'pm', 'id' . $pmId, 'admin', 'viewer' . $viewerId)
+        : tracker_cache_ns_key(tracker_message_cache_namespace($viewerId), 'pm', 'id' . $pmId);
+
+    $row = tracker_cache_remember($cacheKey, 45, static function () use ($pmId, $viewerId, $adminview): ?array {
+        if (!$adminview) {
+            $res = sql_query("
+                SELECT m.*, su.username AS sender_username, ru.username AS receiver_username
+                FROM messages m
+                LEFT JOIN users su ON su.id = m.sender
+                LEFT JOIN users ru ON ru.id = m.receiver
+                WHERE m.id = " . sqlesc($pmId) . "
+                  AND (
+                        m.receiver = " . sqlesc($viewerId) . "
+                     OR (m.sender   = " . sqlesc($viewerId) . " AND m.saved = 'yes')
+                  )
+                LIMIT 1
+            ") or sqlerr(__FILE__, __LINE__);
+        } else {
+            $res = sql_query("
+                SELECT m.*, su.username AS sender_username, ru.username AS receiver_username
+                FROM messages m
+                LEFT JOIN users su ON su.id = m.sender
+                LEFT JOIN users ru ON ru.id = m.receiver
+                WHERE m.id = " . sqlesc($pmId) . "
+                LIMIT 1
+            ") or sqlerr(__FILE__, __LINE__);
+        }
+
+        return ($res && mysqli_num_rows($res) > 0) ? mysqli_fetch_assoc($res) : null;
+    });
+
+    return is_array($row) ? $row : null;
+}
+
 // Determine action
 $action = $_POST['action'] ?? $_GET['action'] ?? 'viewmailbox';
 
@@ -262,39 +348,15 @@ function pmComposeSubmit(form){
       </td>
     </tr>
 <?php
-    if ($mailbox !== PM_SENTBOX) {
-        // Входящие
-        $res = sql_query("
-            SELECT m.*, u.username AS sender_username, s.id AS sfid, r.id AS rfid
-            FROM messages m
-            LEFT JOIN users u ON m.sender = u.id
-            LEFT JOIN friends r ON r.userid = {$curuser_id} AND r.friendid = m.receiver
-            LEFT JOIN friends s ON s.userid = {$curuser_id} AND s.friendid = m.sender
-            WHERE m.receiver = " . sqlesc($curuser_id) . "
-              AND m.location = " . sqlesc(PM_INBOX) . "
-            ORDER BY m.id DESC
-        ") or sqlerr(__FILE__, __LINE__);
-    } else {
-        // Отправленные (сохранённые)
-        $res = sql_query("
-            SELECT m.*, u.username AS receiver_username, s.id AS sfid, r.id AS rfid
-            FROM messages m
-            LEFT JOIN users u ON m.receiver = u.id
-            LEFT JOIN friends r ON r.userid = {$curuser_id} AND r.friendid = m.receiver
-            LEFT JOIN friends s ON s.userid = {$curuser_id} AND s.friendid = m.sender
-            WHERE m.sender = " . sqlesc($curuser_id) . "
-              AND m.saved  = 'yes'
-            ORDER BY m.id DESC
-        ") or sqlerr(__FILE__, __LINE__);
-    }
+    $mailRows = message_cached_mailbox_rows($curuser_id, $mailbox);
 
-    if (!$res || mysqli_num_rows($res) === 0): ?>
+    if (!$mailRows): ?>
       <tr>
         <td class="lol" colspan="5" align="center"><?= ($tracker_lang['no_messages'] ?? 'Сообщений нет'); ?>.</td>
       </tr>
 <?php
     else:
-        while ($row = mysqli_fetch_assoc($res)):
+        foreach ($mailRows as $row):
             $subject = htmlspecialchars($row['subject'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             if ($subject === '') $subject = ($tracker_lang['no_subject'] ?? 'Без темы');
 
@@ -328,7 +390,7 @@ function pmComposeSubmit(form){
         </td>
       </tr>
 <?php
-        endwhile;
+        endforeach;
     endif;
 ?>
     <tr class="colhead">
@@ -356,34 +418,15 @@ if ($action === "viewmessage") {
 
     $adminview = false;
 
-    // Получаем сообщение: обычный пользователь — своё входящее или сохранённое исходящее
-    if (get_user_class() !== UC_SYSOP) {
-        $res = sql_query("
-            SELECT m.*
-            FROM messages m
-            WHERE m.id = " . sqlesc($pm_id) . "
-              AND (
-                    m.receiver = " . sqlesc((int)$CURUSER['id']) . "
-                 OR (m.sender   = " . sqlesc((int)$CURUSER['id']) . " AND m.saved = 'yes')
-              )
-            LIMIT 1
-        ") or sqlerr(__FILE__, __LINE__);
-    } else {
-        $res = sql_query("
-            SELECT m.*
-            FROM messages m
-            WHERE m.id = " . sqlesc($pm_id) . "
-            LIMIT 1
-        ") or sqlerr(__FILE__, __LINE__);
+    if (get_user_class() === UC_SYSOP) {
         $adminview = true;
     }
 
-    if (!$res || mysqli_num_rows($res) === 0) {
+    $message = message_cached_pm_row($pm_id, (int)$CURUSER['id'], $adminview);
+    if (!$message) {
         stderr($tracker_lang['error'], "Такого сообщения не существует.");
     }
 
-    // Подготовка
-    $message   = mysqli_fetch_assoc($res);
     $sender_id = isset($message['sender'])   ? (int)$message['sender']   : 0;
     $recv_id   = isset($message['receiver']) ? (int)$message['receiver'] : 0;
     $is_sender = ($sender_id === (int)$CURUSER['id']);
@@ -395,9 +438,7 @@ if ($action === "viewmessage") {
     if ($is_sender) {
         // Мы отправитель: показываем "Кому"
         $from = "Кому";
-        $rres = sql_query("SELECT username FROM users WHERE id = " . sqlesc($recv_id) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        $rowR = $rres ? mysqli_fetch_row($rres) : null;
-        $name = htmlspecialchars($rowR[0] ?? 'Неизвестно', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $name = htmlspecialchars((string)($message['receiver_username'] ?? 'Неизвестно'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $sender = '<a href="userdetails.php?id=' . $recv_id . '">' . $name . '</a>';
         // Ответ не нужен для исходящих
     } else {
@@ -405,16 +446,20 @@ if ($action === "viewmessage") {
         if ($sender_id === 0) {
             $sender = "Системное";
         } else {
-            $sres = sql_query("SELECT username FROM users WHERE id = " . sqlesc($sender_id) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-            $rowS = $sres ? mysqli_fetch_row($sres) : null;
-            $name = htmlspecialchars($rowS[0] ?? 'Неизвестно', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $name = htmlspecialchars((string)($message['sender_username'] ?? 'Неизвестно'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $sender = '<a href="userdetails.php?id=' . $sender_id . '">' . $name . '</a>';
             $reply  = '<a href="message.php?action=sendmessage&amp;receiver=' . $sender_id . '&amp;replyto=' . $pm_id . '">Ответить</a>';
         }
     }
 
     // Тело/дата
-    $body = format_comment($message['msg'] ?? '');
+    $body = tracker_cache_remember(
+        tracker_cache_key('message', 'body', 'pm' . $pm_id, 'h' . md5((string)($message['msg'] ?? ''))),
+        600,
+        static function () use ($message): string {
+            return format_comment((string)($message['msg'] ?? ''));
+        }
+    );
 
     $tzoffset = isset($CURUSER['tzoffset']) ? (int)$CURUSER['tzoffset'] : 0;
     $added_ts = !empty($message['added']) ? strtotime($message['added']) : 0;
@@ -439,6 +484,7 @@ if ($action === "viewmessage") {
               AND receiver = " . sqlesc((int)$CURUSER['id']) . "
             LIMIT 1
         ");
+        tracker_invalidate_message_cache((int)$CURUSER['id'], $sender_id);
     }
 
     // Вывод
@@ -688,6 +734,7 @@ if ($action === 'takemessage') {
                   'yes')";
     sql_query($q) or sqlerr(__FILE__, __LINE__);
     $sended_id = $mysqli->insert_id;
+    tracker_invalidate_message_cache($receiver, (int)$CURUSER['id']);
 
     // удалить исходное при ответе
     if ($origmsg && (($_POST['delete'] ?? '') === 'yes')) {
@@ -698,6 +745,7 @@ if ($action === 'takemessage') {
             } else {
                 sql_query("UPDATE messages SET location = " . sqlesc(PM_DELETED) . " WHERE id=" . sqlesc($origmsg) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
             }
+            tracker_invalidate_message_cache((int)$CURUSER['id']);
         }
     }
 
@@ -843,6 +891,7 @@ if ($action == "moveordel") {
                         stderr($tracker_lang['error'], "Не возможно переместить сообщения!");
                 }
                 header("Location: message.php?action=viewmailbox&box=" . $pm_box);
+                tracker_invalidate_message_cache((int)$CURUSER['id']);
                 exit();
         }
         elseif ($_POST['delete']) {
@@ -887,6 +936,7 @@ if ($action == "moveordel") {
                         stderr($tracker_lang['error'],"Сообщение не может быть удалено!");
                 }
                 else {
+                        tracker_invalidate_message_cache((int)$CURUSER['id']);
                         header("Location: message.php?action=viewmailbox&box=" . $pm_box);
                         exit();
                 }
@@ -910,6 +960,7 @@ if ($action == "moveordel") {
                         stderr($tracker_lang['error'], "Сообщение не может быть помечено как прочитанное! ");
                 }
                 else {
+                        tracker_invalidate_message_cache((int)$CURUSER['id']);
                         header("Location: message.php?action=viewmailbox&box=" . $pm_box);
                         exit();
                 }
@@ -1133,6 +1184,7 @@ if ($action === "forward") {
                 sqlesc($save) .
             ")"
         ) or sqlerr(__FILE__, __LINE__);
+        tracker_invalidate_message_cache($to_id, $curuser_id);
 
         stderr($tracker_lang['success'] ?? 'Удачно', "ЛС переслано.");
 }
@@ -1190,6 +1242,7 @@ if ($action === "deletemessage") {
         stderr($tracker_lang['error'] ?? 'Ошибка', "Невозможно удалить сообщение.");
     }
 
+    tracker_invalidate_message_cache($user_id);
     header("Location: message.php?action=viewmailbox&box=" . (int)$redirect_box);
     exit;
 }

@@ -21,28 +21,33 @@ if (($_GET['action'] ?? '') === 'ajax_user_search') {
     $likeStart = $safe . '%';
     $likeAny   = '%' . $safe . '%';
     $isNumeric = ctype_digit($q) ? (int)$q : 0;
+    $cacheKey = tracker_cache_key('users', 'ajax-search', md5(json_encode([$q, $isNumeric], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: $q));
 
     // Поиск: приоритет — имя, начинающееся с запроса; далее — любое вхождение.
     // Если ввели цифры — даём шанс прямому совпадению по ID.
-    $sql = "
-      SELECT id, username
-      FROM users
-      WHERE " . ($isNumeric ? "id = " . sqlesc($isNumeric) . " OR " : "") . "
-            username LIKE " . sqlesc($likeStart) . "
-         OR username LIKE " . sqlesc($likeAny) . "
-      ORDER BY
-        CASE WHEN username LIKE " . sqlesc($likeStart) . " THEN 0 ELSE 1 END,
-        CHAR_LENGTH(username) ASC
-      LIMIT 10
-    ";
+    $out = tracker_cache_remember($cacheKey, 60, static function () use ($isNumeric, $likeStart, $likeAny): array {
+        $sql = "
+          SELECT id, username
+          FROM users
+          WHERE " . ($isNumeric ? "id = " . sqlesc($isNumeric) . " OR " : "") . "
+                username LIKE " . sqlesc($likeStart) . "
+             OR username LIKE " . sqlesc($likeAny) . "
+          ORDER BY
+            CASE WHEN username LIKE " . sqlesc($likeStart) . " THEN 0 ELSE 1 END,
+            CHAR_LENGTH(username) ASC
+          LIMIT 10
+        ";
 
-    $res = sql_query($sql) or sqlerr(__FILE__, __LINE__);
-    $out = [];
-    if ($res) {
-        while ($u = mysqli_fetch_assoc($res)) {
-            $out[] = ['id' => (int)$u['id'], 'username' => (string)$u['username']];
+        $res = sql_query($sql) or sqlerr(__FILE__, __LINE__);
+        $rows = [];
+        if ($res) {
+            while ($u = mysqli_fetch_assoc($res)) {
+                $rows[] = ['id' => (int)$u['id'], 'username' => (string)$u['username']];
+            }
         }
-    }
+        return $rows;
+    });
+
     echo json_encode($out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -429,5 +434,4 @@ echo "<p id=\"browse-bottom\">$pagemenu<br>$browsemenu</p>";
 <?php
 end_frame();
 stdfoot();
-
 

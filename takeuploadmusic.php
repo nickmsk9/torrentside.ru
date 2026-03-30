@@ -281,6 +281,8 @@ foreach ($toInsert as $tag) {
     sql_query("INSERT INTO tags (category, name, howmuch) VALUES (" . sqlesc($catid) . ", " . sqlesc($tag) . ", 1)") or sqlerr(__FILE__, __LINE__);
 }
 
+tracker_invalidate_torrent_cache($id, true);
+
 // Лог
 write_log("Торрент №$id ($torrentDisp) был залит пользователем {$CURUSER['username']}", "5DDB6E", "torrent");
 

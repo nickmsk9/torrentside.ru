@@ -272,6 +272,8 @@ sql_query("UPDATE torrents SET " . implode(", ", $updateset) . " WHERE id = " . 
 
 sql_query("COMMIT");
 
+tracker_invalidate_torrent_cache($id, true);
+
 /** Log */
 write_log("Торрент '" . $name . "' был отредактирован пользователем {$CURUSER['username']}", "F25B61", "torrent");
 

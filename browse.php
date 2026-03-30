@@ -138,6 +138,17 @@ function browse_normalize_fuzzy(string $value): string {
 }
 
 function browse_find_fuzzy_suggestion(mysqli $mysqli, string $search, array $wherebase, string $wherecatin = ''): string {
+    $cacheKey = tracker_cache_ns_key('browse', 'fuzzy', md5(json_encode([
+        'search' => $search,
+        'wherebase' => array_values($wherebase),
+        'wherecatin' => $wherecatin,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: $search . '|' . $wherecatin));
+
+    $cached = tracker_cache_get($cacheKey, $hit);
+    if ($hit) {
+        return is_string($cached) ? $cached : '';
+    }
+
     $terms = browse_search_terms($search);
     $focus = '';
     foreach ($terms as $term) {
@@ -201,7 +212,10 @@ function browse_find_fuzzy_suggestion(mysqli $mysqli, string $search, array $whe
         }
     }
 
-    return $bestScore >= 62.0 ? $bestName : '';
+    $result = $bestScore >= 62.0 ? $bestName : '';
+    tracker_cache_set($cacheKey, $result, 180);
+
+    return $result;
 }
 
 function browse_build_search_condition(string $search, string $scope = 'title'): ?string {
@@ -267,6 +281,73 @@ function browse_format_options(): array {
     ];
 }
 
+function browse_cached_count(string $where): int {
+    $sql = "SELECT COUNT(*) AS cnt FROM torrents {$where}";
+    $cacheKey = tracker_cache_ns_key('browse', 'count', md5($sql));
+
+    $count = tracker_cache_remember($cacheKey, 45, static function () use ($sql): int {
+        $res = sql_query($sql);
+        $row = mysqli_fetch_assoc($res);
+        return (int)($row['cnt'] ?? 0);
+    });
+
+    return (int)$count;
+}
+
+function browse_cached_rows(string $query, int $ttl = 45): array {
+    $cacheKey = tracker_cache_ns_key('browse', 'rows', md5($query));
+
+    $rows = tracker_cache_remember($cacheKey, $ttl, static function () use ($query): array {
+        $res = sql_query($query);
+        $rows = [];
+        while ($res && ($row = mysqli_fetch_assoc($res))) {
+            $rows[] = $row;
+        }
+        return $rows;
+    });
+
+    return is_array($rows) ? $rows : [];
+}
+
+function browse_sort_config(bool $canModerate): array {
+    $config = [
+        '1' => ['column' => 'torrents.name', 'default' => 'ASC'],
+        '2' => ['column' => 'torrents.numfiles', 'default' => 'DESC'],
+        '3' => ['column' => 'torrents.comments', 'default' => 'DESC'],
+        // Для свежих раздач сортировка по id дешевле и эквивалентна added на этом движке.
+        '4' => ['column' => 'torrents.id', 'default' => 'DESC'],
+        '5' => ['column' => 'torrents.size', 'default' => 'DESC'],
+        '6' => ['column' => 'torrents.times_completed', 'default' => 'DESC'],
+        '7' => ['column' => 'torrents.seeders', 'default' => 'DESC'],
+        '8' => ['column' => 'torrents.leechers', 'default' => 'DESC'],
+        '9' => ['column' => 'torrents.owner', 'default' => 'DESC'],
+    ];
+
+    if ($canModerate) {
+        $config['10'] = ['column' => 'torrents.modby', 'default' => 'DESC'];
+    }
+
+    return $config;
+}
+
+function browse_order_by_clause(?string $sort, ?string $type, bool $canModerate): array {
+    $config = browse_sort_config($canModerate);
+    $sort = (string)$sort;
+    $type = strtolower((string)$type);
+
+    if (!isset($config[$sort])) {
+        return ['ORDER BY torrents.sticky DESC, torrents.id DESC', ''];
+    }
+
+    $direction = $type === 'asc' ? 'ASC' : ($type === 'desc' ? 'DESC' : $config[$sort]['default']);
+    $column = $config[$sort]['column'];
+
+    return [
+        "ORDER BY torrents.sticky DESC, {$column} {$direction}, torrents.id DESC",
+        'sort=' . rawurlencode($sort) . '&type=' . strtolower($direction) . '&',
+    ];
+}
+
 
 
 parked();
@@ -297,36 +378,11 @@ if (!array_key_exists($formatFilter, $formatOptions)) {
 }
 $yearFilter = (int)($_GET['year'] ?? 0);
 
-// Сортировка
-$orderby = "ORDER BY torrents.sticky ASC, torrents.id DESC";
-$pagerlink = "";
-
-if (!empty($_GET['sort']) && !empty($_GET['type'])) {
-    $column = '';
-    $ascdesc = '';
-    switch ($_GET['sort']) {
-        case '1': $column = "name"; break;
-        case '2': $column = "numfiles"; break;
-        case '3': $column = "comments"; break;
-        case '4': $column = "added"; break;
-        case '5': $column = "size"; break;
-        case '6': $column = "times_completed"; break;
-        case '7': $column = "seeders"; break;
-        case '8': $column = "leechers"; break;
-        case '9': $column = "owner"; break;
-        case '10': if (get_user_class() >= UC_MODERATOR) $column = "moderatedby"; break;
-        default: $column = "id"; break;
-    }
-
-    switch ($_GET['type']) {
-        case 'asc': $ascdesc = "ASC"; $linkascdesc = "asc"; break;
-        case 'desc': $ascdesc = "DESC"; $linkascdesc = "desc"; break;
-        default: $ascdesc = "DESC"; $linkascdesc = "desc"; break;
-    }
-
-    $orderby = "ORDER BY torrents." . $column . " " . $ascdesc;
-    $pagerlink = "sort=" . intval($_GET['sort']) . "&type=" . $linkascdesc . "&";
-}
+[$orderby, $pagerlink] = browse_order_by_clause(
+    $_GET['sort'] ?? null,
+    $_GET['type'] ?? null,
+    get_user_class() >= UC_MODERATOR
+);
 
 $addparam = "";
 $wherea = [];
@@ -429,9 +485,7 @@ if (!empty($where)) {
     $where = "WHERE $where";
 }
 
-$res = sql_query("SELECT COUNT(*) FROM torrents $where");
-$row = mysqli_fetch_array($res);
-$count = $row[0];
+$count = browse_cached_count($where);
 $num_torrents = $count;
 
 if (!$count && isset($cleansearchstr)) {
@@ -447,9 +501,7 @@ if (!$count && isset($cleansearchstr)) {
     if ($sc) {
         $where = implode(" AND ", $wherea);
         if (!empty($where)) $where = "WHERE $where";
-        $res = sql_query("SELECT COUNT(*) FROM torrents $where");
-        $row = mysqli_fetch_array($res);
-        $count = $row[0];
+        $count = browse_cached_count($where);
     }
 }
 
@@ -481,9 +533,7 @@ if (!$count && isset($cleansearchstr)) {
                 $where = "WHERE $where";
             }
 
-            $res = sql_query("SELECT COUNT(*) FROM torrents $where");
-            $row = mysqli_fetch_array($res);
-            $count = (int)$row[0];
+            $count = browse_cached_count($where);
             $num_torrents = $count;
 
             if ($count > 0) {
@@ -521,9 +571,7 @@ if (!$count && isset($cleansearchstr)) {
                 $where = "WHERE $where";
             }
 
-            $res = sql_query("SELECT COUNT(*) FROM torrents $where");
-            $row = mysqli_fetch_array($res);
-            $count = (int)$row[0];
+            $count = browse_cached_count($where);
             $num_torrents = $count;
 
             if ($count > 0) {
@@ -570,7 +618,7 @@ $query = "SELECT
         $where $orderby $limit";
 
 
-    $res = sql_query($query);
+    $res = browse_cached_rows($query, isset($cleansearchstr) ? 30 : 45);
 } else {
     unset($res);
 }
@@ -995,7 +1043,7 @@ $browsemode = get_browse_mode();
           $icoDownGreen = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2e7d32" d="M12 21l-6-6h4V6h4v9h4l-6 6z"/></svg>';
           $icoDone = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0ea5e9" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
 
-          while ($row = mysqli_fetch_assoc($res)) {
+          foreach ((array)$res as $row) {
             $poster = '';
             if (!empty($row['image1']))      $poster = $h($row['image1']);
             elseif (!empty($row['poster']))  $poster = $h($row['poster']);

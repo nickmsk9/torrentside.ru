@@ -1,173 +1,161 @@
 <?php
+declare(strict_types=1);
 
-// ===== ГЛОБАЛЬНОЕ ЛОГИРОВАНИЕ ОШИБОК (в /logs) =====
-date_default_timezone_set('Europe/Amsterdam'); // чтобы метки времени были корректные
-
-// Корень сайта (если файл лежит в корне — __DIR__ уже корень)
-$siteRoot = $_SERVER['DOCUMENT_ROOT'] ? rtrim($_SERVER['DOCUMENT_ROOT'], '/\\') : __DIR__;
-// Папка для логов
-$logDir = $siteRoot . '/logs';
-
-// Создаём /logs при необходимости + .htaccess чтобы не отдавалось в веб
-if (!is_dir($logDir)) {
-    @mkdir($logDir, 0775, true);
-    // на всякий случай, чтобы через веб не скачивали логи
-    @file_put_contents($logDir . '/.htaccess', "Require all denied\nDeny from all\n", LOCK_EX);
-}
-
-// Лог текущего дня
-$logFile = $logDir . '/php-' . date('Y-m-d') . '.log';
-
-// Включаем логирование всех ошибок в файл
-ini_set('display_errors', '0');           // ничего не показываем в браузер
-ini_set('display_startup_errors', '0');
-ini_set('log_errors', '1');
-ini_set('error_log', $logFile);
-error_reporting(E_ALL);
-
-// Доп. обработчики, чтобы поймать ВСЁ (включая фатальные)
-set_error_handler(function ($severity, $message, $file, $line) use ($logFile) {
-    // Превращаем в исключение, чтобы поймать в общем обработчике
-    throw new ErrorException($message, 0, $severity, $file, $line);
-});
-set_exception_handler(function ($e) use ($logFile) {
-    $req = [
-        'METHOD' => $_SERVER['REQUEST_METHOD'] ?? '',
-        'URI'    => $_SERVER['REQUEST_URI'] ?? '',
-        'GET'    => $_GET,
-        'POST'   => array_map(fn($v)=>is_string($v)?mb_substr($v,0,1000):$v, $_POST), // не логируем слишком длинные поля
-        'USER'   => $_SERVER['REMOTE_ADDR'] ?? '',
-    ];
-    $entry = sprintf(
-        "[%s] EXCEPTION %s: %s in %s:%d\nTrace:\n%s\nREQUEST: %s\n----\n",
-        date('Y-m-d H:i:s'),
-        get_class($e),
-        $e->getMessage(),
-        $e->getFile(),
-        $e->getLine(),
-        $e->getTraceAsString(),
-        json_encode($req, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
-    );
-    error_log($entry);
-});
-register_shutdown_function(function () use ($logFile) {
-    $err = error_get_last();
-    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
-        $entry = sprintf(
-            "[%s] FATAL: %s in %s:%d\nREQUEST_URI: %s\n----\n",
-            date('Y-m-d H:i:s'),
-            $err['message'] ?? '',
-            $err['file'] ?? '',
-            $err['line'] ?? 0,
-            $_SERVER['REQUEST_URI'] ?? ''
-        );
-        // Используем file_put_contents на случай, если error_log не успеет
-        @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
-    }
-});
-
-// Полезно один раз за запрос пометить начало
-error_log(sprintf("[%s] --- REQUEST %s %s ---\n", date('Y-m-d H:i:s'), $_SERVER['REQUEST_METHOD'] ?? 'CLI', $_SERVER['REQUEST_URI'] ?? ''));
-// ===== КОНЕЦ БЛОКА ЛОГИРОВАНИЯ =====
-
-require_once ("include/bittorrent.php");
+require_once "include/bittorrent.php";
 
 gzip();
-
-// Connect to DB & check login
 dbconn();
 loggedinorreturn();
 parked();
 
-$messageAction = (string)($_GET['action'] ?? $_POST['action'] ?? '');
-if (in_array($messageAction, ['new', 'sendmessage', 'send'], true) && !user_has_module('message_write')) {
-    stderr('Ошибка', 'У вас нет доступа к отправке личных сообщений.');
+define('PM_DELETED', 0);
+define('PM_INBOX', 1);
+define('PM_SENTBOX', -1);
+define('PM_PER_PAGE', 25);
+
+function message_h(?string $value): string
+{
+    return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-// Define constants
-define('PM_DELETED',0); // Message was deleted
-define('PM_INBOX',1); // Message located in Inbox for reciever
-define('PM_SENTBOX',-1); // GET value for sent box
-
-function message_mailbox_cache_key(int $userId, int $mailbox): string
+function message_box_normalize(int $mailbox): int
 {
-    return tracker_cache_ns_key(
-        tracker_message_cache_namespace($userId),
-        'mailbox',
-        $mailbox === PM_SENTBOX ? 'sent' : 'inbox'
+    return $mailbox === PM_SENTBOX ? PM_SENTBOX : PM_INBOX;
+}
+
+function message_box_label(int $mailbox): string
+{
+    return $mailbox === PM_SENTBOX ? 'Отправленные' : 'Входящие';
+}
+
+function message_box_url(int $mailbox, array $extra = []): string
+{
+    $params = array_merge(
+        [
+            'action' => 'viewmailbox',
+            'box' => message_box_normalize($mailbox),
+        ],
+        $extra
     );
+
+    return 'message.php?' . http_build_query($params);
 }
 
-function message_cached_mailbox_rows(int $userId, int $mailbox): array
+function message_safe_returnto(string $raw, int $fallbackBox = PM_INBOX): string
 {
-    $mailbox = ($mailbox === PM_SENTBOX) ? PM_SENTBOX : PM_INBOX;
-    $cacheKey = message_mailbox_cache_key($userId, $mailbox);
+    $raw = trim($raw);
+    if ($raw === '') {
+        return message_box_url($fallbackBox);
+    }
 
-    $rows = tracker_cache_remember($cacheKey, 45, static function () use ($userId, $mailbox): array {
-        if ($mailbox !== PM_SENTBOX) {
-            $res = sql_query("
-                SELECT m.*, u.username AS sender_username, s.id AS sfid, r.id AS rfid
-                FROM messages m
-                LEFT JOIN users u ON m.sender = u.id
-                LEFT JOIN friends r ON r.userid = {$userId} AND r.friendid = m.receiver
-                LEFT JOIN friends s ON s.userid = {$userId} AND s.friendid = m.sender
-                WHERE m.receiver = " . sqlesc($userId) . "
-                  AND m.location = " . sqlesc(PM_INBOX) . "
-                ORDER BY m.id DESC
-            ") or sqlerr(__FILE__, __LINE__);
-        } else {
-            $res = sql_query("
-                SELECT m.*, u.username AS receiver_username, s.id AS sfid, r.id AS rfid
-                FROM messages m
-                LEFT JOIN users u ON m.receiver = u.id
-                LEFT JOIN friends r ON r.userid = {$userId} AND r.friendid = m.receiver
-                LEFT JOIN friends s ON s.userid = {$userId} AND s.friendid = m.sender
-                WHERE m.sender = " . sqlesc($userId) . "
-                  AND m.saved  = 'yes'
-                ORDER BY m.id DESC
-            ") or sqlerr(__FILE__, __LINE__);
-        }
+    if (preg_match('~^https?://[^/]+/(.*)$~i', $raw, $m)) {
+        $raw = $m[1];
+    }
 
-        $rows = [];
-        while ($res && ($row = mysqli_fetch_assoc($res))) {
-            $rows[] = $row;
-        }
-        return $rows;
-    });
+    $raw = ltrim($raw, '/');
+    if ($raw === '' || !str_starts_with($raw, 'message.php')) {
+        return message_box_url($fallbackBox);
+    }
 
-    return is_array($rows) ? $rows : [];
+    return $raw;
+}
+
+function message_mailbox_summary(int $userId): array
+{
+    $res = sql_query("
+        SELECT
+            (SELECT COUNT(*) FROM messages WHERE receiver = " . sqlesc($userId) . " AND location = " . sqlesc(PM_INBOX) . ") AS inbox_total,
+            (SELECT COUNT(*) FROM messages WHERE receiver = " . sqlesc($userId) . " AND location = " . sqlesc(PM_INBOX) . " AND unread = 'yes') AS inbox_unread,
+            (SELECT COUNT(*) FROM messages WHERE sender = " . sqlesc($userId) . " AND saved = 'yes') AS sent_total
+    ") or sqlerr(__FILE__, __LINE__);
+
+    $summary = mysqli_fetch_assoc($res) ?: [
+        'inbox_total' => 0,
+        'inbox_unread' => 0,
+        'sent_total' => 0,
+    ];
+
+    return [
+        'inbox_total' => (int)($summary['inbox_total'] ?? 0),
+        'inbox_unread' => (int)($summary['inbox_unread'] ?? 0),
+        'sent_total' => (int)($summary['sent_total'] ?? 0),
+    ];
+}
+
+function message_mailbox_rows(int $userId, int $mailbox, int $page, int $perPage = PM_PER_PAGE): array
+{
+    $mailbox = message_box_normalize($mailbox);
+    $page = max(0, $page);
+    $perPage = max(1, $perPage);
+    $offset = $page * $perPage;
+
+    if ($mailbox === PM_SENTBOX) {
+        $where = "m.sender = " . sqlesc($userId) . " AND m.saved = 'yes'";
+    } else {
+        $where = "m.receiver = " . sqlesc($userId) . " AND m.location = " . sqlesc(PM_INBOX);
+    }
+
+    $res = sql_query("
+        SELECT
+            m.id,
+            m.sender,
+            m.receiver,
+            m.added,
+            m.subject,
+            m.msg,
+            m.unread,
+            m.saved,
+            m.location,
+            su.username AS sender_username,
+            su.class AS sender_class,
+            ru.username AS receiver_username,
+            ru.class AS receiver_class
+        FROM messages m
+        LEFT JOIN users su ON su.id = m.sender
+        LEFT JOIN users ru ON ru.id = m.receiver
+        WHERE {$where}
+        ORDER BY m.id DESC
+        LIMIT {$offset}, {$perPage}
+    ") or sqlerr(__FILE__, __LINE__);
+
+    $rows = [];
+    while ($row = mysqli_fetch_assoc($res)) {
+        $rows[] = $row;
+    }
+
+    return $rows;
 }
 
 function message_cached_pm_row(int $pmId, int $viewerId, bool $adminview = false): ?array
 {
     $cacheKey = $adminview
-        ? tracker_cache_key('message', 'pm', 'id' . $pmId, 'admin', 'viewer' . $viewerId)
+        ? tracker_cache_key('message', 'pm', 'admin', 'id' . $pmId, 'viewer' . $viewerId)
         : tracker_cache_ns_key(tracker_message_cache_namespace($viewerId), 'pm', 'id' . $pmId);
 
     $row = tracker_cache_remember($cacheKey, 45, static function () use ($pmId, $viewerId, $adminview): ?array {
-        if (!$adminview) {
-            $res = sql_query("
-                SELECT m.*, su.username AS sender_username, ru.username AS receiver_username
-                FROM messages m
-                LEFT JOIN users su ON su.id = m.sender
-                LEFT JOIN users ru ON ru.id = m.receiver
-                WHERE m.id = " . sqlesc($pmId) . "
-                  AND (
-                        m.receiver = " . sqlesc($viewerId) . "
-                     OR (m.sender   = " . sqlesc($viewerId) . " AND m.saved = 'yes')
-                  )
-                LIMIT 1
-            ") or sqlerr(__FILE__, __LINE__);
+        if ($adminview) {
+            $where = "m.id = " . sqlesc($pmId);
         } else {
-            $res = sql_query("
-                SELECT m.*, su.username AS sender_username, ru.username AS receiver_username
-                FROM messages m
-                LEFT JOIN users su ON su.id = m.sender
-                LEFT JOIN users ru ON ru.id = m.receiver
-                WHERE m.id = " . sqlesc($pmId) . "
-                LIMIT 1
-            ") or sqlerr(__FILE__, __LINE__);
+            $where = "m.id = " . sqlesc($pmId) . "
+                AND (
+                    m.receiver = " . sqlesc($viewerId) . "
+                    OR (m.sender = " . sqlesc($viewerId) . " AND m.saved = 'yes')
+                )";
         }
+
+        $res = sql_query("
+            SELECT
+                m.*,
+                su.username AS sender_username,
+                su.class AS sender_class,
+                ru.username AS receiver_username,
+                ru.class AS receiver_class
+            FROM messages m
+            LEFT JOIN users su ON su.id = m.sender
+            LEFT JOIN users ru ON ru.id = m.receiver
+            WHERE {$where}
+            LIMIT 1
+        ") or sqlerr(__FILE__, __LINE__);
 
         return ($res && mysqli_num_rows($res) > 0) ? mysqli_fetch_assoc($res) : null;
     });
@@ -175,1083 +163,863 @@ function message_cached_pm_row(int $pmId, int $viewerId, bool $adminview = false
     return is_array($row) ? $row : null;
 }
 
-// Determine action
-$action = $_POST['action'] ?? $_GET['action'] ?? 'viewmailbox';
+function message_preview(string $body, int $limit = 110): string
+{
+    $body = preg_replace('/\[(?:\/)?[^\]]+\]/u', ' ', $body) ?? $body;
+    $body = preg_replace('/\s+/u', ' ', trim($body)) ?? trim($body);
 
-// начало просмотр почтового ящика
-if ($action === "viewmailbox") {
-    // Mailbox
-    $mailbox = isset($_GET['box']) ? (int)$_GET['box'] : PM_INBOX;
-    $mailbox = ($mailbox === PM_SENTBOX) ? PM_SENTBOX : PM_INBOX;
-
-    $mailbox_name = ($mailbox === PM_INBOX)
-        ? ($tracker_lang['inbox']  ?? 'Входящие')
-        : ($tracker_lang['outbox'] ?? 'Отправленные');
-
-    $tzoffset = isset($CURUSER['tzoffset']) ? (int)$CURUSER['tzoffset'] : 0;
-    $curuser_id = (int)($CURUSER['id'] ?? 0);
-
-    stdhead($mailbox_name); ?>
-    <script type="text/javascript">
-    let checkflag = false;
-    function check(field) {
-        for (let i = 0; i < field.length; i++) {
-            const el = field[i];
-            if (el.type === 'checkbox' && el.name === 'messages[]') el.checked = !checkflag;
-        }
-        checkflag = !checkflag;
+    if ($body === '') {
+        return 'Без текста';
     }
-    </script>
-    <script type="text/javascript" src="js/functions.js"></script>
-<?php
-    begin_frame($mailbox_name);
-?>
-<!-- ==== компактная панель почты (обновлённая) ==== -->
-<style>
-  .pm-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:6px 0 10px}
-  .pm-group{display:flex;flex-wrap:wrap;gap:6px}
-  .pm-link{display:inline-block;padding:5px 10px;font-size:14px;border:1px solid #cfd6dc;border-radius:4px;text-decoration:none;color:#111;background:#fff}
-  .pm-link.active{border-color:#aeb6be;background:#f6f8f9}
-  .pm-compose{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-  .pm-input{height:30px;padding:4px 8px;border:1px solid #c8ccd0;border-radius:4px;font-size:14px}
-  .pm-btn{height:30px;padding:0 10px;font-size:14px;border:1px solid #c8ccd0;border-radius:4px;background:#f6f8f9;cursor:pointer}
-  .pm-results{position:relative}
-  .pm-dropdown{position:absolute;z-index:30;left:0;right:0;max-height:220px;overflow:auto;background:#fff;border:1px solid #c8ccd0;border-radius:4px;margin-top:2px;display:none}
-  .pm-item{padding:6px 8px;cursor:pointer}
-  .pm-item:hover{background:#eef1f4}
-  @media (max-width:600px){.pm-toolbar{gap:6px}.pm-link,.pm-btn{font-size:13px}}
-</style>
 
-<div class="pm-toolbar">
-  <div class="pm-group">
-    <a class="pm-link <?= $mailbox === PM_INBOX ? 'active' : '' ?>"
-       href="message.php?action=viewmailbox&amp;box=1"><?= $tracker_lang['inbox'] ?? 'Входящие' ?></a>
-    <a class="pm-link <?= $mailbox === PM_SENTBOX ? 'active' : '' ?>"
-       href="message.php?action=viewmailbox&amp;box=-1"><?= $tracker_lang['outbox'] ?? 'Отправленные' ?></a>
-  </div>
+    if (mb_strlen($body, 'UTF-8') > $limit) {
+        return mb_substr($body, 0, $limit - 3, 'UTF-8') . '...';
+    }
 
-  <!-- Новое сообщение: поиск по имени + запасной вариант по ID -->
-  <form class="pm-compose" action="message.php" method="get" onsubmit="return pmComposeSubmit(this);">
-    <input type="hidden" name="action" value="sendmessage">
-    <div class="pm-results">
-      <input class="pm-input" type="text" name="user_query" id="pm_user_query"
-             placeholder="<?= htmlspecialchars($tracker_lang['enter_username'] ?? 'Имя пользователя', ENT_QUOTES) ?>"
-             autocomplete="off">
-      <div id="pm_dropdown" class="pm-dropdown"></div>
-    </div>
-    <span>или ID:</span>
-    <input class="pm-input" type="number" name="receiver" id="pm_receiver_id" min="1" step="1" placeholder="ID">
-    <button class="pm-btn" type="submit"><?= $tracker_lang['new_message'] ?? 'Создать сообщение' ?></button>
-  </form>
-</div>
-
-<script>
-// ====== Поиск получателя по имени (AJAX, insensitive) ======
-(function(){
-  const input   = document.getElementById('pm_user_query');
-  const box     = document.getElementById('pm_dropdown');
-  const idField = document.getElementById('pm_receiver_id');
-  let timer = null;
-
-  function hide(){ box.style.display = 'none'; box.innerHTML=''; }
-  function show(){ box.style.display = 'block'; }
-  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
-
-  function render(items){
-    if (!items || !items.length){ hide(); return; }
-    box.innerHTML = items.map(u =>
-      '<div class="pm-item" data-id="'+u.id+'" data-name="'+escapeHtml(u.username)+'">#'+u.id+' — '+escapeHtml(u.username)+'</div>'
-    ).join('');
-    show();
-  }
-
-  // Пробуем users.php, если нет — message.php (чтобы не менять серверный роутер)
-  function fetchUserSearch(q){
-    const u1 = 'users.php?action=ajax_user_search&q='+encodeURIComponent(q);
-    const u2 = 'message.php?action=ajax_user_search&q='+encodeURIComponent(q);
-    return fetch(u1, {credentials:'same-origin'}).then(r => r.ok ? r.json() : Promise.reject())
-      .catch(()=> fetch(u2, {credentials:'same-origin'}).then(r => r.ok ? r.json() : []))
-      .catch(()=> []);
-  }
-
-  input.addEventListener('input', function(){
-    const q = input.value.trim();
-    if (timer) clearTimeout(timer);
-    if (q.length < 2){ hide(); return; }
-    timer = setTimeout(() => {
-      fetchUserSearch(q).then(data => render(data)).catch(hide);
-    }, 160);
-  });
-
-  box.addEventListener('click', function(e){
-    const el = e.target.closest('.pm-item'); if (!el) return;
-    idField.value = el.dataset.id;
-    input.value   = el.dataset.name;
-    hide();
-  });
-
-  document.addEventListener('click', function(e){
-    if (!box.contains(e.target) && e.target !== input) hide();
-  });
-})();
-
-// submit: требуется либо ID, либо удачный поиск по имени — перед отправкой попробуем добить ID
-function pmComposeSubmit(form){
-  const idField = document.getElementById('pm_receiver_id');
-  const qField  = document.getElementById('pm_user_query');
-  if (idField.value.trim() !== '') return true;
-  const q = qField.value.trim();
-  if (q.length < 2) return false;
-  return (async () => {
-    const list = await (async function(q){
-      const u1 = 'users.php?action=ajax_user_search&q='+encodeURIComponent(q);
-      const u2 = 'message.php?action=ajax_user_search&q='+encodeURIComponent(q);
-      try {
-        const r1 = await fetch(u1,{credentials:'same-origin'}); if (r1.ok) return r1.json();
-      } catch(e){}
-      try {
-        const r2 = await fetch(u2,{credentials:'same-origin'}); if (r2.ok) return r2.json();
-      } catch(e){}
-      return [];
-    })(q);
-    if (list && list.length){ idField.value = list[0].id; form.submit(); return false; }
-    return false;
-  })();
+    return $body;
 }
-</script>
 
+function message_user_link(int $userId, ?string $username, int $class = 0): string
+{
+    if ($userId <= 0) {
+        return 'Система';
+    }
 
-<div align="right">
-  <form action="message.php" method="get">
-    <input type="hidden" name="action" value="viewmailbox">
-    <?= $tracker_lang['go_to'] ?? 'Перейти к'; ?>:
-    <select name="box">
-      <option value="1"  <?= $mailbox === PM_INBOX   ? "selected" : "" ?>><?= $tracker_lang['inbox']  ?? 'Входящие'; ?></option>
-      <option value="-1" <?= $mailbox === PM_SENTBOX ? "selected" : "" ?>><?= $tracker_lang['outbox'] ?? 'Отправленные'; ?></option>
-    </select>
-    <input type="submit" value="<?= $tracker_lang['go_go_go'] ?? 'Перейти'; ?>">
-  </form>
-</div>
+    $username = trim((string)$username);
+    if ($username === '') {
+        $username = 'Пользователь #' . $userId;
+    }
 
-<form action="message.php" method="post" name="form1">
-  <input type="hidden" name="action" value="moveordel">
-  <input type="hidden" name="box"    value="<?= (int)$mailbox; ?>">
-
-  <table border="0" cellpadding="4" cellspacing="0" width="100%">
-    <tr>
-      <td width="2%"  class="colhead">&nbsp;</td>
-      <td width="51%" class="colhead"><?= $tracker_lang['subject']  ?? 'Тема'; ?></td>
-      <td width="35%" class="colhead"><?= $mailbox === PM_INBOX ? ($tracker_lang['sender'] ?? 'Отправитель') : ($tracker_lang['receiver'] ?? 'Получатель'); ?></td>
-      <td width="10%" class="colhead"><?= $tracker_lang['date']     ?? 'Дата'; ?></td>
-      <td width="2%"  class="colhead">
-        <input type="checkbox" title="<?= $tracker_lang['mark_all'] ?? 'Отметить все'; ?>" onclick="check(document.form1.elements);">
-      </td>
-    </tr>
-<?php
-    $mailRows = message_cached_mailbox_rows($curuser_id, $mailbox);
-
-    if (!$mailRows): ?>
-      <tr>
-        <td class="lol" colspan="5" align="center"><?= ($tracker_lang['no_messages'] ?? 'Сообщений нет'); ?>.</td>
-      </tr>
-<?php
-    else:
-        foreach ($mailRows as $row):
-            $subject = htmlspecialchars($row['subject'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            if ($subject === '') $subject = ($tracker_lang['no_subject'] ?? 'Без темы');
-
-            $is_unread = ($row['unread'] ?? '') === 'yes' && $mailbox !== PM_SENTBOX;
-            $icon = $is_unread ? 'pn_inboxnew.gif' : 'pn_inbox.gif';
-            $alt  = $is_unread ? ($tracker_lang['mail_unread'] ?? 'Непрочитано')
-                               : ($tracker_lang['mail_read']   ?? 'Прочитано');
-
-            if ($mailbox !== PM_SENTBOX) {
-                $username = ($row['sender'] ?? 0) != 0
-                    ? "<a href=\"userdetails.php?id=".(int)$row['sender']."\">".htmlspecialchars($row['sender_username'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')."</a>"
-                    : ($tracker_lang['from_system'] ?? 'Система');
-            } else {
-                $username = ($row['receiver'] ?? 0) != 0
-                    ? "<a href=\"userdetails.php?id=".(int)$row['receiver']."\">".htmlspecialchars($row['receiver_username'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')."</a>"
-                    : ($tracker_lang['from_system'] ?? 'Система');
-            }
-
-            $added_ts = !empty($row['added']) ? strtotime($row['added']) : 0;
-            $date     = $added_ts ? display_date_time($added_ts, $tzoffset) : '—';
-?>
-      <tr>
-        <td class="lol"><img src="pic/<?= $icon ?>" alt="<?= htmlspecialchars($alt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>"></td>
-        <td class="lol">
-          <a href="message.php?action=viewmessage&amp;id=<?= (int)($row['id'] ?? 0) ?>"><?= $subject ?></a>
-        </td>
-        <td class="lol"><?= $username ?></td>
-        <td class="lol" nowrap><?= htmlspecialchars((string)$date, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
-        <td class="lol">
-          <input type="checkbox" name="messages[]" value="<?= (int)($row['id'] ?? 0) ?>">
-        </td>
-      </tr>
-<?php
-        endforeach;
-    endif;
-?>
-    <tr class="colhead">
-      <td colspan="5" align="right">
-        <input type="submit" name="delete"   value="<?= $tracker_lang['delete']    ?? 'Удалить'; ?>" onclick="return confirm('<?= $tracker_lang['sure_mark_delete'] ?? 'Точно удалить отмеченные?'; ?>')">
-        <input type="submit" name="markread" value="<?= $tracker_lang['mark_read'] ?? 'Отметить прочитанными'; ?>" onclick="return confirm('<?= $tracker_lang['sure_mark_read'] ?? 'Отметить отмеченные как прочитанные?'; ?>')">
-      </td>
-    </tr>
-  </table>
-</form>
-<?php
-    end_frame();
-    stdfoot();
+    return '<a href="userdetails.php?id=' . $userId . '">'
+        . get_user_class_color($class, message_h($username))
+        . '</a>';
 }
-// конец просмотр почтового ящика
 
-
-
-// начало просмотр тела сообщения
-if ($action === "viewmessage") {
-    $pm_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-    if ($pm_id <= 0) {
-        stderr($tracker_lang['error'], "У вас нет прав для просмотра этого сообщения.");
+function message_format_datetime(?string $value, int $tzoffset): string
+{
+    $value = trim((string)$value);
+    if ($value === '' || $value === '0000-00-00 00:00:00') {
+        return '---';
     }
 
-    $adminview = false;
-
-    if (get_user_class() === UC_SYSOP) {
-        $adminview = true;
+    $timestamp = strtotime($value);
+    if ($timestamp === false) {
+        return message_h($value);
     }
 
-    $message = message_cached_pm_row($pm_id, (int)$CURUSER['id'], $adminview);
-    if (!$message) {
-        stderr($tracker_lang['error'], "Такого сообщения не существует.");
-    }
+    return message_h(display_date_time($timestamp, $tzoffset));
+}
 
-    $sender_id = isset($message['sender'])   ? (int)$message['sender']   : 0;
-    $recv_id   = isset($message['receiver']) ? (int)$message['receiver'] : 0;
-    $is_sender = ($sender_id === (int)$CURUSER['id']);
+function message_resolve_user(?string $receiverRaw, ?string $targetRaw): ?array
+{
+    $receiverRaw = trim((string)$receiverRaw);
+    $targetRaw = trim((string)$targetRaw);
 
-    $from   = '';
-    $sender = '';
-    $reply  = '';
-
-    if ($is_sender) {
-        // Мы отправитель: показываем "Кому"
-        $from = "Кому";
-        $name = htmlspecialchars((string)($message['receiver_username'] ?? 'Неизвестно'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $sender = '<a href="userdetails.php?id=' . $recv_id . '">' . $name . '</a>';
-        // Ответ не нужен для исходящих
-    } else {
-        $from = "От кого";
-        if ($sender_id === 0) {
-            $sender = "Системное";
+    if ($receiverRaw !== '' && ctype_digit($receiverRaw) && (int)$receiverRaw > 0) {
+        $where = 'id = ' . sqlesc((int)$receiverRaw);
+    } elseif ($targetRaw !== '') {
+        if (ctype_digit($targetRaw) && (int)$targetRaw > 0) {
+            $where = 'id = ' . sqlesc((int)$targetRaw);
         } else {
-            $name = htmlspecialchars((string)($message['sender_username'] ?? 'Неизвестно'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $sender = '<a href="userdetails.php?id=' . $sender_id . '">' . $name . '</a>';
-            $reply  = '<a href="message.php?action=sendmessage&amp;receiver=' . $sender_id . '&amp;replyto=' . $pm_id . '">Ответить</a>';
+            $where = 'LOWER(username) = LOWER(' . sqlesc($targetRaw) . ')';
+        }
+    } else {
+        return null;
+    }
+
+    $res = sql_query("
+        SELECT id, username, class, acceptpms, parked
+        FROM users
+        WHERE {$where}
+        LIMIT 1
+    ") or sqlerr(__FILE__, __LINE__);
+
+    if (!$res || mysqli_num_rows($res) === 0) {
+        return null;
+    }
+
+    return mysqli_fetch_assoc($res) ?: null;
+}
+
+function message_assert_can_send_to(array $recipient, int $senderId): void
+{
+    $recipientId = (int)($recipient['id'] ?? 0);
+
+    if ($recipientId <= 0) {
+        stderr('Ошибка', 'Не найден получатель сообщения.');
+    }
+
+    if (($recipient['parked'] ?? 'no') === 'yes') {
+        stderr('Ошибка', 'Этот аккаунт припаркован.');
+    }
+
+    if (get_user_class() >= UC_MODERATOR || $recipientId === $senderId) {
+        return;
+    }
+
+    $accept = (string)($recipient['acceptpms'] ?? 'yes');
+    if ($accept === 'no') {
+        stderr('Отклонено', 'Этот пользователь не принимает сообщения.');
+    }
+
+    if ($accept === 'friends') {
+        $res = sql_query("
+            SELECT 1
+            FROM friends
+            WHERE userid = " . sqlesc($recipientId) . "
+              AND friendid = " . sqlesc($senderId) . "
+            LIMIT 1
+        ") or sqlerr(__FILE__, __LINE__);
+
+        if (mysqli_num_rows($res) !== 1) {
+            stderr('Отклонено', 'Этот пользователь принимает сообщения только от друзей.');
         }
     }
 
-    // Тело/дата
-    $body = tracker_cache_remember(
-        tracker_cache_key('message', 'body', 'pm' . $pm_id, 'h' . md5((string)($message['msg'] ?? ''))),
-        600,
-        static function () use ($message): string {
-            return format_comment((string)($message['msg'] ?? ''));
+    if (class_permissions_table_exists('blocks')) {
+        $res = sql_query("
+            SELECT 1
+            FROM blocks
+            WHERE userid = " . sqlesc($recipientId) . "
+              AND blockid = " . sqlesc($senderId) . "
+            LIMIT 1
+        ") or sqlerr(__FILE__, __LINE__);
+
+        if (mysqli_num_rows($res) === 1) {
+            stderr('Отклонено', 'Этот пользователь добавил вас в чёрный список.');
         }
-    );
+    }
+}
 
-    $tzoffset = isset($CURUSER['tzoffset']) ? (int)$CURUSER['tzoffset'] : 0;
-    $added_ts = !empty($message['added']) ? strtotime($message['added']) : 0;
-    $added    = $added_ts ? display_date_time($added_ts, $tzoffset) : '—';
+function message_insert_message(int $posterId, int $senderId, int $receiverId, string $subject, string $body, string $save = 'no'): int
+{
+    global $mysqli;
 
-    // Метка "новое" (для модераторов видна, если мы отправитель и у получателя ещё непрочитано)
-    $unread = '';
-    if (get_user_class() >= UC_MODERATOR && $is_sender && (($message['unread'] ?? '') === 'yes')) {
-        $unread = '<span style="color:#FF0000;"><b>(Новое)</b></span>';
+    sql_query("
+        INSERT INTO messages (poster, sender, receiver, added, msg, subject, saved, location, unread)
+        VALUES (
+            " . sqlesc($posterId) . ",
+            " . sqlesc($senderId) . ",
+            " . sqlesc($receiverId) . ",
+            NOW(),
+            " . sqlesc($body) . ",
+            " . sqlesc($subject) . ",
+            " . sqlesc($save) . ",
+            " . sqlesc(PM_INBOX) . ",
+            'yes'
+        )
+    ") or sqlerr(__FILE__, __LINE__);
+
+    return (int)$mysqli->insert_id;
+}
+
+function message_collect_ids(int $singleId, mixed $manyIds): array
+{
+    $ids = [];
+
+    if ($singleId > 0) {
+        $ids[] = $singleId;
     }
 
-    // Тема
-    $subject = htmlspecialchars(trim($message['subject'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    if ($subject === '') $subject = 'Без темы';
+    if (is_array($manyIds)) {
+        foreach ($manyIds as $id) {
+            $id = (int)$id;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+    }
 
-    // Пометить прочитанным (кроме случая, когда админ смотрит чужую переписку)
-    if (!$adminview || (int)$CURUSER['id'] === $recv_id || (int)$CURUSER['id'] === $sender_id) {
+    return array_values(array_unique($ids));
+}
+
+function message_fetch_owned_rows(array $ids, int $userId): array
+{
+    if ($ids === []) {
+        return [];
+    }
+
+    $res = sql_query("
+        SELECT id, sender, receiver, saved, location
+        FROM messages
+        WHERE id IN (" . implode(', ', array_map('intval', $ids)) . ")
+          AND (sender = " . sqlesc($userId) . " OR receiver = " . sqlesc($userId) . ")
+    ") or sqlerr(__FILE__, __LINE__);
+
+    $rows = [];
+    while ($row = mysqli_fetch_assoc($res)) {
+        $rows[(int)$row['id']] = $row;
+    }
+
+    return $rows;
+}
+
+function message_delete_selected(array $ids, int $userId): int
+{
+    $rows = message_fetch_owned_rows($ids, $userId);
+    if ($rows === []) {
+        return 0;
+    }
+
+    $hardDelete = [];
+    $receiverSoft = [];
+    $senderSoft = [];
+
+    foreach ($rows as $row) {
+        $id = (int)$row['id'];
+        $sender = (int)$row['sender'];
+        $receiver = (int)$row['receiver'];
+        $saved = (string)$row['saved'];
+        $location = (int)$row['location'];
+
+        if ($receiver === $userId && $saved === 'no') {
+            $hardDelete[] = $id;
+            continue;
+        }
+
+        if ($sender === $userId && $location === PM_DELETED) {
+            $hardDelete[] = $id;
+            continue;
+        }
+
+        if ($receiver === $userId && $saved === 'yes') {
+            $receiverSoft[] = $id;
+            continue;
+        }
+
+        if ($sender === $userId && $saved !== 'no') {
+            $senderSoft[] = $id;
+        }
+    }
+
+    if ($hardDelete !== []) {
+        sql_query("DELETE FROM messages WHERE id IN (" . implode(', ', $hardDelete) . ")") or sqlerr(__FILE__, __LINE__);
+    }
+
+    if ($receiverSoft !== []) {
         sql_query("
             UPDATE messages
-            SET unread = 'no'
-            WHERE id = " . sqlesc($pm_id) . "
-              AND receiver = " . sqlesc((int)$CURUSER['id']) . "
-            LIMIT 1
-        ");
-        tracker_invalidate_message_cache((int)$CURUSER['id'], $sender_id);
+            SET location = " . sqlesc(PM_DELETED) . "
+            WHERE id IN (" . implode(', ', $receiverSoft) . ")
+        ") or sqlerr(__FILE__, __LINE__);
     }
 
-    // Вывод
-    stdhead("Личное Сообщение (Тема: {$subject})"); ?>
-<?php begin_frame("Заголовок: {$subject}"); ?>
-    <table width="660" border="0" cellpadding="4" cellspacing="0">
-        <tr>
-            <td width="50%" class="colhead"><?= $from ?></td>
-            <td width="50%" class="colhead">Дата отправки</td>
-        </tr>
-        <tr>
-            <td class="lol"><?= $sender ?></td>
-            <td class="lol"><?= htmlspecialchars($added, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>&nbsp;&nbsp;<?= $unread ?></td>
-        </tr>
-        <tr>
-            <td class="lol" colspan="2"><?= $body ?></td>
-        </tr>
-        <tr>
-            <td class="lol" colspan="2">
-                <div style="float:right; text-align:right; padding:3px 12px 0 11px">
-                    <ul class="nNav">
-                        <li>
-                            <b class="nc"><b class="nc1"><b></b></b><b class="nc2"><b></b></b></b>
-                            <span class="ncc">
-                                <a href="message.php?action=deletemessage&amp;id=<?= (int)$pm_id ?>">Удалить</a>
-                            </span>
-                            <b class="nc"><b class="nc2"><b></b></b><b class="nc1"><b></b></b></b>
-                        </li>
-                        <li>
-                            <div>
-                                <b class="nc"><b class="nc1"><b></b></b><b class="nc2"><b></b></b></b>
-                                <span class="ncc"><?= $reply ?></span>
-                                <b class="nc"><b class="nc2"><b></b></b><b class="nc1"><b></b></b></b>
-                            </div>
-                        </li>
-                        <li>
-                            <div>
-                                <b class="nc"><b class="nc1"><b></b></b><b class="nc2"><b></b></b></b>
-                                <span class="ncc">
-                                    <a href="message.php?action=forward&amp;id=<?= (int)$pm_id ?>">Переслать</a>
-                                </span>
-                                <b class="nc"><b class="nc2"><b></b></b><b class="nc1"><b></b></b></b>
-                            </div>
-                        </li>
-                    </ul>
-                </div>
-            </td>
-        </tr>
-    </table>
-<?php
-    end_frame();
-    stdfoot();
+    if ($senderSoft !== []) {
+        sql_query("
+            UPDATE messages
+            SET saved = 'no'
+            WHERE id IN (" . implode(', ', $senderSoft) . ")
+        ") or sqlerr(__FILE__, __LINE__);
+    }
+
+    tracker_invalidate_message_cache($userId);
+
+    return count($hardDelete) + count($receiverSoft) + count($senderSoft);
 }
-// конец просмотр тела сообщения
 
+function message_mark_read_selected(array $ids, int $userId): int
+{
+    global $mysqli;
 
-
-// начало просмотр посылка сообщения
-if ($action === "sendmessage") {
-
-    // Безопасно читаем GET-параметры
-    $receiver = isset($_GET['receiver']) ? (int)$_GET['receiver'] : 0;
-    if (!is_valid_id($receiver)) {
-        stderr($tracker_lang['error'], "Неверное ID получателя");
+    if ($ids === []) {
+        return 0;
     }
 
-    $replyto = isset($_GET['replyto']) ? (int)$_GET['replyto'] : 0;
-    if ($replyto && !is_valid_id($replyto)) {
-        stderr($tracker_lang['error'], "Неверное ID сообщения");
+    sql_query("
+        UPDATE messages
+        SET unread = 'no'
+        WHERE receiver = " . sqlesc($userId) . "
+          AND location = " . sqlesc(PM_INBOX) . "
+          AND unread = 'yes'
+          AND id IN (" . implode(', ', array_map('intval', $ids)) . ")
+    ") or sqlerr(__FILE__, __LINE__);
+
+    tracker_invalidate_message_cache($userId);
+
+    return (int)$mysqli->affected_rows;
+}
+
+function message_delete_original_after_reply(int $origId, int $userId): void
+{
+    if ($origId <= 0) {
+        return;
     }
 
-    $auto = $_GET['auto'] ?? null;
-    $std  = $_GET['std']  ?? null;
+    $res = sql_query("
+        SELECT id, receiver, saved
+        FROM messages
+        WHERE id = " . sqlesc($origId) . "
+        LIMIT 1
+    ") or sqlerr(__FILE__, __LINE__);
 
-    if (($auto || $std) && get_user_class() < UC_MODERATOR) {
-        stderr($tracker_lang['error'], "Доступ запрещен.");
+    $row = mysqli_fetch_assoc($res);
+    if (!$row || (int)$row['receiver'] !== $userId) {
+        return;
     }
 
-    // Получатель
-    $res  = sql_query("SELECT id, username FROM users WHERE id = " . sqlesc($receiver) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-    $user = $res ? mysqli_fetch_assoc($res) : null;
-    if (!$user) {
-        stderr($tracker_lang['error'], "Пользователя с таким ID не существует.");
+    if (($row['saved'] ?? 'no') === 'yes') {
+        sql_query("UPDATE messages SET location = " . sqlesc(PM_DELETED) . " WHERE id = " . sqlesc($origId) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
+    } else {
+        sql_query("DELETE FROM messages WHERE id = " . sqlesc($origId) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
     }
 
-    // Текст/тема по умолчанию
-    $body    = '';
-    $subject = '';
+    tracker_invalidate_message_cache($userId);
+}
 
-    // Автоответы/шаблоны (если есть такие массивы)
-    if ($auto && isset($pm_std_reply[$auto])) {
-        $body = (string)$pm_std_reply[$auto];
-    }
-    if ($std && isset($pm_template[$std][1])) {
-        $body = (string)$pm_template[$std][1];
-    }
+function message_mass_recipient_ids(string $input): array
+{
+    $ids = array_map('intval', preg_split('/[\s,]+/', $input, -1, PREG_SPLIT_NO_EMPTY) ?: []);
+    $ids = array_filter($ids, static fn(int $id): bool => $id > 0);
+    return array_values(array_unique($ids));
+}
 
-    // Ответ на сообщение
-    if ($replyto) {
-        $res  = sql_query("SELECT id, sender, receiver, subject, msg FROM messages WHERE id = " . sqlesc($replyto) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        $msga = $res ? mysqli_fetch_assoc($res) : null;
-        if (!$msga || (int)$msga['receiver'] !== (int)$CURUSER['id']) {
-            stderr($tracker_lang['error'], "Вы пытаетесь ответить не на своё сообщение!");
+$action = (string)($_POST['action'] ?? $_GET['action'] ?? 'viewmailbox');
+if (in_array($action, ['sendmessage', 'takemessage', 'mass_pm', 'takemass_pm', 'forward'], true) && !user_has_module('message_write')) {
+    stderr('Ошибка', 'У вас нет доступа к отправке личных сообщений.');
+}
+
+$currentUserId = (int)($CURUSER['id'] ?? 0);
+$tzoffset = (int)($CURUSER['tzoffset'] ?? 0);
+
+switch ($action) {
+    case 'viewmailbox':
+        $mailbox = message_box_normalize((int)($_GET['box'] ?? PM_INBOX));
+        $summary = message_mailbox_summary($currentUserId);
+        $total = $mailbox === PM_SENTBOX ? $summary['sent_total'] : $summary['inbox_total'];
+        $pages = max(1, (int)ceil($total / PM_PER_PAGE));
+        $page = isset($_GET['page']) ? max(0, min((int)$_GET['page'], $pages - 1)) : 0;
+        [$pagertop, $pagerbottom] = pager(PM_PER_PAGE, $total, 'message.php?action=viewmailbox&box=' . $mailbox . '&');
+        $rows = $total > 0 ? message_mailbox_rows($currentUserId, $mailbox, $page, PM_PER_PAGE) : [];
+
+        stdhead(message_box_label($mailbox));
+
+        $done = (string)($_GET['done'] ?? '');
+        if ($done === 'delete') {
+            stdmsg('Готово', 'Выбранные сообщения обработаны.');
+        } elseif ($done === 'read') {
+            stdmsg('Готово', 'Отмеченные письма помечены как прочитанные.');
+        } elseif ($done === 'move') {
+            stdmsg('Готово', 'Сообщения перемещены.');
         }
 
-        $res2 = sql_query("SELECT username FROM users WHERE id = " . sqlesc((int)$msga['sender']) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        $usra = $res2 ? mysqli_fetch_assoc($res2) : null;
+        begin_frame('Почтовый ящик');
+        echo '<table border="0" cellspacing="0" cellpadding="5" width="100%">';
+        echo '<tr><td class="rowhead" width="20%">Раздел</td><td class="lol">'
+            . '<a href="' . message_h(message_box_url(PM_INBOX)) . '"><b>Входящие</b></a> (' . $summary['inbox_total'] . ')'
+            . ' | <a href="' . message_h(message_box_url(PM_SENTBOX)) . '"><b>Отправленные</b></a> (' . $summary['sent_total'] . ')</td></tr>';
+        echo '<tr><td class="rowhead">Сводка</td><td class="lol">Непрочитанных: '
+            . ($summary['inbox_unread'] > 0 ? '<font color="#CC0000"><b>' . $summary['inbox_unread'] . '</b></font>' : '0')
+            . ' | На странице: ' . count($rows) . ' из ' . $total . '</td></tr>';
+        echo '<tr><td class="rowhead">Быстрое сообщение</td><td class="lol">';
+        echo '<form action="message.php" method="get" style="margin:0">';
+        echo '<input type="hidden" name="action" value="sendmessage">';
+        echo '<input type="hidden" name="returnto" value="' . message_h(message_box_url($mailbox)) . '">';
+        echo 'Кому: <input type="text" name="to" size="32" placeholder="Имя пользователя или ID"> ';
+        echo '<input type="submit" class="btn" value="Написать">';
+        echo '</form>';
+        echo '</td></tr>';
+        echo '</table><br>';
 
-        $sender_name = htmlspecialchars($usra['username'] ?? 'Неизвестно', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $quoted_msg  = htmlspecialchars($msga['msg'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $quoted_subj = htmlspecialchars($msga['subject'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        if ($total > PM_PER_PAGE) {
+            echo $pagertop;
+        }
 
-        $body    .= "\n\n\n-------- {$sender_name} писал(а): --------\n{$quoted_msg}\n";
-        $subject  = "Re: {$quoted_subj}";
-    }
-
-    stdhead("Отсылка сообщений", false);
-    begin_frame("Отсылка сообщения");
-    ?>
-    <table class="main" border="0" cellspacing="0" cellpadding="0">
-      <tr>
-        <td class="embedded">
-          <form id="message" name="message" method="post" action="message.php">
-            <input type="hidden" name="action" value="takemessage">
-            <input type="hidden" name="receiver" value="<?= (int)$receiver; ?>">
-            <?php if ($replyto): ?>
-              <input type="hidden" name="origmsg" value="<?= (int)$replyto; ?>">
-            <?php endif; ?>
-
-            <table class="message" cellspacing="0" cellpadding="5">
-              <tr>
-                <td colspan="2" class="colhead">
-                  Сообщение для
-                  <a class="altlink_white" href="userdetails.php?id=<?= (int)$receiver; ?>">
-                      <?= htmlspecialchars($user['username'] ?? 'Неизвестно', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?>
-                  </a>
-                </td>
-              </tr>
-
-              <tr>
-                <td class="lol" colspan="2">
-                  <b>Тема:&nbsp;&nbsp;</b>
-                  <input name="subject" type="text" size="60"
-                         value="<?= htmlspecialchars($subject, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?>"
-                         maxlength="255">
-                </td>
-              </tr>
-
-              <tr>
-                <td class="lol" colspan="2">
-                  <?php
-                  // Используй ту же функцию редактора, что в проекте (у тебя была textbbcode)
-                  textbbcode("message", "msg", $body, "0");
-                  ?>
-                </td>
-              </tr>
-
-              <tr>
-                <?php if ($replyto): ?>
-                <td class="lol" align="center">
-                  <label>
-                    <input type="checkbox" name="delete" value="yes" <?= (($CURUSER['deletepms'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                    Удалить сообщение после ответа
-                  </label>
-                </td>
-                <?php endif; ?>
-                <td class="lol" align="center" <?= $replyto ? '' : 'colspan="2"'; ?>>
-                  <label>
-                    <input type="checkbox" name="save" value="yes" <?= (($CURUSER['savepms'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                    Сохранить сообщение в отправленных
-                  </label>
-                </td>
-              </tr>
-
-              <tr>
-                <td class="lol" colspan="2" align="center">
-                  <input type="submit" value="Послать!" class="btn">
-                </td>
-              </tr>
-            </table>
-          </form>
-        </td>
-      </tr>
-    </table>
-    <?php
-    end_frame();
-    stdfoot();
-}
-// конец посылка сообщения
-
-
-
-// начало прием посланного сообщения
-if ($action === 'takemessage') {
-    $receiver = isset($_POST['receiver']) ? (int)$_POST['receiver'] : 0;
-    $origmsg  = isset($_POST['origmsg'])  ? (int)$_POST['origmsg']  : 0;
-    $save     = ($_POST['save'] ?? '') === 'yes' ? 'yes' : 'no';
-    $returnto = $_POST['returnto'] ?? '';
-
-    if (!is_valid_id($receiver) || ($origmsg && !is_valid_id($origmsg))) {
-        stderr($tracker_lang['error'] ?? 'Ошибка', "Неверный ID");
-    }
-
-    $msg     = trim($_POST['msg']     ?? '');
-    $subject = trim($_POST['subject'] ?? '');
-
-    if ($msg === '')     stderr($tracker_lang['error'] ?? 'Ошибка', "Пожалуйста введите сообщение!");
-    if ($subject === '') stderr($tracker_lang['error'] ?? 'Ошибка', "Пожалуйста введите тему сообщения!");
-
-    // получатель
-    $res  = sql_query("SELECT email, acceptpms, notifs, parked, UNIX_TIMESTAMP(last_access) AS la
-                       FROM users WHERE id=" . sqlesc($receiver) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-    $user = $res ? mysqli_fetch_assoc($res) : null;
-    if (!$user) stderr($tracker_lang['error'] ?? 'Ошибка', "Нет пользователя с таким ID $receiver.");
-
-    if ($user['parked'] === 'yes') {
-        stderr($tracker_lang['error'] ?? 'Ошибка', "Этот аккаунт припаркован.");
-    }
-
-    // Права отправки с учетом acceptpms (без blocks)
-    if (get_user_class() < UC_MODERATOR) {
-        if ($user['acceptpms'] === 'friends') {
-            // только от друзей
-            $res2 = sql_query("SELECT 1 FROM friends
-                               WHERE userid = " . sqlesc($receiver) . "
-                                 AND friendid = " . sqlesc((int)$CURUSER['id']) . "
-                               LIMIT 1") or sqlerr(__FILE__, __LINE__);
-            if (!$res2 || mysqli_num_rows($res2) !== 1) {
-                stderr('Отклонено', 'Этот пользователь принимает сообщения только от друзей.');
+        echo '<script>
+            function messageToggleAll(source) {
+                var boxes = document.querySelectorAll(\'input[name="messages[]"]\');
+                for (var i = 0; i < boxes.length; i++) {
+                    boxes[i].checked = source.checked;
+                }
             }
-        } elseif ($user['acceptpms'] === 'no') {
-            stderr('Отклонено', 'Этот пользователь не принимает сообщения.');
-        }
-        // acceptpms = 'yes' — без дополнительных проверок
-    }
+        </script>';
 
-    // вставка
-    $q = "INSERT INTO messages (poster, sender, receiver, added, msg, subject, saved, location, unread)
-          VALUES (" . sqlesc((int)$CURUSER['id']) . ",
-                  " . sqlesc((int)$CURUSER['id']) . ",
-                  " . sqlesc($receiver) . ",
-                  NOW(),
-                  " . sqlesc($msg) . ",
-                  " . sqlesc($subject) . ",
-                  " . sqlesc($save) . ",
-                  " . sqlesc(PM_INBOX) . ",
-                  'yes')";
-    sql_query($q) or sqlerr(__FILE__, __LINE__);
-    $sended_id = $mysqli->insert_id;
-    tracker_invalidate_message_cache($receiver, (int)$CURUSER['id']);
+        echo '<form action="message.php" method="post">';
+        echo '<input type="hidden" name="action" value="moveordel">';
+        echo '<input type="hidden" name="box" value="' . $mailbox . '">';
+        echo '<table border="0" cellpadding="4" cellspacing="0" width="100%">';
+        echo '<tr>'
+            . '<td class="colhead" width="5%">Статус</td>'
+            . '<td class="colhead" width="47%">Письмо</td>'
+            . '<td class="colhead" width="22%">' . ($mailbox === PM_SENTBOX ? 'Получатель' : 'Отправитель') . '</td>'
+            . '<td class="colhead" width="18%">Дата</td>'
+            . '<td class="colhead" width="8%" align="center"><input type="checkbox" onclick="messageToggleAll(this)" title="Выделить всё"></td>'
+            . '</tr>';
 
-    // удалить исходное при ответе
-    if ($origmsg && (($_POST['delete'] ?? '') === 'yes')) {
-        $res3 = sql_query("SELECT receiver, saved FROM messages WHERE id=" . sqlesc($origmsg) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        if ($res3 && ($arr = mysqli_fetch_assoc($res3)) && (int)$arr['receiver'] === (int)$CURUSER['id']) {
-            if ($arr['saved'] === 'no') {
-                sql_query("DELETE FROM messages WHERE id=" . sqlesc($origmsg) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-            } else {
-                sql_query("UPDATE messages SET location = " . sqlesc(PM_DELETED) . " WHERE id=" . sqlesc($origmsg) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-            }
-            tracker_invalidate_message_cache((int)$CURUSER['id']);
-        }
-    }
-
-    // редирект
-    $box = ($save === 'yes') ? PM_SENTBOX : PM_INBOX;
-    $to  = $returnto !== '' ? $returnto : "message.php?action=viewmailbox&box={$box}";
-    header("Location: {$to}");
-    exit;
-}
-// конец прием посланного сообщения
-
-
-
-//начало массовая рассылка
-if ($action == 'mass_pm') {
-        if (get_user_class() < UC_MODERATOR)
-                stderr($tracker_lang['error'], $tracker_lang['access_denied']);
-        $pmees = (string)($_POST['pmees'] ?? '');
-        $recipientIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/[\s,]+/', $pmees, -1, PREG_SPLIT_NO_EMPTY)))));
-        $n_pms = count($recipientIds);
-        $auto = $_POST['auto'] ?? '';
-
-        if ($auto)
-                $body=$mm_template[$auto][1];
-
-        stdhead("Отсылка сообщений", false);
-        ?>
-<?php 
-begin_frame("Массовое Сообщение");
-?>
-        <table class=main border=0 cellspacing=0 cellpadding=0>
-        <tr><td class=embedded><div align=center>
-        <form id=message method=post action=<?=$_SERVER['PHP_SELF']?> name=message>
-        <input type=hidden name=action value=takemass_pm>
-        <?php  if ($_SERVER["HTTP_REFERER"]) { ?>
-        <input type=hidden name=returnto value="<?=htmlspecialchars($_SERVER["HTTP_REFERER"]);?>">
-        <?php  } ?>
-        <table border=1 cellspacing=0 cellpadding=5>
-        <tr><td class=colhead colspan=2>Массовая рассылка для <?=$n_pms?> пользовате<?=($n_pms>1?"лей":"ля")?></td></tr>
-        <TR>
-        <TD class=lol colspan="2"><B>Тема:&nbsp;&nbsp;</B>
-        <INPUT name="subject" type="text" size="60" maxlength="255"></TD>
-        </TR>
-        <tr><td colspan="2"><div align="center">
-        <?=textbbcode("message","msg","$body","0");?>
-        </div></td></tr>
-        <tr><td colspan="2"><div align="center"><b>Комментарий:&nbsp;&nbsp;</b>
-        <input name="comment" type="text" size="70">
-        </div></td></tr>
-        <tr><td><div align="center"><b>От:&nbsp;&nbsp;</b>
-        <?=$CURUSER['username']?>
-        <input name="sender" type="radio" value="self" checked>
-        &nbsp; Системное
-        <input name="sender" type="radio" value="system">
-        </div></td>
-        <td><div align="center"><b>Take snapshot:</b>&nbsp;<input name="snap" type="checkbox" value="1">
-         </div></td></tr>
-        <tr><td colspan="2" align=center><input type=submit value="Послать!" class=btn>
-        </td></tr></table>
-        <input type=hidden name=pmees value="<?=htmlspecialchars($pmees, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')?>">
-        <input type=hidden name=n_pms value=<?=$n_pms?>>
-        </form><br /><br />
-        </div>
-        </td>
-        </tr>
-        </table>
-        <?php 
-end_frame();
-        stdfoot();
-
-}
-//конец массовая рассылка
-
-
-//начало прием сообщений из массовой рассылки
-if ($action == 'takemass_pm') {
-        if (get_user_class() < UC_MODERATOR)
-                stderr($tracker_lang['error'], $tracker_lang['access_denied']);
-        $msg = trim($_POST["msg"]);
-        if (!$msg)
-                stderr($tracker_lang['error'],"Пожалуйста введите сообщение.");
-        $sender_id = ($_POST['sender'] == 'system' ? 0 : $CURUSER['id']);
-        $recipientIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/[\s,]+/', (string)unesc($_POST['pmees'] ?? ''), -1, PREG_SPLIT_NO_EMPTY)))));
-        if (!$recipientIds) {
-                stderr($tracker_lang['error'], "Не выбраны получатели для массовой рассылки.");
-        }
-        $recipientSql = implode(", ", $recipientIds);
-        $subject = trim($_POST['subject']);
-        $query = "INSERT INTO messages (sender, receiver, added, msg, subject, location, poster) " .
-                 "SELECT $sender_id, u.id, '" . get_date_time(time()) . "', " .
-                 sqlesc($msg) . ", " . sqlesc($subject) . ", 1, $sender_id " .
-                 "FROM users AS u WHERE u.id IN ($recipientSql)";
-        sql_query($query) or sqlerr(__FILE__, __LINE__);
-        $n = mysql_affected_rows();
-        $n_pms = count($recipientIds);
-        $comment = (string) $_POST['comment'];
-        $snapshot = (int) $_POST['snap'];
-        // add a custom text or stats snapshot to comments in profile
-        if ($comment || $snapshot)
-        {
-                $res = sql_query("SELECT u.id, u.uploaded, u.downloaded, u.modcomment FROM users AS u WHERE u.id IN ($recipientSql)") or sqlerr(__FILE__, __LINE__);
-                if (mysql_num_rows($res) > 0)
-                {
-                        $l = 0;
-                        while ($user = mysql_fetch_array($res))
-                        {
-                                unset($new);
-                                $old = $user['modcomment'];
-                                if ($comment)
-                                        $new = $comment;
-                                        if ($snapshot)
-                                        {
-                                                $new .= ($new?"\n":"") . "MMed, " . date("Y-m-d") . ", " .
-                                                "UL: " . mksize($user['uploaded']) . ", " .
-                                                "DL: " . mksize($user['downloaded']) . ", " .
-                                                "r: " . (($user['downloaded'] > 0)?($user['uploaded']/$user['downloaded']) : 0) . " - " .
-                                                ($_POST['sender'] == "system"?"System":$CURUSER['username']);
-                                        }
-                                        $new .= $old?("\n".$old):$old;
-                                        sql_query("UPDATE users SET modcomment = " . sqlesc($new) . " WHERE id = " . $user['id']) or sqlerr(__FILE__, __LINE__);
-                                        if (mysql_affected_rows())
-                                                $l++;
-                        }
-                }
-        }
-        header ("Refresh: 3; url=message.php");
-        stderr($tracker_lang['success'], (($n_pms > 1) ? "$n сообщений из $n_pms было" : "Сообщение было")." успешно отправлено!" . ($l ? " $l комментарий(ев) в профиле " . (($l>1) ? "были" : " был") . " обновлен!" : ""));
-}
-//конец прием сообщений из массовой рассылки
-
-
-//начало перемещение, помечание как прочитанного
-if ($action == "moveordel") {
-        $pm_id = (int) $_POST['id'];
-        $pm_box = (int) $_POST['box'];
-        $pm_messages = $_POST['messages'];
-        if ($_POST['move']) {
-                if ($pm_id) {
-                        // Move a single message
-                        @sql_query("UPDATE messages SET location=" . sqlesc($pm_box) . ", saved = 'yes' WHERE id=" . sqlesc($pm_id) . " AND receiver=" . $CURUSER['id'] . " LIMIT 1");
-                }
-                else {
-                        // Move multiple messages
-                        @sql_query("UPDATE messages SET location=" . sqlesc($pm_box) . ", saved = 'yes' WHERE id IN (" . implode(", ", array_map("sqlesc", array_map("intval", $pm_messages))) . ') AND receiver=' . $CURUSER['id']);
-                }
-                // Check if messages were moved
-                if (@mysql_affected_rows() == 0) {
-                        stderr($tracker_lang['error'], "Не возможно переместить сообщения!");
-                }
-                header("Location: message.php?action=viewmailbox&box=" . $pm_box);
-                tracker_invalidate_message_cache((int)$CURUSER['id']);
-                exit();
-        }
-        elseif ($_POST['delete']) {
-                if ($pm_id) {
-                        // Delete a single message
-                        $res = sql_query("SELECT * FROM messages WHERE id=" . sqlesc($pm_id)) or sqlerr(__FILE__,__LINE__);
-                        $message = mysql_fetch_assoc($res);
-                        if ($message['receiver'] == $CURUSER['id'] && $message['saved'] == 'no') {
-                                sql_query("DELETE FROM messages WHERE id=" . sqlesc($pm_id)) or sqlerr(__FILE__,__LINE__);
-                        }
-                        elseif ($message['sender'] == $CURUSER['id'] && $message['location'] == PM_DELETED) {
-                                sql_query("DELETE FROM messages WHERE id=" . sqlesc($pm_id)) or sqlerr(__FILE__,__LINE__);
-                        }
-                        elseif ($message['receiver'] == $CURUSER['id'] && $message['saved'] == 'yes') {
-                                sql_query("UPDATE messages SET location=0 WHERE id=" . sqlesc($pm_id)) or sqlerr(__FILE__,__LINE__);
-                        }
-                        elseif ($message['sender'] == $CURUSER['id'] && $message['location'] != PM_DELETED) {
-                                sql_query("UPDATE messages SET saved='no' WHERE id=" . sqlesc($pm_id)) or sqlerr(__FILE__,__LINE__);
-                        }
-                } else {
-                        // Delete multiple messages
-                        if (is_array($pm_messages))
-                        foreach ($pm_messages as $id) {
-                                $res = sql_query("SELECT * FROM messages WHERE id=" . sqlesc((int) $id));
-                                $message = mysql_fetch_assoc($res);
-                                if ($message['receiver'] == $CURUSER['id'] && $message['saved'] == 'no') {
-                                        sql_query("DELETE FROM messages WHERE id=" . sqlesc((int) $id)) or sqlerr(__FILE__,__LINE__);
-                                }
-                                elseif ($message['sender'] == $CURUSER['id'] && $message['location'] == PM_DELETED) {
-                                        sql_query("DELETE FROM messages WHERE id=" . sqlesc((int) $id)) or sqlerr(__FILE__,__LINE__);
-                                }
-                                elseif ($message['receiver'] == $CURUSER['id'] && $message['saved'] == 'yes') {
-                                        sql_query("UPDATE messages SET location=0 WHERE id=" . sqlesc((int) $id)) or sqlerr(__FILE__,__LINE__);
-                                }
-                                elseif ($message['sender'] == $CURUSER['id'] && $message['location'] != PM_DELETED) {
-                                        sql_query("UPDATE messages SET saved='no' WHERE id=" . sqlesc((int) $id)) or sqlerr(__FILE__,__LINE__);
-                                }
-                        }
-                }
-                // Check if messages were moved
-                if (@mysql_affected_rows() == 0) {
-                        stderr($tracker_lang['error'],"Сообщение не может быть удалено!");
-                }
-                else {
-                        tracker_invalidate_message_cache((int)$CURUSER['id']);
-                        header("Location: message.php?action=viewmailbox&box=" . $pm_box);
-                        exit();
-                }
-        }
-        elseif ($_POST["markread"]) {
-                //помечаем одно сообщение
-                if ($pm_id) {
-                        sql_query("UPDATE messages SET unread='no' WHERE id = " . sqlesc($pm_id)) or sqlerr(__FILE__,__LINE__);
-                }
-                //помечаем множество сообщений
-                else {
-                		if (is_array($pm_messages))
-                        foreach ($pm_messages as $id) {
-                                $res = sql_query("SELECT * FROM messages WHERE id=" . sqlesc((int) $id));
-                                $message = mysql_fetch_assoc($res);
-                                sql_query("UPDATE messages SET unread='no' WHERE id = " . sqlesc((int) $id)) or sqlerr(__FILE__,__LINE__);
-                        }
-                }
-                // Проверяем, были ли помечены сообщения
-                if (@mysql_affected_rows() == 0) {
-                        stderr($tracker_lang['error'], "Сообщение не может быть помечено как прочитанное! ");
-                }
-                else {
-                        tracker_invalidate_message_cache((int)$CURUSER['id']);
-                        header("Location: message.php?action=viewmailbox&box=" . $pm_box);
-                        exit();
-                }
-        }
-
-stderr($tracker_lang['error'],"Нет действия.");
-}
-//конец перемещение, помечание как прочитанного
-
-
-// начало пересылка
-if ($action === "forward") {
-    $curuser_id   = (int)($CURUSER['id'] ?? 0);
-    $curuser_name = (string)($CURUSER['username'] ?? 'Система');
-
-    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        // --- Показ формы
-        $pm_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-        if ($pm_id <= 0 || $curuser_id <= 0) {
-            stderr($tracker_lang['error'] ?? 'Ошибка', "Некорректный запрос.");
-        }
-
-        // Получаем сообщение и убеждаемся, что оно принадлежит текущему пользователю
-        $res = sql_query(
-            'SELECT * FROM messages
-             WHERE id=' . sqlesc($pm_id) . '
-               AND (receiver=' . sqlesc($curuser_id) . ' OR sender=' . sqlesc($curuser_id) . ')
-             LIMIT 1'
-        ) or sqlerr(__FILE__, __LINE__);
-
-        if (!$res || mysqli_num_rows($res) === 0) {
-            stderr($tracker_lang['error'] ?? 'Ошибка', "У вас нет разрешения пересылать это сообщение.");
-        }
-
-        $message = mysqli_fetch_assoc($res);
-
-        // Готовим данные
-        $orig_sender_id   = (int)($message['sender'] ?? 0);
-        $orig_receiver_id = (int)($message['receiver'] ?? 0);
-
-        // Забираем имена отправителя и получателя (если есть)
-        $user_ids = array_filter([$orig_sender_id, $orig_receiver_id]);
-        $names = [];
-        if ($user_ids) {
-            $resU = sql_query(
-                "SELECT id, username FROM users WHERE id IN (" . implode(',', array_map('intval', $user_ids)) . ")"
-            ) or sqlerr(__FILE__, __LINE__);
-            while ($u = mysqli_fetch_assoc($resU)) {
-                $names[(int)$u['id']] = $u['username'];
-            }
-        }
-
-        // Оригинальный отправитель
-        if ($orig_sender_id === 0) {
-            $orig_sender_link = $tracker_lang['from_system'] ?? 'Системное';
-            $orig_sender_name = $orig_sender_link;
+        if ($rows === []) {
+            echo '<tr><td class="lol" colspan="5" align="center">Писем нет. Можно открыть <a href="friends.php">список друзей</a> или быстро написать по имени выше.</td></tr>';
         } else {
-            $orig_sender_name = $names[$orig_sender_id] ?? ('#' . $orig_sender_id);
-            $orig_sender_link = '<a href="userdetails.php?id=' . $orig_sender_id . '">' .
-                htmlspecialchars($orig_sender_name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</a>';
+            foreach ($rows as $row) {
+                $pmId = (int)$row['id'];
+                $subject = trim((string)$row['subject']);
+                $subject = $subject !== '' ? $subject : 'Без темы';
+                $preview = message_preview((string)($row['msg'] ?? ''));
+                $isUnread = ($mailbox === PM_INBOX && ($row['unread'] ?? 'no') === 'yes');
+                $statusHtml = $mailbox === PM_SENTBOX
+                    ? (($row['unread'] ?? 'no') === 'yes' ? '<font color="#CC0000"><b>Не прочитано</b></font>' : 'Прочитано')
+                    : ($isUnread ? '<font color="#CC0000"><b>Новое</b></font>' : 'Прочитано');
+                $peerLink = $mailbox === PM_SENTBOX
+                    ? message_user_link((int)$row['receiver'], (string)($row['receiver_username'] ?? ''), (int)($row['receiver_class'] ?? 0))
+                    : message_user_link((int)$row['sender'], (string)($row['sender_username'] ?? ''), (int)($row['sender_class'] ?? 0));
+                $viewUrl = 'message.php?action=viewmessage&id=' . $pmId . '&box=' . $mailbox;
+
+                echo '<tr>';
+                echo '<td class="lol" align="center">' . $statusHtml . '</td>';
+                echo '<td class="lol">'
+                    . '<a href="' . message_h($viewUrl) . '"><b>' . message_h($subject) . '</b></a>'
+                    . '<div style="font-size:11px;padding-top:3px;color:#666;">' . message_h($preview) . '</div>'
+                    . '</td>';
+                echo '<td class="lol">' . $peerLink . '</td>';
+                echo '<td class="lol" nowrap>' . message_format_datetime((string)$row['added'], $tzoffset) . '</td>';
+                echo '<td class="lol" align="center"><input type="checkbox" name="messages[]" value="' . $pmId . '"></td>';
+                echo '</tr>';
+            }
         }
 
-        // Оригинальный получатель (на всякий случай покажем)
-        if ($orig_receiver_id === 0) {
-            $orig_recv_link = $tracker_lang['from_system'] ?? 'Системное';
-        } else {
-            $orig_recv_name = $names[$orig_receiver_id] ?? ('#' . $orig_receiver_id);
-            $orig_recv_link = '<a href="userdetails.php?id=' . $orig_receiver_id . '">' .
-                htmlspecialchars($orig_recv_name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</a>';
+        echo '<tr class="colhead"><td colspan="5" align="right">';
+        echo '<input type="submit" name="delete" value="Удалить" class="btn" onclick="return confirm(\'Удалить выбранные сообщения?\')"> ';
+        if ($mailbox === PM_INBOX) {
+            echo '<input type="submit" name="markread" value="Отметить прочитанными" class="btn">';
+        }
+        echo '</td></tr>';
+        echo '</table>';
+        echo '</form>';
+
+        if ($total > PM_PER_PAGE) {
+            echo $pagerbottom;
         }
 
-        $subject = 'Fwd: ' . htmlspecialchars((string)($message['subject'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $body    = "-------- Оригинальное сообщение от " .
-            htmlspecialchars($orig_sender_name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') .
-            ": --------<br>" . format_comment((string)($message['msg'] ?? ''));
-
-        stdhead($subject);
-        begin_frame($subject);
-        ?>
-        <form action="message.php" method="post">
-            <input type="hidden" name="action" value="forward">
-            <input type="hidden" name="id" value="<?= (int)$pm_id ?>">
-            <table border="0" cellpadding="4" cellspacing="0">
-                <tr><td class="colhead" colspan="2"><?= $subject ?></td></tr>
-                <tr>
-                    <td><?= $tracker_lang['to'] ?? 'Кому:'; ?></td>
-                    <td><input type="text" name="to" value="" size="83" placeholder="<?= htmlspecialchars($tracker_lang['enter_username'] ?? 'Введите имя', ENT_QUOTES) ?>"></td>
-                </tr>
-                <tr>
-                    <td><?= $tracker_lang['original_sender'] ?? 'Оригинальный отправитель:'; ?></td>
-                    <td><?= $orig_sender_link ?></td>
-                </tr>
-                <tr>
-                    <td><?= $tracker_lang['original_receiver'] ?? 'Оригинальный получатель:'; ?></td>
-                    <td><?= $orig_recv_link ?></td>
-                </tr>
-                <tr>
-                    <td><?= $tracker_lang['from'] ?? 'От:'; ?></td>
-                    <td><a href="userdetails.php?id=<?= $curuser_id ?>"><?= htmlspecialchars($curuser_name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></a></td>
-                </tr>
-                <tr>
-                    <td><?= $tracker_lang['subject'] ?? 'Тема:'; ?></td>
-                    <td><input type="text" name="subject" value="<?= $subject ?>" size="83"></td>
-                </tr>
-                <tr>
-                    <td><?= $tracker_lang['message'] ?? 'Сообщение:'; ?></td>
-                    <td>
-                        <textarea name="msg" cols="80" rows="8"></textarea><br>
-                        <?= $body ?>
-                    </td>
-                </tr>
-                <tr>
-                    <td colspan="2" align="center">
-                        <?= $tracker_lang['save_message'] ?? 'Сохранить сообщение'; ?>
-                        <input type="checkbox" name="save" value="1"<?= (($CURUSER['savepms'] ?? '') === 'yes') ? ' checked' : '' ?>>
-                        &nbsp;
-                        <input type="submit" value="<?= $tracker_lang['forward'] ?? 'Переслать'; ?>">
-                    </td>
-                </tr>
-            </table>
-        </form>
-        <?php
         end_frame();
         stdfoot();
-    } else {
-        // --- Пересылаем
-        $pm_id = (int)($_POST['id'] ?? 0);
-        if ($pm_id <= 0 || $curuser_id <= 0) {
-            stderr($tracker_lang['error'] ?? 'Ошибка', "Некорректный запрос.");
+        exit;
+
+    case 'viewmessage':
+        $pmId = (int)($_GET['id'] ?? 0);
+        if ($pmId <= 0) {
+            stderr('Ошибка', 'Некорректный ID сообщения.');
         }
 
-        // Проверяем доступ к сообщению
-        $res = sql_query(
-            'SELECT * FROM messages
-             WHERE id=' . sqlesc($pm_id) . '
-               AND (receiver=' . sqlesc($curuser_id) . ' OR sender=' . sqlesc($curuser_id) . ')
-             LIMIT 1'
-        ) or sqlerr(__FILE__, __LINE__);
-
-        if (!$res || mysqli_num_rows($res) === 0) {
-            stderr($tracker_lang['error'] ?? 'Ошибка', "У вас нет разрешения пересылать это сообщение.");
+        $mailbox = isset($_GET['box']) ? message_box_normalize((int)$_GET['box']) : PM_INBOX;
+        $adminview = get_user_class() === UC_SYSOP;
+        $message = message_cached_pm_row($pmId, $currentUserId, $adminview);
+        if (!$message) {
+            stderr('Ошибка', 'Сообщение не найдено.');
         }
 
-        $message  = mysqli_fetch_assoc($res);
-        $subject  = (string)($_POST['subject'] ?? '');
-        $username = trim(strip_tags((string)($_POST['to'] ?? '')));
+        $isSender = (int)$message['sender'] === $currentUserId;
+        $isReceiver = (int)$message['receiver'] === $currentUserId;
+        $ownsMessage = $isSender || $isReceiver;
+        $isInspector = $adminview && !$ownsMessage;
 
-        if ($username === '') {
-            stderr($tracker_lang['error'] ?? 'Ошибка', "Не указано имя получателя.");
+        if ($isReceiver && ($message['unread'] ?? 'no') === 'yes') {
+            sql_query("
+                UPDATE messages
+                SET unread = 'no'
+                WHERE id = " . sqlesc($pmId) . "
+                  AND receiver = " . sqlesc($currentUserId) . "
+                LIMIT 1
+            ") or sqlerr(__FILE__, __LINE__);
+            tracker_invalidate_message_cache($currentUserId);
+            $message['unread'] = 'no';
         }
 
-        // Ищем получателя (регистронезависимо)
-        $res = sql_query(
-            "SELECT id, username, acceptpms
-             FROM users
-             WHERE LOWER(username) = LOWER(" . sqlesc($username) . ")
-             LIMIT 1"
-        ) or sqlerr(__FILE__, __LINE__);
+        $subject = trim((string)($message['subject'] ?? ''));
+        $subject = $subject !== '' ? $subject : 'Без темы';
 
-        if (!$res || mysqli_num_rows($res) === 0) {
-            stderr($tracker_lang['error'] ?? 'Ошибка', "Пользователя с таким именем не существует.");
+        $body = tracker_cache_remember(
+            tracker_cache_key('message', 'body', 'pm' . $pmId, 'h' . md5((string)($message['msg'] ?? ''))),
+            600,
+            static function () use ($message): string {
+                return format_comment((string)($message['msg'] ?? ''));
+            }
+        );
+
+        $partnerLabel = $isSender && !$isInspector ? 'Кому' : 'От кого';
+        $partnerLink = $isSender && !$isInspector
+            ? message_user_link((int)$message['receiver'], (string)($message['receiver_username'] ?? ''), (int)($message['receiver_class'] ?? 0))
+            : message_user_link((int)$message['sender'], (string)($message['sender_username'] ?? ''), (int)($message['sender_class'] ?? 0));
+
+        $actions = [];
+        $actions[] = '<a href="' . message_h(message_box_url($mailbox)) . '">К ящику</a>';
+        if ($ownsMessage && !$isSender && (int)$message['sender'] > 0) {
+            $actions[] = '<a href="' . message_h('message.php?action=sendmessage&receiver=' . (int)$message['sender'] . '&replyto=' . $pmId . '&returnto=' . rawurlencode(message_box_url($mailbox))) . '">Ответить</a>';
+        }
+        if ($ownsMessage) {
+            $actions[] = '<a href="' . message_h('message.php?action=forward&id=' . $pmId . '&box=' . $mailbox) . '">Переслать</a>';
+            $actions[] = '<a href="' . message_h('message.php?action=deletemessage&id=' . $pmId . '&box=' . $mailbox) . '">Удалить</a>';
         }
 
-        $to_user = mysqli_fetch_assoc($res);
-        $to_id   = (int)$to_user['id'];
+        stdhead('Личное сообщение');
+        begin_frame('Письмо: ' . message_h($subject));
+        echo '<table border="0" cellpadding="5" cellspacing="0" width="100%">';
+        echo '<tr><td class="rowhead" width="18%">' . $partnerLabel . '</td><td class="lol" width="32%">' . $partnerLink . '</td><td class="rowhead" width="18%">Дата</td><td class="lol">' . message_format_datetime((string)$message['added'], $tzoffset) . '</td></tr>';
+        echo '<tr><td class="rowhead">Тема</td><td class="lol" colspan="3"><b>' . message_h($subject) . '</b></td></tr>';
+        echo '<tr><td class="rowhead" valign="top">Сообщение</td><td class="lol" colspan="3">' . $body . '</td></tr>';
+        echo '<tr><td class="rowhead">Действия</td><td class="lol" colspan="3">' . implode(' | ', $actions) . '</td></tr>';
+        echo '</table>';
+        end_frame();
+        stdfoot();
+        exit;
 
-        // Имя исходного отправителя для подвала
-        if ((int)($message['sender'] ?? 0) === 0) {
-            $orig_from_name = $tracker_lang['from_system'] ?? 'Системное';
-        } else {
-            $res2 = sql_query("SELECT username FROM users WHERE id=" . sqlesc((int)$message['sender']) . " LIMIT 1")
-                or sqlerr(__FILE__, __LINE__);
-            $row2 = mysqli_fetch_assoc($res2);
-            $orig_from_name = (string)($row2['username'] ?? ('#' . (int)$message['sender']));
+    case 'sendmessage':
+        $recipient = message_resolve_user($_GET['receiver'] ?? null, $_GET['to'] ?? ($_GET['user_query'] ?? null));
+        if (!$recipient) {
+            stderr('Ошибка', 'Не удалось определить получателя.');
         }
 
-        // Тело письма
-        $body_user = (string)($_POST['msg'] ?? '');
-        $body_full = $body_user .
-            "\n-------- Оригинальное сообщение от " . $orig_from_name . ": --------\n" .
-            (string)($message['msg'] ?? '');
+        $replyto = (int)($_GET['replyto'] ?? 0);
+        $returnto = message_safe_returnto((string)($_GET['returnto'] ?? ($_SERVER['HTTP_REFERER'] ?? '')), PM_INBOX);
+        $subject = '';
+        $body = '';
 
-        // Сохранить копию
-        $save = !empty($_POST['save']) ? 'yes' : 'no';
+        $auto = (string)($_GET['auto'] ?? '');
+        $std = (string)($_GET['std'] ?? '');
+        if ($auto !== '' && isset($pm_std_reply[$auto])) {
+            $body = (string)$pm_std_reply[$auto];
+        }
+        if ($std !== '' && isset($pm_template[$std][1])) {
+            $body = (string)$pm_template[$std][1];
+        }
 
-        // Ограничения получателя (!!! проверяем получателя, а не отправителя)
-        if ((int)get_user_class() < (int)UC_MODERATOR) {
-            $accept = (string)($to_user['acceptpms'] ?? 'yes'); // yes|friends|no
-
-            if ($accept === 'no') {
-                stderr($tracker_lang['denied'] ?? 'Отклонено', "Этот пользователь не принимает сообщения.");
+        if ($replyto > 0) {
+            $original = message_cached_pm_row($replyto, $currentUserId, false);
+            if (!$original || (int)$original['receiver'] !== $currentUserId) {
+                stderr('Ошибка', 'Нельзя ответить на это сообщение.');
             }
 
-            if ($accept === 'friends') {
-                $resF = sql_query("SELECT 1 FROM friends WHERE userid={$to_id} AND friendid={$curuser_id} LIMIT 1")
-                    or sqlerr(__FILE__, __LINE__);
-                if (mysqli_num_rows($resF) !== 1) {
-                    stderr($tracker_lang['denied'] ?? 'Отклонено', "Этот пользователь принимает сообщения только от друзей.");
+            $senderName = (string)($original['sender_username'] ?? 'Система');
+            $quotedSubject = trim((string)($original['subject'] ?? ''));
+            $quotedSubject = $quotedSubject !== '' ? $quotedSubject : 'Без темы';
+            $body .= ($body !== '' ? "\n\n" : '') . "-------- {$senderName} писал(а): --------\n" . (string)($original['msg'] ?? '') . "\n";
+            $subject = 'Re: ' . $quotedSubject;
+        }
+
+        stdhead('Новое сообщение');
+        begin_frame('Сообщение для ' . message_user_link((int)$recipient['id'], (string)$recipient['username'], (int)$recipient['class']));
+        echo '<form method="post" action="message.php">';
+        echo '<input type="hidden" name="action" value="takemessage">';
+        echo '<input type="hidden" name="receiver" value="' . (int)$recipient['id'] . '">';
+        echo '<input type="hidden" name="returnto" value="' . message_h($returnto) . '">';
+        if ($replyto > 0) {
+            echo '<input type="hidden" name="origmsg" value="' . $replyto . '">';
+        }
+        echo '<table border="0" cellpadding="5" cellspacing="0" width="100%">';
+        echo '<tr><td class="rowhead" width="18%">Получатель</td><td class="lol">' . message_user_link((int)$recipient['id'], (string)$recipient['username'], (int)$recipient['class']) . '</td></tr>';
+        echo '<tr><td class="rowhead">Тема</td><td class="lol"><input type="text" name="subject" size="70" maxlength="255" value="' . message_h($subject) . '"></td></tr>';
+        echo '<tr><td class="rowhead" valign="top">Текст</td><td class="lol">';
+        textbbcode('message', 'msg', $body);
+        echo '</td></tr>';
+        echo '<tr><td class="rowhead">Опции</td><td class="lol">';
+        if ($replyto > 0) {
+            echo '<label><input type="checkbox" name="delete" value="yes"' . (($CURUSER['deletepms'] ?? 'no') === 'yes' ? ' checked' : '') . '> Удалить исходное письмо после ответа</label><br>';
+        }
+        echo '<label><input type="checkbox" name="save" value="yes"' . (($CURUSER['savepms'] ?? 'no') === 'yes' ? ' checked' : '') . '> Сохранить копию в отправленных</label>';
+        echo '</td></tr>';
+        echo '<tr><td class="rowhead">Навигация</td><td class="lol"><a href="' . message_h($returnto) . '">Назад</a></td></tr>';
+        echo '<tr><td class="rowhead"></td><td class="lol"><input type="submit" class="btn" value="Отправить"></td></tr>';
+        echo '</table>';
+        echo '</form>';
+        end_frame();
+        stdfoot();
+        exit;
+
+    case 'takemessage':
+        $receiverId = (int)($_POST['receiver'] ?? 0);
+        $origmsg = (int)($_POST['origmsg'] ?? 0);
+        $recipient = message_resolve_user((string)$receiverId, null);
+        if (!$recipient) {
+            stderr('Ошибка', 'Получатель не найден.');
+        }
+
+        message_assert_can_send_to($recipient, $currentUserId);
+
+        $subject = trim((string)($_POST['subject'] ?? ''));
+        $body = trim((string)($_POST['msg'] ?? ''));
+        $save = (($_POST['save'] ?? '') === 'yes') ? 'yes' : 'no';
+        $returnto = message_safe_returnto((string)($_POST['returnto'] ?? ''), $save === 'yes' ? PM_SENTBOX : PM_INBOX);
+
+        if ($subject === '') {
+            stderr('Ошибка', 'Введите тему сообщения.');
+        }
+        if ($body === '') {
+            stderr('Ошибка', 'Введите текст сообщения.');
+        }
+
+        message_insert_message($currentUserId, $currentUserId, (int)$recipient['id'], $subject, $body, $save);
+        tracker_invalidate_message_cache((int)$recipient['id'], $currentUserId);
+
+        if ($origmsg > 0 && (($_POST['delete'] ?? '') === 'yes')) {
+            message_delete_original_after_reply($origmsg, $currentUserId);
+        }
+
+        header('Location: ' . $returnto);
+        exit;
+
+    case 'mass_pm':
+        if (get_user_class() < UC_MODERATOR) {
+            stderr('Ошибка', $tracker_lang['access_denied'] ?? 'Доступ запрещён.');
+        }
+
+        $recipientIds = message_mass_recipient_ids((string)($_POST['pmees'] ?? $_GET['pmees'] ?? ''));
+        if ($recipientIds === []) {
+            stderr('Ошибка', 'Не выбраны получатели для массовой рассылки.');
+        }
+
+        $auto = (string)($_POST['auto'] ?? $_GET['auto'] ?? '');
+        $body = ($auto !== '' && isset($mm_template[$auto][1])) ? (string)$mm_template[$auto][1] : '';
+
+        $res = sql_query("
+            SELECT id, username
+            FROM users
+            WHERE id IN (" . implode(', ', $recipientIds) . ")
+            ORDER BY username
+        ") or sqlerr(__FILE__, __LINE__);
+
+        $names = [];
+        while ($row = mysqli_fetch_assoc($res)) {
+            $names[] = message_h($row['username']) . ' (#' . (int)$row['id'] . ')';
+        }
+
+        stdhead('Массовая рассылка');
+        begin_frame('Массовое сообщение [' . count($recipientIds) . ']');
+        echo '<form method="post" action="message.php">';
+        echo '<input type="hidden" name="action" value="takemass_pm">';
+        echo '<input type="hidden" name="pmees" value="' . message_h(implode(' ', $recipientIds)) . '">';
+        echo '<table border="0" cellpadding="5" cellspacing="0" width="100%">';
+        echo '<tr><td class="rowhead" width="18%">Получатели</td><td class="lol">' . implode(', ', array_slice($names, 0, 15));
+        if (count($names) > 15) {
+            echo ' ... и ещё ' . (count($names) - 15);
+        }
+        echo '</td></tr>';
+        echo '<tr><td class="rowhead">Тема</td><td class="lol"><input type="text" name="subject" size="70" maxlength="255"></td></tr>';
+        echo '<tr><td class="rowhead" valign="top">Текст</td><td class="lol">';
+        textbbcode('massmessage', 'msg', $body);
+        echo '</td></tr>';
+        echo '<tr><td class="rowhead">Комментарий в профиль</td><td class="lol"><input type="text" name="comment" size="80"></td></tr>';
+        echo '<tr><td class="rowhead">Отправитель</td><td class="lol"><label><input type="radio" name="sender" value="self" checked> ' . message_h((string)$CURUSER['username']) . '</label> <label><input type="radio" name="sender" value="system"> Системное</label></td></tr>';
+        echo '<tr><td class="rowhead">Снимок статистики</td><td class="lol"><label><input type="checkbox" name="snap" value="1"> Добавить UL/DL/ratio в комментарий профиля</label></td></tr>';
+        echo '<tr><td class="rowhead"></td><td class="lol"><input type="submit" class="btn" value="Отправить"></td></tr>';
+        echo '</table>';
+        echo '</form>';
+        end_frame();
+        stdfoot();
+        exit;
+
+    case 'takemass_pm':
+        if (get_user_class() < UC_MODERATOR) {
+            stderr('Ошибка', $tracker_lang['access_denied'] ?? 'Доступ запрещён.');
+        }
+
+        $recipientIds = message_mass_recipient_ids((string)($_POST['pmees'] ?? ''));
+        if ($recipientIds === []) {
+            stderr('Ошибка', 'Не выбраны получатели для массовой рассылки.');
+        }
+
+        $subject = trim((string)($_POST['subject'] ?? ''));
+        $body = trim((string)($_POST['msg'] ?? ''));
+        $comment = trim((string)($_POST['comment'] ?? ''));
+        $snapshot = (($_POST['snap'] ?? '') === '1');
+        $senderId = (($_POST['sender'] ?? 'self') === 'system') ? 0 : $currentUserId;
+
+        if ($body === '') {
+            stderr('Ошибка', 'Введите текст массового сообщения.');
+        }
+
+        $res = sql_query("
+            SELECT id, username, uploaded, downloaded, modcomment
+            FROM users
+            WHERE id IN (" . implode(', ', $recipientIds) . ")
+        ") or sqlerr(__FILE__, __LINE__);
+
+        $validUsers = [];
+        while ($row = mysqli_fetch_assoc($res)) {
+            $validUsers[] = $row;
+        }
+
+        if ($validUsers === []) {
+            stderr('Ошибка', 'Не найдены пользователи для рассылки.');
+        }
+
+        $values = [];
+        foreach ($validUsers as $user) {
+            $values[] = '('
+                . sqlesc($senderId) . ', '
+                . sqlesc((int)$user['id']) . ', '
+                . 'NOW(), '
+                . sqlesc($subject) . ', '
+                . sqlesc($body) . ", 'yes', "
+                . sqlesc($senderId) . ', '
+                . sqlesc(PM_INBOX) . ", 'no')";
+        }
+
+        sql_query("
+            INSERT INTO messages (sender, receiver, added, subject, msg, unread, poster, location, saved)
+            VALUES " . implode(",\n", $values)
+        ) or sqlerr(__FILE__, __LINE__);
+
+        $updatedComments = 0;
+        if ($comment !== '' || $snapshot) {
+            foreach ($validUsers as $user) {
+                $lines = [];
+                if ($comment !== '') {
+                    $lines[] = $comment;
                 }
-            }
+                if ($snapshot) {
+                    $ratio = ((int)$user['downloaded'] > 0)
+                        ? number_format((int)$user['uploaded'] / (int)$user['downloaded'], 2)
+                        : (((int)$user['uploaded'] > 0) ? 'Inf.' : '---');
+                    $lines[] = 'MMed, ' . date('Y-m-d') . ', UL: ' . mksize((int)$user['uploaded']) . ', DL: ' . mksize((int)$user['downloaded']) . ', r: ' . $ratio . ' - ' . ($senderId === 0 ? 'System' : (string)$CURUSER['username']);
+                }
 
-            // Блок-лист
-            $resB = sql_query("SELECT 1 FROM blocks WHERE userid={$to_id} AND blockid={$curuser_id} LIMIT 1")
-                or sqlerr(__FILE__, __LINE__);
-            if (mysqli_num_rows($resB) === 1) {
-                stderr($tracker_lang['denied'] ?? 'Отклонено', "Этот пользователь добавил вас в чёрный список.");
+                $newComment = implode("\n", $lines);
+                if ($newComment === '') {
+                    continue;
+                }
+
+                $oldComment = (string)($user['modcomment'] ?? '');
+                if ($oldComment !== '') {
+                    $newComment .= "\n" . $oldComment;
+                }
+
+                sql_query("UPDATE users SET modcomment = " . sqlesc($newComment) . " WHERE id = " . sqlesc((int)$user['id']) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
+                $updatedComments++;
             }
         }
 
-        // Вставляем сообщение
-        sql_query(
-            "INSERT INTO messages (poster, sender, receiver, added, subject, msg, location, saved)
-             VALUES (" .
-                (int)$curuser_id . ", " .
-                (int)$curuser_id . ", " .
-                (int)$to_id . ", " .
-                "'" . get_date_time() . "', " .
-                sqlesc($subject) . ", " .
-                sqlesc($body_full) . ", " .
-                sqlesc(PM_INBOX) . ", " .
-                sqlesc($save) .
-            ")"
-        ) or sqlerr(__FILE__, __LINE__);
-        tracker_invalidate_message_cache($to_id, $curuser_id);
+        tracker_invalidate_message_cache(...array_map(static fn(array $user): int => (int)$user['id'], $validUsers));
 
-        stderr($tracker_lang['success'] ?? 'Удачно', "ЛС переслано.");
-    }
+        $message = (count($validUsers) > 1 ? 'Сообщения успешно отправлены.' : 'Сообщение успешно отправлено.');
+        if ($updatedComments > 0) {
+            $message .= ' Комментарии в профиле обновлены: ' . $updatedComments . '.';
+        }
+
+        stderr('Успешно', $message);
+        exit;
+
+    case 'moveordel':
+        $mailbox = message_box_normalize((int)($_POST['box'] ?? PM_INBOX));
+        $ids = message_collect_ids((int)($_POST['id'] ?? 0), $_POST['messages'] ?? []);
+        if ($ids === []) {
+            stderr('Ошибка', 'Не выбраны сообщения.');
+        }
+
+        if (isset($_POST['delete'])) {
+            $changed = message_delete_selected($ids, $currentUserId);
+            if ($changed === 0) {
+                stderr('Ошибка', 'Не удалось удалить выбранные сообщения.');
+            }
+            header('Location: ' . message_box_url($mailbox, ['done' => 'delete']));
+            exit;
+        }
+
+        if (isset($_POST['markread'])) {
+            message_mark_read_selected($ids, $currentUserId);
+            header('Location: ' . message_box_url($mailbox, ['done' => 'read']));
+            exit;
+        }
+
+        if (isset($_POST['move'])) {
+            sql_query("
+                UPDATE messages
+                SET location = " . sqlesc(PM_INBOX) . ", saved = 'yes'
+                WHERE receiver = " . sqlesc($currentUserId) . "
+                  AND id IN (" . implode(', ', array_map('intval', $ids)) . ")
+            ") or sqlerr(__FILE__, __LINE__);
+            tracker_invalidate_message_cache($currentUserId);
+            header('Location: ' . message_box_url($mailbox, ['done' => 'move']));
+            exit;
+        }
+
+        stderr('Ошибка', 'Не выбрано действие.');
+        exit;
+
+    case 'forward':
+        $pmId = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
+        if ($pmId <= 0) {
+            stderr('Ошибка', 'Некорректный ID сообщения.');
+        }
+
+        $mailbox = isset($_GET['box']) ? message_box_normalize((int)$_GET['box']) : message_box_normalize((int)($_POST['box'] ?? PM_INBOX));
+        $original = message_cached_pm_row($pmId, $currentUserId, false);
+        if (!$original) {
+            stderr('Ошибка', 'У вас нет доступа к этому сообщению.');
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $recipient = message_resolve_user($_POST['receiver'] ?? null, $_POST['to'] ?? null);
+            if (!$recipient) {
+                stderr('Ошибка', 'Не удалось определить получателя.');
+            }
+
+            message_assert_can_send_to($recipient, $currentUserId);
+
+            $subject = trim((string)($_POST['subject'] ?? ''));
+            $body = trim((string)($_POST['msg'] ?? ''));
+            $save = (($_POST['save'] ?? '') === 'yes') ? 'yes' : 'no';
+            $returnto = message_safe_returnto((string)($_POST['returnto'] ?? ''), $save === 'yes' ? PM_SENTBOX : $mailbox);
+
+            if ($subject === '') {
+                stderr('Ошибка', 'Введите тему пересылаемого сообщения.');
+            }
+            if ($body === '') {
+                stderr('Ошибка', 'Введите текст пересылки.');
+            }
+
+            $origSenderName = (int)$original['sender'] > 0
+                ? (string)($original['sender_username'] ?? ('#' . (int)$original['sender']))
+                : 'Система';
+
+            $fullBody = $body
+                . "\n\n-------- Оригинальное сообщение от {$origSenderName}: --------\n"
+                . (string)($original['msg'] ?? '');
+
+            message_insert_message($currentUserId, $currentUserId, (int)$recipient['id'], $subject, $fullBody, $save);
+            tracker_invalidate_message_cache((int)$recipient['id'], $currentUserId);
+
+            header('Location: ' . $returnto);
+            exit;
+        }
+
+        $forwardSubject = 'Fwd: ' . (trim((string)($original['subject'] ?? '')) ?: 'Без темы');
+        $prefillBody = "Пересылаю сообщение.\n";
+
+        stdhead('Переслать сообщение');
+        begin_frame('Пересылка письма');
+        echo '<form method="post" action="message.php">';
+        echo '<input type="hidden" name="action" value="forward">';
+        echo '<input type="hidden" name="id" value="' . $pmId . '">';
+        echo '<input type="hidden" name="box" value="' . $mailbox . '">';
+        echo '<input type="hidden" name="returnto" value="' . message_h(message_box_url($mailbox)) . '">';
+        echo '<table border="0" cellpadding="5" cellspacing="0" width="100%">';
+        echo '<tr><td class="rowhead" width="18%">Кому</td><td class="lol"><input type="text" name="to" size="40" placeholder="Имя пользователя или ID"></td></tr>';
+        echo '<tr><td class="rowhead">Оригинал</td><td class="lol">' . message_user_link((int)$original['sender'], (string)($original['sender_username'] ?? ''), (int)($original['sender_class'] ?? 0)) . ' -> ' . message_user_link((int)$original['receiver'], (string)($original['receiver_username'] ?? ''), (int)($original['receiver_class'] ?? 0)) . '</td></tr>';
+        echo '<tr><td class="rowhead">Тема</td><td class="lol"><input type="text" name="subject" size="70" maxlength="255" value="' . message_h($forwardSubject) . '"></td></tr>';
+        echo '<tr><td class="rowhead" valign="top">Ваш текст</td><td class="lol">';
+        textbbcode('forwardmessage', 'msg', $prefillBody);
+        echo '</td></tr>';
+        echo '<tr><td class="rowhead">Опции</td><td class="lol"><label><input type="checkbox" name="save" value="yes"' . (($CURUSER['savepms'] ?? 'no') === 'yes' ? ' checked' : '') . '> Сохранить копию в отправленных</label></td></tr>';
+        echo '<tr><td class="rowhead"></td><td class="lol"><input type="submit" class="btn" value="Переслать"></td></tr>';
+        echo '</table>';
+        echo '</form>';
+        end_frame();
+        stdfoot();
+        exit;
+
+    case 'deletemessage':
+        $pmId = (int)($_GET['id'] ?? 0);
+        if ($pmId <= 0) {
+            stderr('Ошибка', 'Некорректный ID сообщения.');
+        }
+
+        $mailbox = isset($_GET['box']) ? message_box_normalize((int)$_GET['box']) : PM_INBOX;
+        $changed = message_delete_selected([$pmId], $currentUserId);
+        if ($changed === 0) {
+            stderr('Ошибка', 'Невозможно удалить это сообщение.');
+        }
+
+        header('Location: ' . message_box_url($mailbox, ['done' => 'delete']));
+        exit;
+
+    default:
+        stderr('Ошибка', 'Неизвестное действие.');
+        exit;
 }
-// конец пересылка
-
-
-// начало удаление сообщения
-if ($action === "deletemessage") {
-    $pm_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-    if ($pm_id <= 0) {
-        stderr($tracker_lang['error'] ?? 'Ошибка', "Некорректный ID сообщения.");
-    }
-
-    // Берём сообщение
-    $res = sql_query("SELECT id, sender, receiver, saved, location FROM messages WHERE id=" . sqlesc($pm_id) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-    if (!$res || mysqli_num_rows($res) === 0) {
-        stderr($tracker_lang['error'] ?? 'Ошибка', "Сообщения с таким ID не существует.");
-    }
-    $message = mysqli_fetch_assoc($res);
-
-    $user_id = (int)$CURUSER['id'];
-    $is_receiver = ((int)$message['receiver'] === $user_id);
-    $is_sender   = ((int)$message['sender']   === $user_id);
-
-    if (!$is_receiver && !$is_sender && get_user_class() !== UC_SYSOP) {
-        stderr($tracker_lang['error'] ?? 'Ошибка', "У вас нет прав на удаление этого сообщения.");
-    }
-
-    // Готовим действие
-    $res2 = false;
-    if ($is_receiver && ($message['saved'] === 'no')) {
-        // Получатель удаляет входящее, которое не сохранено отправителем -> удалить строку
-        $res2 = sql_query("DELETE FROM messages WHERE id=" . sqlesc($pm_id) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        $redirect_box = PM_INBOX;
-    } elseif ($is_sender && ((int)$message['location'] === PM_DELETED)) {
-        // Отправитель удаляет своё, когда у получателя уже удалено -> удалить строку
-        $res2 = sql_query("DELETE FROM messages WHERE id=" . sqlesc($pm_id) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        $redirect_box = PM_SENTBOX;
-    } elseif ($is_receiver && ($message['saved'] === 'yes')) {
-        // Получатель «скрывает» входящее, если отправитель сохранил — переносим в корзину для получателя
-        $res2 = sql_query("UPDATE messages SET location=" . sqlesc(PM_DELETED) . " WHERE id=" . sqlesc($pm_id) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        $redirect_box = PM_INBOX;
-    } elseif ($is_sender && ((int)$message['location'] !== PM_DELETED)) {
-        // Отправитель убирает из «Отправленных» но у получателя остаётся
-        $res2 = sql_query("UPDATE messages SET saved='no' WHERE id=" . sqlesc($pm_id) . " LIMIT 1") or sqlerr(__FILE__, __LINE__);
-        $redirect_box = PM_SENTBOX;
-    } else {
-        // Нечего делать
-        stderr($tracker_lang['error'] ?? 'Ошибка', "Невозможно удалить это сообщение.");
-    }
-
-    // Проверим, что действительно что-то изменилось
-    global $mysqli; // если у тебя используется глобальный $mysqli
-    if (!$res2 || ($mysqli && $mysqli->affected_rows === 0)) {
-        stderr($tracker_lang['error'] ?? 'Ошибка', "Невозможно удалить сообщение.");
-    }
-
-    tracker_invalidate_message_cache($user_id);
-    header("Location: message.php?action=viewmailbox&box=" . (int)$redirect_box);
-    exit;
-}
-// конец удаление сообщения
-
-?>

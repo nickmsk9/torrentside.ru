@@ -5,6 +5,24 @@ require_once("include/bittorrent.php");
 dbconn();
 loggedinorreturn();
 
+function checker_return_url(): string
+{
+    $uri = trim((string)($_POST['returnto'] ?? ''));
+    if ($uri === '') {
+        return '';
+    }
+
+    if (preg_match('~^https?://[^/]+/(.*)$~i', $uri, $m)) {
+        $uri = $m[1];
+    }
+
+    $uri = ltrim($uri, '/');
+    if ($uri === '' || !str_starts_with($uri, 'modded.php')) {
+        return '';
+    }
+
+    return $uri;
+}
 
 // Проверка и приведение ID торрента
 $torrent = $_POST["torrent"] ?? '';
@@ -48,6 +66,13 @@ sql_query("
 
 // Увеличиваем счётчик проверок у модератора
 sql_query("UPDATE users SET moderated = moderated + 1 WHERE id = " . sqlesc($CURUSER["id"])) or sqlerr(__FILE__, __LINE__);
+
+$returnTo = checker_return_url();
+if ($returnTo !== '') {
+    $separator = str_contains($returnTo, '?') ? '&' : '?';
+    header('Location: ' . $returnTo . $separator . 'checked=' . $torrent);
+    exit;
+}
 
 // Повторно получаем информацию для вывода
 $res = sql_query("SELECT modby, modname FROM torrents WHERE id = " . sqlesc($torrent)) or sqlerr(__FILE__, __LINE__);

@@ -2,16 +2,20 @@
 <div class="menu">
   <div class="m_best">
     <div class="m_foot">
-      <div class="m_t" style="text-align: center; padding: 10px; color: white;">
-        <div style="font-size: 12px; margin-top: 40px; margin-bottom: 12px;">
-          Хочешь случайное число? Лови!
-        </div>
-        <div id="random-result" style="font-size: 14px; font-weight: bold;">Число: —</div>
-        <button
-          onclick="document.getElementById('random-result').innerText = 'Число: ' + Math.floor(Math.random() * 100 + 1);"
-          style="margin-top: 10px; padding: 6px 12px; font-size: 12px; cursor: pointer;">
-          Сгенерировать
-        </button>
+      <div class="m_t">
+        <div align="center"><b>{$bestBlock.title|escape}</b></div>
+        {if $bestBlock.loggedin}
+          <div>Рейтинг: {$bestBlock.ratio_html nofilter}</div>
+          <div>Бонусы: <a href="{$bestBlock.bonus_url|escape}">{$bestBlock.bonus|escape}</a></div>
+          <div>Инвайты: <a href="{$bestBlock.invites_url|escape}">{$bestBlock.invites}</a></div>
+          <div align="center" style="padding-top:4px;"><a href="{$bestBlock.primary_url|escape}"><b>{$bestBlock.primary_label|escape}</b></a></div>
+          <div align="center"><small>{$bestBlock.hint|escape}</small></div>
+          <div align="center"><small><a href="{$bestBlock.secondary_url|escape}">{$bestBlock.secondary_label|escape}</a></small></div>
+        {else}
+          <div align="center" style="padding-top:4px;"><a href="{$bestBlock.primary_url|escape}"><b>{$bestBlock.primary_label|escape}</b></a></div>
+          <div align="center"><small>{$bestBlock.hint|escape}</small></div>
+          <div align="center"><small><a href="{$bestBlock.secondary_url|escape}">{$bestBlock.secondary_label|escape}</a></small></div>
+        {/if}
       </div>
     </div>
   </div>

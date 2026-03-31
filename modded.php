@@ -7,9 +7,32 @@ if (get_user_class() < UC_MODERATOR) {
     stderr($tracker_lang['error'], "Нет доступа.");
 }
 
+function modded_return_url(): string
+{
+    $uri = trim((string)($_SERVER['REQUEST_URI'] ?? 'modded.php'));
+    if ($uri === '') {
+        return 'modded.php';
+    }
+
+    if (preg_match('~^https?://[^/]+/(.*)$~i', $uri, $m)) {
+        $uri = $m[1];
+    }
+
+    $uri = ltrim($uri, '/');
+    if ($uri === '' || !str_starts_with($uri, 'modded.php')) {
+        return 'modded.php';
+    }
+
+    return $uri;
+}
+
 stdhead("Обзор проверки торрентов");
 
 echo '<div align="center" style="padding:10px;"><a href="modded.php">Непроверенные</a> | <a href="modded.php?modded">Проверенные</a> | <a href="modded.php?top">Топ модераторов</a></div>';
+
+if (isset($_GET['checked']) && ctype_digit((string)$_GET['checked'])) {
+    stdmsg('Успешно', 'Раздача #' . (int)$_GET['checked'] . ' проверена.');
+}
 
 //
 // TOP модераторов
@@ -166,6 +189,8 @@ elseif (isset($_GET['moderator'])) {
 else {
     $count = get_row_count("torrents", "WHERE modded='no'");
     list($pagertop, $pagerbottom, $limit) = pager(15, $count, "modded.php?");
+    $returnTo = htmlspecialchars(modded_return_url(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $currentUserId = (int)($CURUSER['id'] ?? 0);
 
     begin_frame("Непроверенные торренты [" . (int)$count . ']');
 
@@ -182,24 +207,42 @@ else {
 
     $out = [];
     $out[] = '<table width="100%" cellpadding="5">';
-    $out[] = '<tr><td class="colhead">Торрент</td><td class="colhead">Загрузил</td><td class="colhead">Когда?</td></tr>';
+    $out[] = '<tr><td class="colhead">Торрент</td><td class="colhead">Загрузил</td><td class="colhead">Когда?</td><td class="colhead">Действия</td></tr>';
 
     if (mysqli_num_rows($res) === 0) {
-        $out[] = '<tr><td colspan="3">Все торренты проверены</td></tr>';
+        $out[] = '<tr><td colspan="4">Все торренты проверены</td></tr>';
     } else {
         while ($row = mysqli_fetch_assoc($res)) {
             $tid = (int)$row['id'];
             $owner = (int)$row['owner'];
+            $torrentName = htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8');
+            $ownerLink = '<a href="userdetails.php?id=' . $owner . '">' . get_user_class_color((int)$row['class'], $row['username']) . '</a>';
+            $canCheck = $owner !== $currentUserId;
+
+            if ($canCheck) {
+                $actions = '<div style="display:flex;gap:6px;justify-content:center;align-items:center">'
+                    . '<a href="details.php?id=' . $tid . '">Открыть</a>'
+                    . '<form method="post" action="checker.php" style="margin:0">'
+                    . '<input type="hidden" name="torrent" value="' . $tid . '">'
+                    . '<input type="hidden" name="returnto" value="' . $returnTo . '">'
+                    . '<input type="submit" class="btn" value="Проверить">'
+                    . '</form>'
+                    . '</div>';
+            } else {
+                $actions = '<div style="text-align:center"><a href="details.php?id=' . $tid . '">Открыть</a><br><small>Ваша раздача</small></div>';
+            }
+
             $out[] = '<tr>'
-                . '<td><a href="details.php?id=' . $tid . '">' . htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') . '</a></td>'
-                . '<td><a href="userdetails.php?id=' . $owner . '">' . get_user_class_color((int)$row['class'], $row['username']) . '</a></td>'
+                . '<td><a href="details.php?id=' . $tid . '">' . $torrentName . '</a></td>'
+                . '<td>' . $ownerLink . '</td>'
                 . '<td>' . htmlspecialchars($row['added'], ENT_QUOTES, 'UTF-8') . '</td>'
+                . '<td>' . $actions . '</td>'
                 . '</tr>';
         }
     }
 
     if ($count) {
-        $out[] = '<tr><td colspan="3">' . $pagerbottom . '</td></tr>';
+        $out[] = '<tr><td colspan="4">' . $pagerbottom . '</td></tr>';
     }
     $out[] = '</table>';
 

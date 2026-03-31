@@ -75,6 +75,8 @@ if (!empty($_GET["returnto"])) {
     <a class="btn btn-ghost" href="recover.php">Забыли пароль?</a>
     <a class="btn btn-ghost" href="signup.php">Регистрация</a>
   </div>
+
+  <?= social_auth_login_markup($returnto) ?>
 </div>
 
 <script>

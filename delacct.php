@@ -44,15 +44,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     sql_query("DELETE FROM messages WHERE receiver = $id") or sqlerr(__FILE__, __LINE__);
     sql_query("DELETE FROM friends WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
     sql_query("DELETE FROM friends WHERE friendid = $id") or sqlerr(__FILE__, __LINE__);
-    sql_query("DELETE FROM blocks WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
-    sql_query("DELETE FROM blocks WHERE blockid = $id") or sqlerr(__FILE__, __LINE__);
+    if (class_permissions_table_exists('blocks')) {
+        sql_query("DELETE FROM blocks WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+        sql_query("DELETE FROM blocks WHERE blockid = $id") or sqlerr(__FILE__, __LINE__);
+    }
     sql_query("DELETE FROM invites WHERE inviter = $id") or sqlerr(__FILE__, __LINE__);
     sql_query("DELETE FROM peers WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
-    sql_query("DELETE FROM simpaty WHERE fromuserid = $id") or sqlerr(__FILE__, __LINE__);
-    sql_query("DELETE FROM addedrequests WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+    if (class_permissions_table_exists('simpaty')) {
+        sql_query("DELETE FROM simpaty WHERE fromuserid = $id OR touserid = $id") or sqlerr(__FILE__, __LINE__);
+    }
+    if (class_permissions_table_exists('addedrequests')) {
+        sql_query("DELETE FROM addedrequests WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+    }
     sql_query("DELETE FROM checkcomm WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
-    sql_query("DELETE FROM offervotes WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+    if (class_permissions_table_exists('offervotes')) {
+        sql_query("DELETE FROM offervotes WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+    }
     sql_query("DELETE FROM sessions WHERE uid = $id") or sqlerr(__FILE__, __LINE__);
+    if (class_permissions_table_exists('social_accounts')) {
+        sql_query("DELETE FROM social_accounts WHERE user_id = $id") or sqlerr(__FILE__, __LINE__);
+    }
 
     // Проверка, что удалён
     if (mysqli_affected_rows($GLOBALS["mysqli"]) !== 1) {

@@ -197,9 +197,28 @@ while ($row = mysqli_fetch_assoc($res)) {
 		$res = sql_query("SELECT id FROM users WHERE parked='$parked' AND status='confirmed' AND class <= $maxclass AND last_access < $dt") or sqlerr(__FILE__, __LINE__);
 		while ($arr = mysqli_fetch_assoc($res)) {
 			$id = (int)$arr['id'];
-			foreach (['users','messages','friends','blocks','invites','peers','simpaty','addedrequests','checkcomm','offervotes'] as $table) {
-				sql_query("DELETE FROM $table WHERE userid = $id OR friendid = $id OR blockid = $id OR inviter = $id OR receiver = $id") or sqlerr(__FILE__, __LINE__);
+			sql_query("DELETE FROM messages WHERE receiver = $id") or sqlerr(__FILE__, __LINE__);
+			sql_query("DELETE FROM friends WHERE userid = $id OR friendid = $id") or sqlerr(__FILE__, __LINE__);
+			if (class_permissions_table_exists('blocks')) {
+				sql_query("DELETE FROM blocks WHERE userid = $id OR blockid = $id") or sqlerr(__FILE__, __LINE__);
 			}
+			sql_query("DELETE FROM invites WHERE inviter = $id") or sqlerr(__FILE__, __LINE__);
+			sql_query("DELETE FROM peers WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+			if (class_permissions_table_exists('simpaty')) {
+				sql_query("DELETE FROM simpaty WHERE fromuserid = $id OR touserid = $id") or sqlerr(__FILE__, __LINE__);
+			}
+			if (class_permissions_table_exists('addedrequests')) {
+				sql_query("DELETE FROM addedrequests WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+			}
+			sql_query("DELETE FROM checkcomm WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+			if (class_permissions_table_exists('offervotes')) {
+				sql_query("DELETE FROM offervotes WHERE userid = $id") or sqlerr(__FILE__, __LINE__);
+			}
+			sql_query("DELETE FROM sessions WHERE uid = $id") or sqlerr(__FILE__, __LINE__);
+			if (class_permissions_table_exists('social_accounts')) {
+				sql_query("DELETE FROM social_accounts WHERE user_id = $id") or sqlerr(__FILE__, __LINE__);
+			}
+			sql_query("DELETE FROM users WHERE id = $id") or sqlerr(__FILE__, __LINE__);
 		}
 	}
 
@@ -208,7 +227,11 @@ while ($row = mysqli_fetch_assoc($res)) {
 	$dt = "FROM_UNIXTIME($deadtime)";
 	$res = sql_query("SELECT id FROM users WHERE status = 'pending' AND added < $dt AND last_login < $dt AND last_access < $dt") or sqlerr(__FILE__, __LINE__);
 	while ($arr = mysqli_fetch_assoc($res)) {
-		sql_query("DELETE FROM users WHERE id = " . (int)$arr['id']) or sqlerr(__FILE__, __LINE__);
+		$id = (int)$arr['id'];
+		if (class_permissions_table_exists('social_accounts')) {
+			sql_query("DELETE FROM social_accounts WHERE user_id = $id") or sqlerr(__FILE__, __LINE__);
+		}
+		sql_query("DELETE FROM users WHERE id = $id") or sqlerr(__FILE__, __LINE__);
 	}
 
 	// === Добавление бонуса сидерам (JOIN вместо IN) ===

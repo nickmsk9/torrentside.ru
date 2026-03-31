@@ -39,6 +39,7 @@ if ($configuredBaseUrl !== '') {
 
 require_once($rootpath . 'include/functions.php');
 require_once($rootpath . 'include/secrets.php');
+require_once($rootpath . 'include/social_auth.php');
 
 // Подключение модуля защиты, если включён
 if (isset($ctracker) && $ctracker === "1") {

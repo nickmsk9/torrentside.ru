@@ -289,12 +289,17 @@ $updateset[] = "class_profile_id = " . max(0, $classProfileId);
         sql_query("DELETE FROM messages WHERE receiver = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
         sql_query("DELETE FROM friends  WHERE userid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
         sql_query("DELETE FROM friends  WHERE friendid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
-        sql_query("DELETE FROM blocks   WHERE userid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
-        sql_query("DELETE FROM blocks   WHERE blockid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
+        if (class_permissions_table_exists('blocks')) {
+            sql_query("DELETE FROM blocks   WHERE userid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
+            sql_query("DELETE FROM blocks   WHERE blockid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
+        }
         sql_query("DELETE FROM invites  WHERE inviter = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
         sql_query("DELETE FROM peers    WHERE userid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
         sql_query("DELETE FROM checkcomm WHERE userid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
         sql_query("DELETE FROM sessions WHERE uid = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
+        if (class_permissions_table_exists('social_accounts')) {
+            sql_query("DELETE FROM social_accounts WHERE user_id = " . (int)$userid) or sqlerr(__FILE__, __LINE__);
+        }
         write_log("Пользователь " . htmlspecialchars($delusername, ENT_QUOTES, 'UTF-8') . " был удален пользователем " . htmlspecialchars($CURUSER['username'], ENT_QUOTES, 'UTF-8'));
         barf();
     } else {

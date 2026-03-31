@@ -54,3 +54,23 @@ if (class_exists('Memcached')) {
     $mc = $memcached;
     $mc1 = $memcached;
 }
+
+// ============================================================================
+// SOCIAL AUTH
+// ============================================================================
+$social_auth_auto_signup = true;
+
+$social_telegram_enabled = filter_var(getenv('SOCIAL_TELEGRAM_ENABLED') ?: '0', FILTER_VALIDATE_BOOLEAN);
+$social_telegram_bot_username = getenv('SOCIAL_TELEGRAM_BOT_USERNAME') ?: '';
+$social_telegram_bot_token = getenv('SOCIAL_TELEGRAM_BOT_TOKEN') ?: '';
+$social_telegram_widget_size = getenv('SOCIAL_TELEGRAM_WIDGET_SIZE') ?: 'large';
+$social_telegram_request_write_access = filter_var(getenv('SOCIAL_TELEGRAM_REQUEST_WRITE_ACCESS') ?: '0', FILTER_VALIDATE_BOOLEAN);
+$social_telegram_auth_ttl = (int)(getenv('SOCIAL_TELEGRAM_AUTH_TTL') ?: 900);
+
+$social_apple_enabled = filter_var(getenv('SOCIAL_APPLE_ENABLED') ?: '0', FILTER_VALIDATE_BOOLEAN);
+$social_apple_client_id = getenv('SOCIAL_APPLE_CLIENT_ID') ?: '';
+$social_apple_team_id = getenv('SOCIAL_APPLE_TEAM_ID') ?: '';
+$social_apple_key_id = getenv('SOCIAL_APPLE_KEY_ID') ?: '';
+$social_apple_private_key_path = getenv('SOCIAL_APPLE_PRIVATE_KEY_PATH') ?: '';
+$social_apple_private_key = getenv('SOCIAL_APPLE_PRIVATE_KEY') ?: '';
+$social_apple_scope = getenv('SOCIAL_APPLE_SCOPE') ?: 'name email';

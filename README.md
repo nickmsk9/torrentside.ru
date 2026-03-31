@@ -61,6 +61,26 @@ $site_config = [
 ];
 ```
 
+### Social login
+Для быстрого входа без регистрации можно включить Apple ID и Telegram через переменные окружения:
+
+```bash
+SOCIAL_TELEGRAM_ENABLED=1
+SOCIAL_TELEGRAM_BOT_USERNAME=your_bot_name
+SOCIAL_TELEGRAM_BOT_TOKEN=123456:ABCDEF
+
+SOCIAL_APPLE_ENABLED=1
+SOCIAL_APPLE_CLIENT_ID=com.example.web
+SOCIAL_APPLE_TEAM_ID=TEAMID1234
+SOCIAL_APPLE_KEY_ID=KEYID1234
+SOCIAL_APPLE_PRIVATE_KEY_PATH=/absolute/path/AuthKey_KEYID1234.p8
+```
+
+Примечания:
+* Telegram Login Widget требует бота и домен, привязанный через `@BotFather` (`/setdomain`).
+* Apple Sign in для веба требует HTTPS и заранее настроенный `redirect_uri`.
+* При первом social login движок создаёт обычного пользователя в `users` и связь в `social_accounts`.
+
 ### 3. Импорт базы данных
 Файл SQL находится в основной директории: `torrent2.sql`.
 ```bash

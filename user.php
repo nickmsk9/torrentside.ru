@@ -85,6 +85,59 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
     print("table.main a {color:#266C8A;font-family:tahoma;}\n");
     print("</style>\n");
 
+    function user_ajax_assert_can_send_message(array $recipient, int $senderId): void
+    {
+        if ($senderId <= 0) {
+            die('<div class="error">Сначала войдите в аккаунт.</div>');
+        }
+
+        $recipientId = (int)($recipient['id'] ?? 0);
+        if ($recipientId <= 0) {
+            die('<div class="error">Получатель не найден.</div>');
+        }
+
+        if (($recipient['parked'] ?? 'no') === 'yes') {
+            die('<div class="error">Этот аккаунт припаркован.</div>');
+        }
+
+        if (get_user_class() >= UC_MODERATOR || $recipientId === $senderId) {
+            return;
+        }
+
+        $accept = (string)($recipient['acceptpms'] ?? 'yes');
+        if ($accept === 'no') {
+            die('<div class="error">Этот пользователь не принимает сообщения.</div>');
+        }
+
+        if ($accept === 'friends') {
+            $friendRes = sql_query("
+                SELECT 1
+                FROM friends
+                WHERE userid = " . sqlesc($recipientId) . "
+                  AND friendid = " . sqlesc($senderId) . "
+                LIMIT 1
+            ") or sqlerr(__FILE__, __LINE__);
+
+            if (mysqli_num_rows($friendRes) !== 1) {
+                die('<div class="error">Этот пользователь принимает сообщения только от друзей.</div>');
+            }
+        }
+
+        if (class_permissions_table_exists('blocks')) {
+            $blockRes = sql_query("
+                SELECT 1
+                FROM blocks
+                WHERE userid = " . sqlesc($recipientId) . "
+                  AND blockid = " . sqlesc($senderId) . "
+                LIMIT 1
+            ") or sqlerr(__FILE__, __LINE__);
+
+            if (mysqli_num_rows($blockRes) === 1) {
+                die('<div class="error">Этот пользователь добавил вас в чёрный список.</div>');
+            }
+        }
+    }
+
     if ($act == "info")
     {
         if (empty($user['info']))
@@ -430,44 +483,54 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
     elseif ($act == "pm")
     {
         print('<script type="text/javascript">
-function send_message(to, msg, subject)
+function send_message(form)
 {
-    if (window.jQuery && $("#msg").sceditor) {
-        $("#msg").sceditor("instance").updateOriginal();
-        msg = $("#msg").val();
+    var $form = jQuery(form);
+    var $operation = jQuery("#operation");
+
+    if (window.jQuery && jQuery("#msg").sceditor) {
+        jQuery("#msg").sceditor("instance").updateOriginal();
     }
 
-    var text = enBASE64(msg);
-    var subj = enBASE64(subject);
+    var subject = jQuery.trim($form.find("[name=subject]").val());
+    var msg = jQuery.trim($form.find("[name=msg]").val());
 
-    if (text === "" || subj === "") {
+    if (subject === "" || msg === "") {
         alert("Вы не указали сообщение или тему.");
-        return;
+        return false;
     }
 
-    jQuery.post("user.php", {
-        "user": to,
-        "msg": text,
-        "subject": subj,
-        "act": "sendmessage"
-    }, function (response) {
-        jQuery("#operation").empty().append(response);
+    $operation.html("<div class=\"info\">Отправка...</div>");
+
+    jQuery.post("user.php", $form.serialize() + "&act=sendmessage", function (response) {
+        $operation.empty().append(response);
+        if (response.indexOf("success") !== -1) {
+            $form.find("[name=msg]").val("");
+            $form.find("[name=subject]").val("");
+            if (window.jQuery && jQuery("#msg").sceditor) {
+                jQuery("#msg").sceditor("instance").val("");
+            }
+        }
+    }).fail(function () {
+        $operation.html("<div class=\"error\">Не удалось отправить сообщение. Повторите попытку.</div>");
     });
 
-    document.pm.msg.value = "";
-    document.pm.subject.value = "";
+    return false;
 }
 </script>');
-        print("<form name=\"pm\">\n");
+        print("<form name=\"pm\" method=\"post\" onsubmit=\"return send_message(this);\">\n");
+        print("<input type=\"hidden\" name=\"user\" value=\"$id\" />\n");
         print("<h2>Личное сообщение</h2>\n");
         print("<table width=\"100%\" cellpadding=\"5\">\n");
         print("<tr><td>\n");
         print("<div id=\"operation\"></div>\n");
         print("<p>Тема: <input name=\"subject\" type=\"text\" style=\"width:370px;\" /></p>");
-    $text = $_POST['text'] ?? '';
-textbbcode("pm", "msg", $text);
-
-       print("<p><input type=\"button\" value=\"Отправить\" onclick=\"javascript:send_message('$id', document.pm.msg.value, document.pm.subject.value);\"/>&nbsp;&nbsp;<input type=\"reset\" value=\"Отменить\" /></p>\n");
+        $text = $_POST['text'] ?? '';
+        textbbcode("pm", "msg", $text);
+        $saveChecked = (($CURUSER['savepms'] ?? 'no') === 'yes') ? ' checked="checked"' : '';
+        print("<p><label><input type=\"checkbox\" name=\"save\" value=\"yes\"{$saveChecked} /> Сохранить копию в отправленных</label></p>\n");
+        print("<p><small>Раздел &laquo;Отправленные&raquo; показывает только сохранённые копии.</small></p>\n");
+        print("<p><input type=\"submit\" value=\"Отправить\" />&nbsp;&nbsp;<input type=\"reset\" value=\"Отменить\" /></p>\n");
         print("</td></tr>\n");
         print("</table>\n");
         print("</form>\n");
@@ -476,16 +539,39 @@ textbbcode("pm", "msg", $text);
 
     elseif ($act == "sendmessage")
     {
-        if (!empty($_POST['subject']) && !empty($_POST['msg']))
-        {
-            $dt = get_date_time();
-            $text = sqlesc(base64_decode($_POST['msg']));
-            $subject = sqlesc(base64_decode($_POST['subject']));
-            sql_query("INSERT INTO messages (sender, receiver, subject, msg, added) VALUES (" . sqlesc($CURUSER['id']) . ", $id, $subject, $text, " . sqlesc($dt) . ")") or sqlerr(__FILE__,__LINE__);
-            die("<div class=\"success\">Ваше сообщение отправлено.</div>");
+        if (!user_has_module('message_write')) {
+            die('<div class="error">У вас нет доступа к отправке личных сообщений.</div>');
         }
-        else
-            die("Вы не ввели тему или сообщение");
+
+        $senderId = (int)($CURUSER['id'] ?? 0);
+        $subject = trim((string)($_POST['subject'] ?? ''));
+        $body = trim((string)($_POST['msg'] ?? ''));
+        $save = (($_POST['save'] ?? '') === 'yes') ? 'yes' : 'no';
+
+        if ($subject === '' || $body === '') {
+            die('<div class="error">Вы не ввели тему или сообщение.</div>');
+        }
+
+        user_ajax_assert_can_send_message($user, $senderId);
+
+        sql_query("
+            INSERT INTO messages (poster, sender, receiver, added, msg, subject, saved, location, unread)
+            VALUES (
+                " . sqlesc($senderId) . ",
+                " . sqlesc($senderId) . ",
+                " . sqlesc($id) . ",
+                NOW(),
+                " . sqlesc($body) . ",
+                " . sqlesc($subject) . ",
+                " . sqlesc($save) . ",
+                " . sqlesc(1) . ",
+                'yes'
+            )
+        ") or sqlerr(__FILE__, __LINE__);
+
+        tracker_invalidate_message_cache($id, $senderId);
+
+        die('<div class="success">Ваше сообщение отправлено.</div>');
     }
 
 

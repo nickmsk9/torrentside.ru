@@ -1521,7 +1521,6 @@ ALTER TABLE `comments`
   ADD PRIMARY KEY (`id`),
   ADD KEY `idx_torrent_added` (`torrent`,`added`),
   ADD KEY `idx_torrent_parent_added` (`torrent`,`parent_id`,`added`),
-  ADD KEY `idx_user` (`user`),
   ADD KEY `idx_comments_user` (`user`);
 
 --
@@ -1813,6 +1812,7 @@ ALTER TABLE `torrents`
   ADD KEY `idx_visible_banned` (`visible`,`banned`),
   ADD KEY `idx_added` (`added`),
   ADD KEY `ix_torrents_owner` (`owner`),
+  ADD KEY `idx_torrents_vis_mod_id` (`visible`,`moderated`,`id`),
   ADD KEY `idx_torrents_feed` (`visible`,`moderated`,`category`,`id`),
   ADD KEY `idx_torrents_cleanup` (`visible`,`last_action`,`visible_lock`);
 ALTER TABLE `torrents` ADD FULLTEXT KEY `ft_name_descr` (`name`,`descr`,`tags`);

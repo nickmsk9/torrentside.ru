@@ -24,10 +24,6 @@ if (empty($_SESSION['poll_csrf'])) {
 }
 $csrf = $_SESSION['poll_csrf'];
 
-// Memcached (локальный)
-$mc = new Memcached();
-$mc->addServer('localhost', 11211);
-
 // -------- helpers --------
 function fetch_active_poll(mysqli $db): ?array {
     // Берём только нужные поля самого свежего опроса
@@ -73,10 +69,12 @@ function get_user_vote(mysqli $db, int $pollId, int $userId): ?int {
 }
 
 /** Считает итоги: ['total'=>N, 'by'=> [optIndex=>count]] */
-function tally_results(mysqli $db, int $pollId, int $optCount, Memcached $mc): array {
-    $ckey = "poll_tally_{$pollId}";
-    $cached = $mc->get($ckey);
-    if ($cached !== false) return $cached;
+function tally_results(mysqli $db, int $pollId, int $optCount): array {
+    $ckey = tracker_cache_key('poll', 'tally', $pollId);
+    $cached = tracker_cache_get($ckey, $cacheHit);
+    if ($cacheHit && is_array($cached)) {
+        return $cached;
+    }
 
     $by = array_fill(0, $optCount, 0);
     $total = 0;
@@ -95,12 +93,12 @@ function tally_results(mysqli $db, int $pollId, int $optCount, Memcached $mc): a
     $stmt->close();
 
     $data = ['total' => $total, 'by' => $by];
-    $mc->set($ckey, $data, 60); // итоги кэшируем на 60с
+    tracker_cache_set($ckey, $data, 60);
     return $data;
 }
 
 /** Формирует JSON для фронта: состояние опроса */
-function build_poll_payload(mysqli $db, array $poll, int $userId, Memcached $mc): array {
+function build_poll_payload(mysqli $db, array $poll, int $userId): array {
     $options = poll_options($poll);
     $optCount = count($options);
     $pollId = (int)$poll['id'];
@@ -121,7 +119,7 @@ function build_poll_payload(mysqli $db, array $poll, int $userId, Memcached $mc)
 
     if ($userSel !== null) {
         // Добавим итоги если пользователь уже голосовал
-        $tally = tally_results($db, $pollId, $optCount, $mc);
+        $tally = tally_results($db, $pollId, $optCount);
         $data['results'] = $tally;
     }
     return $data;
@@ -139,7 +137,7 @@ try {
                 echo json_encode(['ok' => false, 'error' => 'NO_POLL']);
                 break;
             }
-            $payload = build_poll_payload($mysqli, $poll, (int)$CURUSER['id'], $mc);
+            $payload = build_poll_payload($mysqli, $poll, (int)$CURUSER['id']);
             $payload['csrf'] = $csrf;
             echo json_encode(['ok' => true, 'data' => $payload]);
             break;
@@ -198,10 +196,10 @@ try {
             $stmt->close();
 
             // Сбросим кэш итогов
-            $mc->delete("poll_tally_{$pollId}");
+            tracker_cache_delete(tracker_cache_key('poll', 'tally', $pollId));
 
             // Вернём обновлённые итоги
-            $tally = tally_results($mysqli, $pollId, $optCount, $mc);
+            $tally = tally_results($mysqli, $pollId, $optCount);
             echo json_encode(['ok' => true, 'results' => $tally]);
             break;
         }
@@ -211,7 +209,7 @@ try {
             $poll = fetch_active_poll($mysqli);
             if (!$poll) { echo json_encode(['ok'=>false, 'error'=>'NO_POLL']); break; }
             $options = poll_options($poll);
-            $tally = tally_results($mysqli, (int)$poll['id'], count($options), $mc);
+            $tally = tally_results($mysqli, (int)$poll['id'], count($options));
             echo json_encode(['ok'=>true, 'results'=>$tally, 'options'=>$options]);
             break;
         }

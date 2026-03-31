@@ -4,7 +4,8 @@ require_once("include/bittorrent.php");
 dbconn();
 header ("Content-Type: text/html; charset=" . $tracker_lang['language_charset']);
 
-if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_METHOD"] == 'POST')
+$isAjaxRequest = strcasecmp((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''), 'XMLHttpRequest') === 0;
+if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
 {
     $id = (int)$_POST["user"];
     $act = (string)$_POST["act"];
@@ -96,11 +97,9 @@ if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_ME
 {
     // кешируем список друзей 60 секунд (настройте TTL по потребности)
     $cache_key = "user_friends_{$id}";
-    $friends_list = false;
-    if (class_exists('Memcached')) {
-        $m = new Memcached();
-        $m->addServer('127.0.0.1', 11211);
-        $friends_list = $m->get($cache_key);
+    $friends_list = tracker_cache_get($cache_key, $cacheHit);
+    if (!$cacheHit) {
+        $friends_list = false;
     }
 
     if ($friends_list === false) {
@@ -115,7 +114,7 @@ if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_ME
         $res = mysqli_stmt_get_result($stmt);
         $friends = [];
         while ($row = mysqli_fetch_assoc($res)) $friends[] = $row;
-        if (isset($m) && is_object($m)) $m->set($cache_key, $friends, 60); // кеш на 60 секунд
+        tracker_cache_set($cache_key, $friends, 60);
         $friends_list = $friends;
         mysqli_stmt_close($stmt);
     }
@@ -284,9 +283,9 @@ if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_ME
             "<tr><td class=\"tt\" style=\"padding:0;margin:0;width:45px;\" align=\"center\"><img src=\"pic/genre.gif\" title=\"Категория\" alt=\"\" /></td><td class=\"tt\"><img src=\"pic/release.gif\" title=\"Название\" alt=\"\" /></td><td class=\"tt\" width=\"30\" align=\"center\"><img src=\"pic/seeders.gif\" title=\"Раздают\" alt=\"\" /></td><td class=\"tt\" width=\"30\" align=\"center\"><img src=\"pic/leechers.gif\" title=\"Качают\" alt=\"\" /></td></tr>\n");
             while ($row = mysqli_fetch_assoc($res))
             {
-		        $cat = "<a href=\"browse.php?cat=$row[catid]\"><img width=\"55\" height=\"55\" src=\"pic/cats/$row[catimage]\" alt=\"$row[catname]\" border=\"0\" /></a>";
+		        $cat = "<a href=\"browse.php?cat={$row["catid"]}\"><img width=\"55\" height=\"55\" src=\"pic/cats/{$row["catimage"]}\" alt=\"{$row["catname"]}\" border=\"0\" /></a>";
                 print("<tr><td class=\"lol\" rowspan=\"2\" style=\"padding:0;margin:0;\">$cat</td><td class=\"lol\" colspan=\"3\"><a href=\"details.php?id=" . $row["id"] . "&hit=1\"><b>" . $row["name"] . "</b></a></td></tr>\n");
-                print("<tr><td class=\"lol\"><font color=\"#808080\" size=\"1\">" . $row["added"] . "</font></td><td class=\"lol\" align=\"center\">$row[seeders]</td><td class=\"lol\" align=\"center\">$row[leechers]</td></tr>\n");
+                print("<tr><td class=\"lol\"><font color=\"#808080\" size=\"1\">" . $row["added"] . "</font></td><td class=\"lol\" align=\"center\">{$row["seeders"]}</td><td class=\"lol\" align=\"center\">{$row["leechers"]}</td></tr>\n");
             }
             print("</table>");
         }

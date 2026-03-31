@@ -20,20 +20,11 @@ if (get_user_class() < UC_USER || !user_has_module('torrent_add')) {
 /* ---------- helpers ---------- */
 function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
-/* ---------- Memcached (lazy) ---------- */
-if (!isset($memcached) || !($memcached instanceof Memcached)) {
-    $memcached = new Memcached('tbdev-persistent');
-    if (empty($memcached->getServerList())) {
-        $memcached->addServer('127.0.0.1', 11211);
-    }
-    $memcached->setOption(Memcached::OPT_BINARY_PROTOCOL, true);
-}
-
 /* ---------- passkey (генерация при отсутствии/битом значении) ---------- */
 if (empty($CURUSER['passkey']) || strlen($CURUSER['passkey']) !== 32) {
-    // 32 hex-символа, безопаснее чем md5 от данных пользователя
-    $CURUSER['passkey'] = bin2hex(random_bytes(16));
+    $CURUSER['passkey'] = tracker_generate_passkey();
     sql_query("UPDATE users SET passkey = " . sqlesc($CURUSER['passkey']) . " WHERE id = " . (int)$CURUSER['id'] . " LIMIT 1");
+    tracker_invalidate_user_auth_cache((int)$CURUSER['id']);
 }
 
 /* ---------- входной параметр type ---------- */
@@ -65,14 +56,14 @@ HTML;
 /* ---------- если категория не выбрана: список категорий ---------- */
 if ($type === 0) {
     $MC_KEY_CATS = 'cats:all:v1';
-    $uploadtypes = $memcached->get($MC_KEY_CATS);
-    if ($memcached->getResultCode() !== Memcached::RES_SUCCESS || !is_array($uploadtypes)) {
+    $uploadtypes = tracker_cache_get($MC_KEY_CATS, $cacheHit);
+    if (!$cacheHit || !is_array($uploadtypes)) {
         $q = sql_query("SELECT id, name FROM categories ORDER BY id ASC");
         $uploadtypes = [];
         while ($r = mysqli_fetch_assoc($q)) {
             $uploadtypes[] = ['id' => (int)$r['id'], 'name' => $r['name']];
         }
-        $memcached->set($MC_KEY_CATS, $uploadtypes, 300);
+        tracker_cache_set($MC_KEY_CATS, $uploadtypes, 300);
     }
 
     echo '<br>';
@@ -129,14 +120,14 @@ tr(
 
 /* категории (селект) — кэшируем отдельно, сортировка по name */
 $MC_KEY_CATS_NAME = 'cats:byname:v1';
-$catsByName = $memcached->get($MC_KEY_CATS_NAME);
-if ($memcached->getResultCode() !== Memcached::RES_SUCCESS || !is_array($catsByName)) {
+$catsByName = tracker_cache_get($MC_KEY_CATS_NAME, $cacheHit);
+if (!$cacheHit || !is_array($catsByName)) {
     $res = sql_query("SELECT id, name FROM categories ORDER BY name ASC");
     $catsByName = [];
     while ($row = mysqli_fetch_assoc($res)) {
         $catsByName[] = ['id' => (int)$row['id'], 'name' => $row['name']];
     }
-    $memcached->set($MC_KEY_CATS_NAME, $catsByName, 300);
+    tracker_cache_set($MC_KEY_CATS_NAME, $catsByName, 300);
 }
 $s = "<select name=\"type\" required>\n<option value=\"0\">(" . h($tracker_lang['choose']) . ")</option>\n";
 foreach ($catsByName as $row) {
@@ -161,12 +152,12 @@ echo <<<HTML
 HTML;
 
 $MC_KEY_TAGS = 'tags:cat:' . $type . ':v1';
-$tags = $memcached->get($MC_KEY_TAGS);
-if ($memcached->getResultCode() !== Memcached::RES_SUCCESS || !is_array($tags)) {
+$tags = tracker_cache_get($MC_KEY_TAGS, $cacheHit);
+if (!$cacheHit || !is_array($tags)) {
     $tags = taggenrelist($type) ?: [];
     // Нормализуем к простому массиву строк
     $tags = array_values(array_map(static fn($r) => (string)($r['name'] ?? ''), $tags));
-    $memcached->set($MC_KEY_TAGS, $tags, 300);
+    tracker_cache_set($MC_KEY_TAGS, $tags, 300);
 }
 $tagsHtml = '<input type="text" id="tags" name="tags">';
 $tagsHtml .= '<div id="from">';

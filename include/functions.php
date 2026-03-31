@@ -7,6 +7,116 @@ if(!defined('IN_TRACKER'))
 require_once($rootpath . 'include/functions_global.php');
 require_once($rootpath . 'include/class_permissions.php');
 
+if (!defined('MYSQL_ASSOC')) {
+    define('MYSQL_ASSOC', 1);
+}
+if (!defined('MYSQL_NUM')) {
+    define('MYSQL_NUM', 2);
+}
+if (!defined('MYSQL_BOTH')) {
+    define('MYSQL_BOTH', 3);
+}
+
+if (!function_exists('tracker_mysqli_link')) {
+    function tracker_mysqli_link($link = null): ?mysqli
+    {
+        if ($link instanceof mysqli) {
+            return $link;
+        }
+
+        $mysqli = $GLOBALS['mysqli'] ?? null;
+        return $mysqli instanceof mysqli ? $mysqli : null;
+    }
+}
+
+if (!function_exists('mysql_fetch_assoc')) {
+    function mysql_fetch_assoc($result)
+    {
+        return $result instanceof mysqli_result ? $result->fetch_assoc() : false;
+    }
+}
+
+if (!function_exists('mysql_fetch_row')) {
+    function mysql_fetch_row($result)
+    {
+        return $result instanceof mysqli_result ? $result->fetch_row() : false;
+    }
+}
+
+if (!function_exists('mysql_fetch_array')) {
+    function mysql_fetch_array($result, int $resultType = MYSQL_BOTH)
+    {
+        if (!$result instanceof mysqli_result) {
+            return false;
+        }
+
+        $mode = match ($resultType) {
+            MYSQL_ASSOC => MYSQLI_ASSOC,
+            MYSQL_NUM => MYSQLI_NUM,
+            default => MYSQLI_BOTH,
+        };
+
+        return $result->fetch_array($mode);
+    }
+}
+
+if (!function_exists('mysql_num_rows')) {
+    function mysql_num_rows($result): int
+    {
+        return $result instanceof mysqli_result ? $result->num_rows : 0;
+    }
+}
+
+if (!function_exists('mysql_affected_rows')) {
+    function mysql_affected_rows($link = null): int
+    {
+        $mysqli = tracker_mysqli_link($link);
+        return $mysqli instanceof mysqli ? (int)$mysqli->affected_rows : -1;
+    }
+}
+
+if (!function_exists('mysql_real_escape_string')) {
+    function mysql_real_escape_string($string, $link = null): string
+    {
+        $mysqli = tracker_mysqli_link($link);
+        if (!$mysqli instanceof mysqli) {
+            return addslashes((string)$string);
+        }
+
+        return $mysqli->real_escape_string((string)$string);
+    }
+}
+
+if (!function_exists('mysql_insert_id')) {
+    function mysql_insert_id($link = null): int
+    {
+        $mysqli = tracker_mysqli_link($link);
+        return $mysqli instanceof mysqli ? (int)$mysqli->insert_id : 0;
+    }
+}
+
+if (!function_exists('mysql_errno')) {
+    function mysql_errno($link = null): int
+    {
+        $mysqli = tracker_mysqli_link($link);
+        return $mysqli instanceof mysqli ? (int)$mysqli->errno : 0;
+    }
+}
+
+if (!function_exists('mysql_modified_rows')) {
+    function mysql_modified_rows(): int
+    {
+        return mysqli_modified_rows();
+    }
+}
+
+if (!function_exists('tracker_generate_passkey')) {
+    function tracker_generate_passkey(): string
+    {
+        return bin2hex(random_bytes(16));
+    }
+}
+
 /**
  * Показывает посетителей страницы. Быстро и без лишних запросов.
  *
@@ -412,11 +522,8 @@ function check_images(string $html): string {
 
     // --- инициализация Memcached (persistent pool) ---
     static $mc = null;
-    if ($mc === null && class_exists('Memcached')) {
-        $mc = new Memcached('ts_memc_pool');
-        if (empty($mc->getServerList())) {
-            $mc->addServer('127.0.0.1', 11211);
-        }
+    if ($mc === null) {
+        $mc = tracker_cache_instance();
     }
 
     // --- быстрый поиск <img ... src="..."> (один regex-проход) ---
@@ -934,10 +1041,23 @@ function userlogin(bool $lightmode = false): void {
 
     /** ----------------------- КЭШ СЕССИИ ----------------------- */
     $row = null;
-    $cache_key = tracker_cache_key('auth', 'user-session', 'id' . $id);
+    $cacheNamespace = tracker_user_auth_cache_namespace($id);
+    $cacheVersion = tracker_cache_namespace_version($cacheNamespace);
+    $cache_key = tracker_cache_ns_key($cacheNamespace, 'profile');
     $have_memc = tracker_cache_instance() instanceof Memcached;
 
-    if ($have_memc) {
+    if ($authMode === 'session' && isset($_SESSION['auth_user_cache']) && is_array($_SESSION['auth_user_cache'])) {
+        $sessionUserCache = $_SESSION['auth_user_cache'];
+        if (
+            (int)($sessionUserCache['id'] ?? 0) === $id
+            && (int)($sessionUserCache['version'] ?? 0) === $cacheVersion
+            && isset($sessionUserCache['row']) && is_array($sessionUserCache['row'])
+        ) {
+            $row = $sessionUserCache['row'];
+        }
+    }
+
+    if (!$row && $have_memc) {
         $row = tracker_cache_get($cache_key, $rowCacheHit);
         if (!$rowCacheHit || !is_array($row)) {
             $row = null;
@@ -1031,7 +1151,7 @@ function userlogin(bool $lightmode = false): void {
         }
 
         if ($row && $have_memc) {
-            tracker_cache_set($cache_key, $row, 60);
+            tracker_cache_set($cache_key, $row, 300);
         }
     }
 
@@ -1074,6 +1194,14 @@ function userlogin(bool $lightmode = false): void {
 
     /** ----------------------- ГЛОБАЛЫ, ЯЗЫК, СЕССИЯ ----------------------- */
     $GLOBALS['CURUSER'] = $row;
+
+    if ($authMode === 'session' && session_status() === PHP_SESSION_ACTIVE) {
+        $_SESSION['auth_user_cache'] = [
+            'id' => (int)$row['id'],
+            'version' => $cacheVersion,
+            'row' => $row,
+        ];
+    }
 
     if ($use_lang) {
         $lang = $row['language'] ?? $default_language;
@@ -1135,6 +1263,7 @@ function maybe_upgrade_tracker_password(int $userId, array &$user, string $passw
     $newHash = tracker_hash_password($password);
     sql_query("UPDATE users SET pss = " . sqlesc($newHash) . " WHERE id = " . (int)$userId . " LIMIT 1");
     $user['pss'] = $newHash;
+    tracker_invalidate_user_auth_cache($userId);
 }
 
 function tracker_cookie_params(int $expires = 0): array
@@ -1261,12 +1390,6 @@ function user_session(): void
     // --- общий Memcached pool ---
     if (!$memcached instanceof Memcached) {
         $memcached = tracker_cache_instance();
-    }
-    if (!$memcached instanceof Memcached && class_exists('Memcached')) {
-        $memcached = new Memcached('torrentside_pool');
-        if (empty($memcached->getServerList())) {
-            $memcached->addServer($memcache_host ?? 'memcached', $memcache_port ?? 11211);
-        }
     }
     if (!$memcached instanceof Memcached) {
         return;
@@ -1721,7 +1844,7 @@ function validemail(string $email): bool
  * Режимы:
  *   - $smtptype = 'default'  => простой mail() с минимальными заголовками
  *   - $smtptype = 'advanced' => расширенные заголовки + опц. Windows SMTP ini_set
- *   - $smtptype = 'external' => внешний SMTP-клиент include/smtp/smtp.lib.php
+ *   - $smtptype = 'external' => устаревший режим, теперь мягко деградирует в mail()
  *
  * Параметры совместимы с прежней сигнатурой TBDev.
  */
@@ -1808,36 +1931,29 @@ function sent_mail(
         return $ok;
 
     } elseif ($smtptype === 'external') {
-        // Внешний SMTP-клиент (оставлено для полной совместимости с вашей схемой)
-        // Ожидаем include/smtp/smtp.lib.php и класс smtp с методами open/auth/from/to/subject/body/send/close
-        $lib = rtrim($rootpath ?? '','/\\') . '/include/smtp/smtp.lib.php';
-        if (!is_file($lib)) {
-            // Библиотека недоступна
-            return false;
-        }
-        require_once $lib;
+        // Старый внешний SMTP-клиент удалён из проекта как мёртвый легаси.
+        // Для совместимости мягко отправляем тем же путём, что и advanced/default.
+        error_log('sent_mail: external SMTP mode is deprecated, falling back to advanced transport');
 
-        try {
-            $mail = new smtp();
-            // $mail->debug(true); // при необходимости
-            $mail->open($smtp_host, (int)$smtp_port);
-
-            if (!empty($accountname) && !empty($accountpassword)) {
-                $mail->auth((string)$accountname, (string)$accountpassword);
+        if ($smtp === 'yes') {
+            @ini_set('SMTP',       (string)$smtp_host);
+            @ini_set('smtp_port',  (string)$smtp_port);
+            if ($windows) {
+                @ini_set('sendmail_from', (string)($smtp_from ?: $fromemail));
             }
-
-            $mail->from($fromemail ?: $SITEEMAIL);
-            $mail->to($to);
-            $mail->subject($subject); // внешняя либра сама должна кодировать/ставить заголовки
-            $mail->body($body);
-
-            $result = $mail->send();
-            $mail->close();
-
-            return (bool)$result;
-        } catch (Throwable $e) {
-            return false;
         }
+
+        $ok = @mail($to, $enc_subject, $body, $headers);
+
+        if ($smtp === 'yes') {
+            @ini_restore('SMTP');
+            @ini_restore('smtp_port');
+            if ($windows) {
+                @ini_restore('sendmail_from');
+            }
+        }
+
+        return $ok;
     }
 
     // Неизвестный режим
@@ -1870,9 +1986,39 @@ function tracker_message_cache_namespace(int $userId): string
     return 'messages:user:' . max(0, $userId);
 }
 
+function tracker_user_auth_cache_namespace(int $userId): string
+{
+    return 'auth:user:' . max(0, $userId);
+}
+
 function tracker_comment_cache_namespace(int $torrentId): string
 {
     return 'comments:torrent:' . max(0, $torrentId);
+}
+
+function tracker_invalidate_user_auth_cache(int ...$userIds): void
+{
+    $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn(int $id): bool => $id > 0)));
+    if (!$userIds) {
+        return;
+    }
+
+    $legacyKeys = [];
+    foreach ($userIds as $userId) {
+        tracker_cache_bump_namespace(tracker_user_auth_cache_namespace($userId));
+        $legacyKeys[] = tracker_cache_key('auth', 'user-session', 'id' . $userId);
+        $legacyKeys[] = 'curuser_' . $userId;
+        $legacyKeys[] = 'user_session_' . $userId;
+    }
+
+    tracker_cache_delete_many($legacyKeys);
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $authUid = (int)($_SESSION['auth_uid'] ?? 0);
+        if ($authUid > 0 && in_array($authUid, $userIds, true)) {
+            unset($_SESSION['auth_user_cache']);
+        }
+    }
 }
 
 function tracker_invalidate_tag_cache(int ...$categoryIds): void
@@ -1934,11 +2080,7 @@ function tracker_comments_supports_threads(): bool
 
 function tracker_invalidate_online_blocks(): void
 {
-    tracker_cache_delete_many([
-        'online:list:v2',
-        'today:list:v2',
-        'birthdays:block:v1:' . date('m-d'),
-    ]);
+    tracker_cache_bump_namespace('online');
 }
 
 function tracker_invalidate_home_blocks(): void
@@ -2382,7 +2524,7 @@ function downloaderdata($res) {
 		$rows[] = $row;
 		$id = $row["id"];
 		$ids[] = $id;
-		$peerdata[$id] = array(downloaders => 0, seeders => 0, comments => 0);
+		$peerdata[$id] = ['downloaders' => 0, 'seeders' => 0, 'comments' => 0];
 	}
 
 	if (count($ids)) {

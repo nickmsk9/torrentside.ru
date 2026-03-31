@@ -90,11 +90,11 @@ begin_frame("Опросы");
 
     if (get_user_class() >= UC_ADMINISTRATOR)
     {
-    	print(" - [<a href=makepoll.php?action=edit&pollid=$poll[id]><b>Редактировать</b></a>]\n");
-			print(" - [<a href=?action=delete&pollid=$poll[id]><b>Удалить</b></a>]\n");
+    	print(" - [<a href=makepoll.php?action=edit&pollid={$poll["id"]}><b>Редактировать</b></a>]\n");
+			print(" - [<a href=?action=delete&pollid={$poll["id"]}><b>Удалить</b></a>]\n");
 		}
 
-		print("<a name=$poll[id]>");
+		print("<a name={$poll["id"]}>");
 
 		print("</p>\n");
 

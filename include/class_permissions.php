@@ -249,19 +249,10 @@ if (!function_exists('class_permissions_invalidate_trophy_cache')) {
 if (!function_exists('class_permissions_invalidate_user_auth_cache')) {
     function class_permissions_invalidate_user_auth_cache(int ...$userIds): void
     {
-        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn(int $id): bool => $id > 0)));
-        if (!$userIds || !function_exists('tracker_cache_delete_many') || !function_exists('tracker_cache_key')) {
+        if (!function_exists('tracker_invalidate_user_auth_cache')) {
             return;
         }
-
-        $keys = [];
-        foreach ($userIds as $userId) {
-            $keys[] = tracker_cache_key('auth', 'user-session', 'id' . $userId);
-            $keys[] = 'curuser_' . $userId;
-            $keys[] = 'user_session_' . $userId;
-        }
-
-        tracker_cache_delete_many($keys);
+        tracker_invalidate_user_auth_cache(...$userIds);
     }
 }
 

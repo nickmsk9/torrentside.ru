@@ -265,8 +265,7 @@ $updateset[] = "class_profile_id = " . max(0, $classProfileId);
     $updateset[] = "modcomment = " . sqlesc($modcomment);
 
     if (!empty($_POST['resetkey'])) {
-        // совместимость: оставим старый стиль passkey, но можно заменить на более случайный
-        $passkey = md5($CURUSER['username'] . get_date_time() . $CURUSER['passhash']);
+        $passkey = tracker_generate_passkey();
         $updateset[] = "passkey = " . sqlesc($passkey);
     }
 

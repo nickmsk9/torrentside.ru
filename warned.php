@@ -25,12 +25,6 @@ function yesno_to_bool($v): bool {
     return strtolower((string)$v) === 'yes';
 }
 
-/* ========== memcached ========== */
-global $memcached;
-if (!($memcached instanceof Memcached)) {
-    $memcached = new Memcached();
-    $memcached->addServer('127.0.0.1', 11211);
-}
 $TTL = 60;
 
 /* ========== входные параметры / сортировка / пагинация ========== */
@@ -50,21 +44,21 @@ $sortCol = $sortMap[$sort] ?? 'ratio';
 $offset  = ($page - 1) * $perPage;
 
 /* ========== агрегаты (кэш) ========== */
-$totals = $memcached->get('warned:totals:v1');
-if ($totals === false) {
+$totals = tracker_cache_get('warned:totals:v1', $cacheHit);
+if (!$cacheHit || !is_array($totals)) {
     [$warnedTotal]        = mysqli_fetch_row(sql_query("SELECT COUNT(*) FROM users WHERE warned='yes'"));
     [$enabledWarnedTotal] = mysqli_fetch_row(sql_query("SELECT COUNT(*) FROM users WHERE warned='yes' AND enabled='yes'"));
     $totals = ['warnedTotal' => (int)$warnedTotal, 'enabledWarnedTotal' => (int)$enabledWarnedTotal];
-    $memcached->set('warned:totals:v1', $totals, $TTL);
+    tracker_cache_set('warned:totals:v1', $totals, $TTL);
 }
 $warnedTotal        = $totals['warnedTotal'];
 $enabledWarnedTotal = $totals['enabledWarnedTotal'];
 
 /* ========== данные страницы (кэш) ========== */
 $cacheKey = sprintf('warned:list:v2:%s:%s:%d:%d', $sortCol, $dir, $perPage, $offset);
-$rows = $memcached->get($cacheKey);
+$rows = tracker_cache_get($cacheKey, $cacheHit);
 
-if ($rows === false) {
+if (!$cacheHit || !is_array($rows)) {
     // Примечание: сортировка по ratio делается по выражению (в MySQL можно ссылаться на псевдоним).
     // Для остальных колонок — прямое поле.
     $orderExpr = ($sortCol === 'ratio')
@@ -87,7 +81,7 @@ if ($rows === false) {
     while ($r = mysqli_fetch_assoc($res)) {
         $rows[] = $r;
     }
-    $memcached->set($cacheKey, $rows, $TTL);
+    tracker_cache_set($cacheKey, $rows, $TTL);
 }
 
 /* ========== UI ========== */

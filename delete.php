@@ -1,4 +1,4 @@
-<?
+<?php 
 require_once("include/bittorrent.php");
 
 
@@ -74,7 +74,7 @@ deletetorrent($id);
 tracker_recount_tags_for_categories($tagCategory);
 tracker_invalidate_torrent_cache($id, true);
 
-write_log("Торрент $id ($row[name]) был удален пользователем $CURUSER[username] ($reasonstr)\n","F25B61","torrent");
+write_log("Торрент $id ({$row["name"]}) был удален пользователем {$CURUSER["username"]} ($reasonstr)\n","F25B61","torrent");
 
 stdhead("Торрент удален!");
 
@@ -86,7 +86,7 @@ else
 ?>
 <h2>Торрент удален!</h2>
 <p><?= $ret ?></p>
-<?
+<?php 
 
 stdfoot();
 

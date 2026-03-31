@@ -1,4 +1,4 @@
-<?
+<?php 
 
 
 require "include/bittorrent.php";
@@ -38,7 +38,7 @@ begin_frame("VIP");
 <table width=\"100%\" cellspacing=3 cellpadding=2><tr><td class=embedded  align=center><table width=\"33%\" class=embedded cellspacing=3 cellpadding=3 align=center><tr><td style='border: none'><b><center>WMR</center></b></td><td style='border: none'><center>R244037800228</center></td></tr></table></td></tr></table>
 </td>
 </table>
-<?
+<?php 
 end_frame();
 
 stdfoot();

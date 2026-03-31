@@ -36,6 +36,7 @@ if ($md5 !== md5($sec)) {
 
 // Подтверждение аккаунта
 sql_query("UPDATE users SET status = 'confirmed', editsecret = '' WHERE id = $id AND status = 'pending'") or sqlerr(__FILE__, __LINE__);
+tracker_invalidate_user_auth_cache($id);
 
 // Проверка, что действительно была изменена строка
 if (mysqli_affected_rows($GLOBALS["mysqli"]) === 0) {

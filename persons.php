@@ -20,52 +20,29 @@ function capture_textbbcode(string $form, string $name, string $text = ''): stri
     return ob_get_clean();
 }
 
-function persons_mem_instance(): ?object {
+function persons_mem_instance(): ?Memcached {
     static $mem = null, $ready = false;
     if ($ready) {
         return $mem;
     }
 
     $ready = true;
-    $mem = $GLOBALS['memcached'] ?? $GLOBALS['mc1'] ?? $GLOBALS['Memcache'] ?? null;
+    $mem = tracker_cache_instance();
 
-    if (!$mem && class_exists('Memcached')) {
-        $mem = new Memcached('tbdev-persistent');
-        if (empty($mem->getServerList())) {
-            $mem->addServer('127.0.0.1', 11211);
-        }
-    }
-
-    return is_object($mem) ? $mem : null;
+    return $mem instanceof Memcached ? $mem : null;
 }
 
 function persons_mem_get(string $key) {
-    $mem = persons_mem_instance();
-    if (!$mem) {
-        return false;
-    }
-    return @$mem->get($key);
+    $value = tracker_cache_get($key, $cacheHit);
+    return $cacheHit ? $value : false;
 }
 
 function persons_mem_set(string $key, $value, int $ttl = 300): bool {
-    $mem = persons_mem_instance();
-    if (!$mem) {
-        return false;
-    }
-    if ($mem instanceof Memcache) {
-        return (bool)@$mem->set($key, $value, 0, $ttl);
-    }
-    if ($mem instanceof Memcached) {
-        return (bool)@$mem->set($key, $value, $ttl);
-    }
-    return method_exists($mem, 'set') ? (bool)$mem->set($key, $value, $ttl) : false;
+    return tracker_cache_set($key, $value, $ttl);
 }
 
 function persons_mem_del(string $key): void {
-    $mem = persons_mem_instance();
-    if ($mem && method_exists($mem, 'delete')) {
-        @$mem->delete($key);
-    }
+    tracker_cache_delete($key);
 }
 
 function persons_invalidate_cache(): void {

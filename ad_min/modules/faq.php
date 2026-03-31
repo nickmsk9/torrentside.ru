@@ -95,37 +95,37 @@ function FaqAction() {
 	}
 
 	// ACTION: edit - edit a section or item
-	elseif ($_GET["action"] == "edit" && isset($_GET[id])) {
+	elseif ($_GET["action"] == "edit" && isset($_GET["id"])) {
 	print("<h2>Edit Section or Item</h2>");
 
-	$res = sql_query("SELECT * FROM `faq` WHERE `id`=".sqlesc((int)$_GET[id])." LIMIT 1");
+	$res = sql_query("SELECT * FROM `faq` WHERE `id`=".sqlesc((int)$_GET["id"])." LIMIT 1");
 	while ($arr = mysql_fetch_array($res, MYSQL_BOTH)) {
 	$arr["question"] = htmlspecialchars($arr["question"]);
 	$arr["answer"] = htmlspecialchars($arr["answer"]);
-	if ($arr[type] == "item") {
+	if ($arr["type"] == "item") {
 		print("<form method=\"post\" action=\"$admin_file.php?op=FaqAction&action=edititem\">");
 		print("<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\" align=\"center\" width=100%>\n");
-		print("<tr><td>ID:</td><td>$arr[id] <input type=\"hidden\" name=\"id\" value=\"$arr[id]\" /></td></tr>\n");
-		print("<tr><td>Вопрос:</td><td><input id=specialboxg type=\"text\" name=\"question\" value=\"$arr[question]\" size=50 /></td></tr>\n");
-		print("<tr><td style=\"vertical-align: top;\">Ответ:</td><td><textarea id=specialboxg rows=15 cols=80 name=\"answer\">$arr[answer]</textarea></td></tr>\n");
+		print("<tr><td>ID:</td><td>{$arr["id"]} <input type=\"hidden\" name=\"id\" value=\"{$arr["id"]}\" /></td></tr>\n");
+		print("<tr><td>Вопрос:</td><td><input id=specialboxg type=\"text\" name=\"question\" value=\"{$arr["question"]}\" size=50 /></td></tr>\n");
+		print("<tr><td style=\"vertical-align: top;\">Ответ:</td><td><textarea id=specialboxg rows=15 cols=80 name=\"answer\">{$arr["answer"]}</textarea></td></tr>\n");
 		print("<tr><td>Статус:</td><td><select name=\"flag\" style=\"width: 110px;\"><option value=\"0\" style=\"color: #FF0000;\"".($arr['flag'] == 0 ? " selected" : "").">Скрыто</option><option value=\"1\" style=\"color: #000000;\"".($arr['flag'] == 1 ? " selected" : "").">Обычный</option><option value=\"2\" style=\"color: #0000FF;\" ".($arr['flag'] == 2 ? "selected" : "").">Обновлено</option><option value=\"3\" style=\"color: #008000;\" ".($arr['flag'] == 3 ? "selected" : "").">Новое</option></select></td></tr>");
 
 		print("<tr><td>Category:</td><td><select style=\"width: 300px;\" name=\"categ\" />");
 		$res2 = sql_query("SELECT `id`, `question` FROM `faq` WHERE `type`='categ' ORDER BY `order` ASC");
 		while ($arr2 = mysql_fetch_array($res2, MYSQL_BOTH)) {
-			$selected = ($arr2[id] == $arr[categ]) ? " selected=\"selected\"" : "";
-			print("<option value=\"$arr2[id]\"". $selected .">$arr2[question]</option>");
+			$selected = ($arr2["id"] == $arr["categ"]) ? " selected=\"selected\"" : "";
+			print("<option value=\"{$arr2["id"]}\"". $selected .">{$arr2["question"]}</option>");
 		}
 		print("</td></tr>\n");
 		print("<tr><td colspan=\"2\" align=\"center\"><input type=\"submit\" name=\"edit\" value=\"Отредактировать\" class=\"btn\"></td></tr>\n");
 		print("</table>");
 	}
-	elseif ($arr[type] == "categ") {
+	elseif ($arr["type"] == "categ") {
 		print("<form method=\"post\" action=\"$admin_file.php?op=FaqAction&action=editsect\">");
 		print("<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\" width=100% align=\"center\">\n");
-		print("<tr><td>ID:</td><td>$arr[id] <input type=\"hidden\" name=\"id\" value=\"$arr[id]\" /></td></tr>\n");
-		print("<tr><td>Название:</td><td><input style=\"width: 300px;\" type=\"text\" name=\"title\" value=\"$arr[question]\" id=specialboxn /></td></tr>\n");
-		if ($arr[flag] == "0")
+		print("<tr><td>ID:</td><td>{$arr["id"]} <input type=\"hidden\" name=\"id\" value=\"{$arr["id"]}\" /></td></tr>\n");
+		print("<tr><td>Название:</td><td><input style=\"width: 300px;\" type=\"text\" name=\"title\" value=\"{$arr["question"]}\" id=specialboxn /></td></tr>\n");
+		if ($arr["flag"] == "0")
 			print("<tr><td>Статус:</td><td><select name=\"flag\" style=\"width: 110px;\"><option value=\"0\" style=\"color: #FF0000;\">Скрыто</option><option value=\"1\" style=\"color: #000000;\">Обычный</option></select></td></tr>");
 		else
 			print("<tr><td>Статус:</td><td><select name=\"flag\" style=\"width: 110px;\"><option value=\"0\" style=\"color: #FF0000;\"".($arr['flag'] == 0 ? " selected" : "").">Скрыто</option><option value=\"1\" style=\"color: #000000;\"".($arr['flag'] == 1 ? " selected" : "").">Обычный</option></select></td></tr>");
@@ -145,8 +145,8 @@ function FaqAction() {
 	}
 
 	// subACTION: editsect - edit a section
-	elseif ($_GET[action] == "editsect" && $_POST["id"] != NULL && $_POST["title"] != NULL && $_POST["flag"] != NULL) {
-		$title = sqlesc($_POST[title]);
+	elseif ($_GET["action"] == "editsect" && $_POST["id"] != NULL && $_POST["title"] != NULL && $_POST["flag"] != NULL) {
+		$title = sqlesc($_POST["title"]);
 		sql_query("UPDATE `faq` SET `question`=$title, `answer`='', `flag`=".sqlesc($_POST["flag"]).", `categ`='0' WHERE id=".sqlesc($_POST["id"])) or sqlerr(__FILE__,__LINE__);
 		header("Location: $admin_file.php?op=FaqAdmin");
 	}
@@ -159,12 +159,12 @@ function FaqAction() {
 		}
 		else {
 			print("<h1 align=\"center\">Confirmation required</h1>");
-			print("<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\" align=\"center\" width=\"95%\">\n<tr><td align=\"center\">Please click <a href=\"$admin_file.php?op=FaqAction&action=delete&id=$_GET[id]&confirm=yes\">here</a> to confirm.</td></tr>\n</table>\n");
+			print("<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\" align=\"center\" width=\"95%\">\n<tr><td align=\"center\">Please click <a href=\"$admin_file.php?op=FaqAction&action=delete&id={$_GET["id"]}&confirm=yes\">here</a> to confirm.</td></tr>\n</table>\n");
 		}
 	}
 
 	// ACTION: additem - add a new item
-	elseif ($_GET[action] == "additem" && $_GET["inid"]) {
+	elseif ($_GET["action"] == "additem" && $_GET["inid"]) {
 		print("<h2>Add Item</h2>");
 		print("<form method=\"post\" action=\"$admin_file.php?op=FaqAction&action=addnewitem\">");
 		print("<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\" align=\"center\" width=\"100%\">\n");
@@ -183,7 +183,7 @@ function FaqAction() {
 	}
 
 	// ACTION: addsection - add a new section
-	elseif ($_GET[action] == "addsection") {
+	elseif ($_GET["action"] == "addsection") {
 		print("<h2>Add Section</h2>");
 		print("<form method=\"post\" action=\"$admin_file.php?op=FaqAction&action=addnewsect\">");
 		print("<table border=\"1\" cellspacing=\"0\" cellpadding=\"5\" align=\"center\" width=\"100%\">\n");
@@ -194,21 +194,21 @@ function FaqAction() {
 	}
 
 	// subACTION: addnewitem - add a new item to the db
-	elseif ($_GET[action] == "addnewitem" && $_POST[question] != NULL && $_POST[answer] != NULL && $_POST[flag] != NULL && $_POST[categ] != NULL) {
-		$question = sqlesc($_POST[question]);
-		$answer = sqlesc($_POST[answer]);
-		$res = sql_query("SELECT MAX(`order`) FROM `faq` WHERE `type`='item' AND `categ`=".sqlesc($_POST[categ]));
+	elseif ($_GET["action"] == "addnewitem" && $_POST["question"] != NULL && $_POST["answer"] != NULL && $_POST["flag"] != NULL && $_POST["categ"] != NULL) {
+		$question = sqlesc($_POST["question"]);
+		$answer = sqlesc($_POST["answer"]);
+		$res = sql_query("SELECT MAX(`order`) FROM `faq` WHERE `type`='item' AND `categ`=".sqlesc($_POST["categ"]));
 		while ($arr = mysql_fetch_array($res, MYSQL_BOTH)) $order = $arr[0] + 1;
-		sql_query("INSERT INTO `faq` (`type`, `question`, `answer`, `flag`, `categ`, `order`) VALUES ('item', $question, $answer, ".sqlesc($_POST[flag]).", ".sqlesc($_POST[categ]).", ".sqlesc($order).")") or sqlerr(__FILE__,__LINE__);
+		sql_query("INSERT INTO `faq` (`type`, `question`, `answer`, `flag`, `categ`, `order`) VALUES ('item', $question, $answer, ".sqlesc($_POST["flag"]).", ".sqlesc($_POST["categ"]).", ".sqlesc($order).")") or sqlerr(__FILE__,__LINE__);
 		header("Location: $admin_file.php?op=FaqAdmin");
 	}
 
 	// subACTION: addnewsect - add a new section to the db
-	elseif ($_GET[action] == "addnewsect" && $_POST[title] != NULL && $_POST[flag] != NULL) {
-		$title = sqlesc($_POST[title]);
+	elseif ($_GET["action"] == "addnewsect" && $_POST["title"] != NULL && $_POST["flag"] != NULL) {
+		$title = sqlesc($_POST["title"]);
 		$res = sql_query("SELECT MAX(`order`) FROM `faq` WHERE `type`='categ'");
 		while ($arr = mysql_fetch_array($res, MYSQL_BOTH)) $order = $arr[0] + 1;
-		sql_query("INSERT INTO `faq` (`type`, `question`, `answer`, `flag`, `categ`, `order`) VALUES ('categ', $title, '', ".sqlesc($_POST[flag]).", '0', ".sqlesc($order).")") or sqlerr(__FILE__,__LINE__);
+		sql_query("INSERT INTO `faq` (`type`, `question`, `answer`, `flag`, `categ`, `order`) VALUES ('categ', $title, '', ".sqlesc($_POST["flag"]).", '0', ".sqlesc($order).")") or sqlerr(__FILE__,__LINE__);
 		header("Location: $admin_file.php?op=FaqAdmin");
 	}
 

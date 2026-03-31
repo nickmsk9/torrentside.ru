@@ -1,4 +1,4 @@
-<?
+<?php 
 require_once("include/bittorrent.php");
 
 dbconn();
@@ -58,7 +58,7 @@ fieldset {
 }
 
 </style>
-<? global $unread; ?>
+<?php  global $unread; ?>
 <div align="left">
 <div id="newpm" style='display:none;'><div id="newpmheader">
 <div style='float:right'><a href="#" onclick='document.getElementById("newpm").style.display="none"; return false;'>[X]</a></div>
@@ -73,7 +73,7 @@ fieldset {
 </div>
 </div>
 <script type="text/javascript" src="http://127.0.0.16/engine/ajax/drag_window.js"></script>
-<?
+<?php 
 stdfoot();
 
 ?>

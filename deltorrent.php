@@ -1,4 +1,4 @@
-<?
+<?php 
 require "include/bittorrent.php";
 
 gzip();
@@ -19,9 +19,9 @@ if ($mode == "delete") {
 	$res = sql_query("SELECT id, name FROM torrents WHERE id IN (" . implode(", ", array_map("sqlesc", $_POST["delete"])) . ")");
 	echo "Следующие торренты удалены:<br><br>";
 	while ($row = mysql_fetch_array($res)) {
-		echo "ID: $row[id] - $row[name]<br>";
+		echo "ID: {$row["id"]} - {$row["name"]}<br>";
 		$reasonstr = "Старый или не подходил под правила.";
-		$text = "Торрент $row[id] ($row[name]) был удален пользователем $CURUSER[username]. Причина: $reasonstr\n";
+		$text = "Торрент {$row["id"]} ({$row["name"]}) был удален пользователем {$CURUSER["username"]}. Причина: $reasonstr\n";
 		write_log($text);
 	}
 	sql_query("DELETE FROM torrents WHERE id IN (" . implode(", ", array_map("sqlesc", $_POST["delete"])) . ")") or sqlerr(__FILE__,__LINE__);

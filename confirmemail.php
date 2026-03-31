@@ -39,6 +39,7 @@ if ($md5 !== md5($sec . $email . $sec)) {
 
 // Обновляем email и очищаем editsecret
 sql_query("UPDATE users SET editsecret = '', email = " . sqlesc($email) . " WHERE id = $id AND editsecret = " . sqlesc($row["editsecret"])) or sqlerr(__FILE__, __LINE__);
+tracker_invalidate_user_auth_cache($id);
 
 // Проверка успешности обновления
 if (mysqli_affected_rows($GLOBALS["mysqli"]) === 0) {

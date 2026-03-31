@@ -1,4 +1,4 @@
-<?
+<?php 
 
 
 
@@ -61,7 +61,7 @@ ignored unless relevant for the type of search chosen.</li>
 <li>The 'p' columns in the results show partial stats, that is, those
 of the torrents in progress.</li>
 <li>Колонка история отображает историю комментариев к торрентам и ведет на страницу истории.
-<?
+<?php 
 	end_frame();
 }
 else
@@ -83,7 +83,7 @@ $highlight = " bgcolor=#BBAF9B";
 
   <td valign="middle" class=rowhead>Рейтинг:</td>
   <td<?=$_GET['r']?$highlight:""?>><select name="rt">
-    <?
+    <?php 
 	$options = array("равен","выше","ниже","между");
 	for ($i = 0; $i < count($options); $i++){
 	    echo "<option value=$i ".(($_GET['rt']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -95,7 +95,7 @@ $highlight = " bgcolor=#BBAF9B";
 
   <td valign="middle" class=rowhead>Статус:</td>
   <td<?=$_GET['st']?$highlight:""?>><select name="st">
-    <?
+    <?php 
 	$options = array("(Любой)","Подтвержден","Не подтвержден");
 	for ($i = 0; $i < count($options); $i++){
 	    echo "<option value=$i ".(($_GET['st']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -109,7 +109,7 @@ $highlight = " bgcolor=#BBAF9B";
 
   <td valign="middle" class=rowhead>Отключен:</td>
   <td<?=$_GET['as']?$highlight:""?>><select name="as">
-    <?
+    <?php 
     $options = array("(Любой)","Нет","Да");
     for ($i = 0; $i < count($options); $i++){
       echo "<option value=$i ".(($_GET['as']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -123,7 +123,7 @@ $highlight = " bgcolor=#BBAF9B";
   <td<?=$_GET['ma']?$highlight:""?>><input name="ma" type="text" value="<?=$_GET['ma']?>" maxlength="17"></td>
   <td valign="middle" class=rowhead>Класс:</td>
   <td<?=($_GET['c'] && $_GET['c'] != 1)?$highlight:""?>><select name="c"><option value='1'>(Любой)</option>
-  <?
+  <?php 
   $class = $_GET['c'];
   if (!is_valid_id($class))
   	$class = '';
@@ -140,7 +140,7 @@ $highlight = " bgcolor=#BBAF9B";
     <td valign="middle" class=rowhead>Регистрация:</td>
 
   <td<?=$_GET['d']?$highlight:""?>><select name="dt">
-    <?
+    <?php 
 	$options = array("в","раньше","после","между");
 	for ($i = 0; $i < count($options); $i++){
 	  echo "<option value=$i ".(($_GET['dt']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -156,7 +156,7 @@ $highlight = " bgcolor=#BBAF9B";
   <td valign="middle" class=rowhead>Раздал:</td>
 
   <td<?=$_GET['ul']?$highlight:""?>><select name="ult" id="ult">
-    <?
+    <?php 
     $options = array("ровно","больше","меньше","между");
     for ($i = 0; $i < count($options); $i++){
   	  echo "<option value=$i ".(($_GET['ult']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -170,7 +170,7 @@ $highlight = " bgcolor=#BBAF9B";
   <td valign="middle" class="rowhead">Донор:</td>
 
   <td<?=$_GET['do']?$highlight:""?>><select name="do">
-    <?
+    <?php 
     $options = array("(Любой)","Да","Нет");
 	for ($i = 0; $i < count($options); $i++){
 	  echo "<option value=$i ".(($_GET['do']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -182,7 +182,7 @@ $highlight = " bgcolor=#BBAF9B";
 <td valign="middle" class=rowhead>Последняя активность:</td>
 
   <td <?=$_GET['ls']?$highlight:""?>><select name="lst">
-  <?
+  <?php 
   $options = array("в","раньше","после","между");
   for ($i = 0; $i < count($options); $i++){
     echo "<option value=$i ".(($_GET['lst']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -196,7 +196,7 @@ $highlight = " bgcolor=#BBAF9B";
 	  <td valign="middle" class=rowhead>Скачал:</td>
 
   <td<?=$_GET['dl']?$highlight:""?>><select name="dlt" id="dlt">
-  <?
+  <?php 
 	$options = array("ровно","больше","меньше","между");
 	for ($i = 0; $i < count($options); $i++){
 	  echo "<option value=$i ".(($_GET['dlt']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -211,7 +211,7 @@ $highlight = " bgcolor=#BBAF9B";
 	<td valign="middle" class=rowhead>Предупрежден:</td>
 
 	<td<?=$_GET['w']?$highlight:""?>><select name="w">
-  <?
+  <?php 
   $options = array("(Любой)","Да","Нет");
 	for ($i = 0; $i < count($options); $i++){
 		echo "<option value=$i ".(($_GET['w']=="$i")?"selected":"").">".$options[$i]."</option>\n";
@@ -230,7 +230,7 @@ $highlight = " bgcolor=#BBAF9B";
 <br /><br />
 </form>
 
-<?
+<?php 
 
 // Validates date in the form [yy]yy-mm-dd;
 // Returns date if valid, 0 otherwise.
@@ -874,7 +874,7 @@ if (count($_GET) > 0 && !$_GET['h'])
 
 ?>
 
-<?
+<?php 
 
   }
 }

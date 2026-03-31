@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === "POST") {
 ?>
 
 
-<? begin_frame ("Генерация RSS"); ?>
+<?php  begin_frame ("Генерация RSS"); ?>
 
 <form method="POST" action="getrss.php">
 <table border="1" cellspacing="1" cellpadding="5">

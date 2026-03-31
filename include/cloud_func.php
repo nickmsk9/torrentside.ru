@@ -1,18 +1,12 @@
 <?php
 
 function get_tags(): array {
-    global $mysqli, $memcached;
+    global $mysqli;
 
-    // Инициализация Memcached при необходимости
-    if (!isset($memcached) || !($memcached instanceof Memcached)) {
-        $memcached = new Memcached();
-        $memcached->addServer("127.0.0.1", 11211);
-    }
+    $cacheKey = tracker_cache_key('cloud', 'tags', 'v1');
+    $tags = tracker_cache_get($cacheKey, $cacheHit);
 
-    // Пытаемся получить теги из кеша
-    $tags = $memcached->get("tags");
-
-    if ($memcached->getResultCode() !== Memcached::RES_SUCCESS) {
+    if (!$cacheHit || !is_array($tags)) {
         $result = mysqli_query($mysqli, "SELECT name, howmuch FROM tags WHERE howmuch > 0 ORDER BY id DESC") or die(mysqli_error($mysqli));
         $tags = [];
 
@@ -20,7 +14,7 @@ function get_tags(): array {
             $tags[] = $row;
         }
 
-        $memcached->set("tags", $tags, 300);
+        tracker_cache_set($cacheKey, $tags, 300);
     }
 
     // Формируем ассоциативный массив

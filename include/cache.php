@@ -1,5 +1,81 @@
 <?php
 
+if (!function_exists('tracker_cache_bootstrap')) {
+    function tracker_cache_bootstrap(): ?Memcached
+    {
+        foreach (['memcached', 'mc', 'mc1'] as $name) {
+            $candidate = $GLOBALS[$name] ?? null;
+            if ($candidate instanceof Memcached) {
+                return $candidate;
+            }
+        }
+
+        if (!class_exists('Memcached')) {
+            return null;
+        }
+
+        static $bootstrapping = false;
+        if ($bootstrapping) {
+            return null;
+        }
+
+        $bootstrapping = true;
+
+        try {
+            $poolId = 'torrentside_pool';
+            $host = trim((string)(
+                $GLOBALS['memcache_host']
+                ?? getenv('MEMCACHE_HOST')
+                ?? (($GLOBALS['site_config']['MEMCACHE_HOST'] ?? null))
+                ?? '127.0.0.1'
+            ));
+            $port = (int)(
+                $GLOBALS['memcache_port']
+                ?? getenv('MEMCACHE_PORT')
+                ?? (($GLOBALS['site_config']['MEMCACHE_PORT'] ?? null))
+                ?? 11211
+            );
+
+            if ($host === '') {
+                $host = '127.0.0.1';
+            }
+            if ($port <= 0) {
+                $port = 11211;
+            }
+
+            $memcached = new Memcached($poolId);
+
+            if (empty($memcached->getServerList())) {
+                $memcached->addServer($host, $port);
+            }
+
+            if (defined('Memcached::OPT_BINARY_PROTOCOL')) {
+                $memcached->setOption(Memcached::OPT_BINARY_PROTOCOL, true);
+            }
+            if (defined('Memcached::OPT_TCP_NODELAY')) {
+                $memcached->setOption(Memcached::OPT_TCP_NODELAY, true);
+            }
+            if (defined('Memcached::OPT_CONNECT_TIMEOUT')) {
+                $memcached->setOption(Memcached::OPT_CONNECT_TIMEOUT, 80);
+            }
+            if (defined('Memcached::OPT_RETRY_TIMEOUT')) {
+                $memcached->setOption(Memcached::OPT_RETRY_TIMEOUT, 1);
+            }
+            if (defined('Memcached::OPT_POLL_TIMEOUT')) {
+                $memcached->setOption(Memcached::OPT_POLL_TIMEOUT, 80);
+            }
+
+            $GLOBALS['memcached'] = $memcached;
+            $GLOBALS['mc'] = $memcached;
+            $GLOBALS['mc1'] = $memcached;
+
+            return $memcached;
+        } finally {
+            $bootstrapping = false;
+        }
+    }
+}
+
 if (!function_exists('tracker_cache_instance')) {
     function tracker_cache_instance(): ?Memcached
     {
@@ -10,7 +86,7 @@ if (!function_exists('tracker_cache_instance')) {
             }
         }
 
-        return null;
+        return tracker_cache_bootstrap();
     }
 }
 

@@ -31,15 +31,13 @@ dbconn(false);
 loggedinorreturn();
 
 
-function cleanit($array, $index, $maxlength)
+function cleanit(array $array, string $index, int $maxlength): ?string
  {
    if (isset($array["{$index}"]))
    {
-      $input = substr($array["{$index}"], 0, $maxlength);
-      $input = mysql_real_escape_string($input);
-      return ($input);
+      return substr((string)$array["{$index}"], 0, $maxlength);
    }
-   return NULL;
+   return null;
  }
  
 //$action = $_GET["action"];

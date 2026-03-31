@@ -13,7 +13,7 @@ dbconn(false);
 loggedinorreturn();
 
 /** Глобалы из ядра */
-global $CURUSER, $BASEUSER, $BASEURL, $SITEEMAIL;
+global $CURUSER, $BASEUSER, $BASEURL, $DEFAULTBASEURL, $SITEEMAIL, $SITENAME;
 /** @var mysqli|null $mysqli */
 $mysqli = $GLOBALS['mysqli'] ?? null;
 if (!$mysqli instanceof mysqli) bark('Нет подключения к БД.');
@@ -241,7 +241,7 @@ $telegram = normalize_telegram($telegram_in);
 
 /* ---------- Смена пасскея (опционально, если чекбокс в форме) ---------- */
 if (!empty($_POST['resetpasskey']) && $_POST['resetpasskey'] === '1') {
-    $newpasskey = md5(mksecret() . (string)$CURUSER['username'] . microtime(true));
+    $newpasskey = tracker_generate_passkey();
     $updateset[] = "passkey = " . sqlesc($newpasskey);
 }
 
@@ -282,9 +282,11 @@ if ($changedemail) {
     $hash = md5($sec . $email . $sec);
     $updateset[] = "editsecret = " . sqlesc($sec);
 
-    $thishost   = $_SERVER["HTTP_HOST"] ?? $_SERVER["SERVER_NAME"] ?? "localhost";
+    $baseUrl = rtrim((string)($DEFAULTBASEURL ?? $BASEURL ?? ''), '/');
+    $thishost   = (string)(parse_url($baseUrl, PHP_URL_HOST) ?: ($_SERVER["SERVER_NAME"] ?? "localhost"));
     $thisdomain = preg_replace('/^www\./i', "", $thishost);
     $obemail    = urlencode($email);
+    $confirmUrl = $baseUrl . "/confirmemail.php/" . (int)$CURUSER["id"] . "/{$hash}/{$obemail}";
 
     $body = <<<EOD
 Вы запросили изменение email-адреса для профиля пользователя {$CURUSER["username"]}
@@ -294,13 +296,21 @@ if ($changedemail) {
 
 Для подтверждения смены email перейдите по ссылке:
 
-http://{$thishost}/confirmemail.php/{$CURUSER["id"]}/{$hash}/{$obemail}
+{$confirmUrl}
 
 Если вы не перейдёте по ссылке, текущий email останется без изменений.
 EOD;
 
-    // Если у тебя есть sent_mail(), лучше использовать её
-    @mail($email, "{$thisdomain}: подтверждение смены email", $body, "From: {$SITEEMAIL}\r\n");
+    $mailSent = sent_mail(
+        $email,
+        (string)($SITENAME ?? $thisdomain),
+        (string)$SITEEMAIL,
+        "{$thisdomain}: подтверждение смены email",
+        $body
+    );
+    if (!$mailSent) {
+        bark('Не удалось отправить письмо подтверждения. Попробуйте ещё раз позже.');
+    }
     $urladd .= "&mailsent=1";
 }
 
@@ -309,9 +319,8 @@ $sql = "UPDATE users SET " . implode(", ", $updateset) . " WHERE id = " . (int)$
 mysqli_query($mysqli, $sql) or sqlerr(__FILE__, __LINE__);
 
 /** ---------------------- Инвалидация кэша (если используешь) ---------------------- */
-if (isset($memcached) && $memcached instanceof Memcached) {
-    $memcached->delete('user:' . (int)$CURUSER['id']);
-}
+tracker_cache_delete('user:' . (int)$CURUSER['id']);
+tracker_invalidate_user_auth_cache((int)$CURUSER['id']);
 
 /** ---------------------- Редирект ---------------------- */
 header("Location: {$BASEURL}/my.php?edited=1{$urladd}");

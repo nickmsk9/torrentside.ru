@@ -104,9 +104,10 @@ sql_query("UPDATE torrents SET hits = hits + 1 WHERE id = " . sqlesc($id));
 /* ===================== ensure passkey ===================== */
 
 if (empty($CURUSER['passkey']) || strlen($CURUSER['passkey']) !== 32) {
-    $passkey = md5($CURUSER['username'] . get_date_time() . $CURUSER['passhash']);
+    $passkey = tracker_generate_passkey();
     $CURUSER['passkey'] = $passkey;
     sql_query("UPDATE users SET passkey = " . sqlesc($passkey) . " WHERE id = " . sqlesc($CURUSER['id']));
+    tracker_invalidate_user_auth_cache((int)$CURUSER['id']);
 }
 
 /* ===================== prepare tracker list ===================== */

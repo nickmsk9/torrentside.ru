@@ -25,14 +25,10 @@ if (get_user_class() < UC_USER || !user_has_module('torrent_add')) {
 // --- Генерация passkey, если отсутствует/битый
 $passkey = (string)($CURUSER['passkey'] ?? '');
 if (strlen($passkey) !== 32) {
-    try {
-        $passkey = bin2hex(random_bytes(16)); // 32 hex символа
-    } catch (Throwable $e) {
-        // маловероятный фоллбэк
-        $passkey = md5(($CURUSER['username'] ?? '') . get_date_time() . ($CURUSER['passhash'] ?? ''));
-    }
+    $passkey = tracker_generate_passkey();
     $CURUSER['passkey'] = $passkey;
     sql_query("UPDATE users SET passkey = " . sqlesc($passkey) . " WHERE id = " . (int)$CURUSER['id']);
+    tracker_invalidate_user_auth_cache((int)$CURUSER['id']);
 }
 
 // --- Кнопки шаблонов

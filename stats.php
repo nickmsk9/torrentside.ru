@@ -19,22 +19,15 @@ function self_url(array $q): string {
     return h($base . ($qs ? '?' . $qs : ''));
 }
 
-// ===== memcached (опционально) =====
-/** @var Memcached|null $memcached */
-global $memcached;
-if (!($memcached instanceof Memcached)) {
-    $memcached = new Memcached();
-    $memcached->addServer('127.0.0.1', 11211);
-}
 $TTL = 60; // секунд
 
 // ===== totals (кэшируем) =====
-$totals = $memcached->get('stats:totals:v1');
-if ($totals === false) {
+$totals = tracker_cache_get('stats:totals:v1', $cacheHit);
+if (!$cacheHit || !is_array($totals)) {
     [$n_tor]   = mysqli_fetch_row(sql_query("SELECT COUNT(*) FROM torrents"));
     [$n_peers] = mysqli_fetch_row(sql_query("SELECT COUNT(*) FROM peers"));
     $totals = ['n_tor' => (int)$n_tor, 'n_peers' => (int)$n_peers];
-    $memcached->set('stats:totals:v1', $totals, $TTL);
+    tracker_cache_set('stats:totals:v1', $totals, $TTL);
 }
 $n_tor   = $totals['n_tor'];
 $n_peers = $totals['n_peers'];
@@ -67,9 +60,9 @@ begin_frame("Статистика заливающих");
 
 // кэш ключ зависит от сортировки и лимита
 $cache_key_uploaders = "stats:uploaders:v2:{$up_order_sql}:{$limit}";
-$uploaders = $memcached->get($cache_key_uploaders);
+$uploaders = tracker_cache_get($cache_key_uploaders, $cacheHit);
 
-if ($uploaders === false) {
+if (!$cacheHit || !is_array($uploaders)) {
     // t_agg: считаем по торрентам один раз
     // p_agg: считаем пиров через JOIN с torrents, но уже агрегированно
     $sql = "
@@ -100,7 +93,7 @@ if ($uploaders === false) {
     while ($r = mysqli_fetch_assoc($res)) {
         $uploaders[] = $r;
     }
-    $memcached->set($cache_key_uploaders, $uploaders, $TTL);
+    tracker_cache_set($cache_key_uploaders, $uploaders, $TTL);
 }
 
 // лёгкий css (один раз на страницу)

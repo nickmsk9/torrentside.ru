@@ -7,15 +7,6 @@ gzip();
 dbconn(false);
 loggedinorreturn();
 
-// ------- Memcached: persistent pool + проверка сервера -------
-global $memcached;
-if (!isset($memcached) || !($memcached instanceof Memcached)) {
-    $memcached = new Memcached('ts_memc_pool');
-    if (empty($memcached->getServerList())) {
-        $memcached->addServer('127.0.0.1', 11211);
-    }
-}
-
 // ------- константа и хелперы -------
 const DEFAULT_AVATAR = '/pic/default_avatar.gif';
 
@@ -225,9 +216,9 @@ if ($type === 1 && get_user_class() >= UC_ADMINISTRATOR) {
             $extra = ($key === "bsh" || $key === "wsh") ? "AND downloaded > 1073741824" : "";
 
             $cacheKey = "topten:users:{$key}:{$limit}";
-            $rows = $memcached->get($cacheKey);
+            $rows = tracker_cache_get($cacheKey, $cacheHit);
 
-            if (!is_array($rows)) {
+            if (!$cacheHit || !is_array($rows)) {
                 $query = "
                     SELECT
                         id  AS userid,
@@ -262,7 +253,7 @@ if ($type === 1 && get_user_class() >= UC_ADMINISTRATOR) {
                     }
                 }
                 $ttl = ($rows ? 300 : 60);
-                $memcached->set($cacheKey, $rows, $ttl);
+                tracker_cache_set($cacheKey, $rows, $ttl);
             }
 
             $caption = sprintf($titleMap[$key], $limit);

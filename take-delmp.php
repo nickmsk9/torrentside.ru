@@ -1,4 +1,4 @@
-<?
+<?php 
 require "include/bittorrent.php";
 dbconn();
 loggedinorreturn();
@@ -9,8 +9,9 @@ if (get_user_class() < UC_SYSOP) stderr($tracker_lang['error'],$tracker_lang['ac
 if((array)$_POST["delmp"]) {
   foreach ($_POST['delmp'] as $delid)
   if (!is_valid_id($delid)) stderr($tracker_lang['error'],$tracker_lang['invalid_id']);
-  
-    $do = "DELETE FROM messages WHERE id IN (".implode(", ", $_POST[delmp]).")";
+
+    $messageIds = array_map('intval', $_POST['delmp']);
+    $do = "DELETE FROM messages WHERE id IN (".implode(", ", $messageIds).")";
     $res=sql_query($do);
     header("Location: spam.php");
     } else {

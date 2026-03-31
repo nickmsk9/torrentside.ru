@@ -46,7 +46,7 @@ stdhead("Правила");
   :target{scroll-margin-top:80px}
 </style>
 
-<?
+<?php 
 
 begin_frame("Сводка");
 ?>
@@ -73,7 +73,7 @@ begin_frame("Сводка");
 </div>
 
 
-<? end_frame();
+<?php  end_frame();
 ?>
 
 <?php

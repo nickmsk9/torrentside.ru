@@ -21,7 +21,11 @@ const MC_KEY_CFG         = NS . 'cfg:active_super_loto';
 const MC_TTL_CFG         = 300;
 const MC_LOCK_KEY_PREFIX = NS . 'loto:lock:';               // + YYYY-MM-DD
 const MC_LOCK_SHORT      = 300;                              // 5 мин
-const MC_NEWS_TTL        = 300;
+const MC_NEWS_TTL        = 600;
+const MC_LOTO_STATE_TTL  = 60;
+const MC_NEW_TORRENTS_TTL = 300;
+const MC_HEROES_TTL      = 900;
+const MC_STATS_TTL       = 600;
 
 function home_truncate_text(string $text, int $limit = 400): string {
     $text = trim($text);
@@ -56,35 +60,33 @@ $day   = (int)date('N');   // 1..7 (1-пн, 7-вс)
 $hour  = (int)date('H');
 $today = date('Y-m-d');
 
-/** =========================
- *  active_super_loto (кэш флага)
- *  ========================= */
-$active_loto = (int)tracker_cache_remember(MC_KEY_CFG, MC_TTL_CFG, static function (): int {
-    $res = sql_query("SELECT `value` FROM `config` WHERE `config`='active_super_loto' LIMIT 1");
-    $row = ($res && mysqli_num_rows($res) > 0) ? mysqli_fetch_row($res) : null;
-    return (int)($row[0] ?? 0);
+$lotoStateKey = home_cache_key('loto-state', $today);
+$lotoState = tracker_cache_remember($lotoStateKey, MC_LOTO_STATE_TTL, static function () use ($today): array {
+    $res = sql_query(
+        "SELECT
+            COALESCE((SELECT `value` FROM `config` WHERE `config`='active_super_loto' LIMIT 1), 0) AS active_loto,
+            EXISTS(SELECT 1 FROM `super_loto_winners` WHERE `date` = " . sqlesc($today) . ") AS already,
+            EXISTS(SELECT 1 FROM `super_loto_tickets` WHERE `active` = 0) AS has_tickets"
+    ) or sqlerr(__FILE__, __LINE__);
+
+    $row = mysqli_fetch_assoc($res) ?: [];
+
+    return [
+        'active_loto' => (int)($row['active_loto'] ?? 0),
+        'already' => (int)($row['already'] ?? 0),
+        'hasTickets' => (int)($row['has_tickets'] ?? 0),
+    ];
 });
 
-/** =========================
- *  Доп. защиты
- *  ========================= */
+$active_loto = (int)($lotoState['active_loto'] ?? 0);
+$already = (int)($lotoState['already'] ?? 0);
+$hasTickets = (int)($lotoState['hasTickets'] ?? 0);
 
-// A) Уже разыгрывали сегодня? (быстрее через EXISTS)
-$already = 0;
-$qAlready = sql_query("SELECT EXISTS(SELECT 1 FROM `super_loto_winners` WHERE `date` = " . sqlesc($today) . ") AS ex");
-if ($qAlready) {
-    $already = (int)mysqli_fetch_row($qAlready)[0];
-    if ($already === 1 && $active_loto != 0) {
-        sql_query("UPDATE `config` SET `value`=0 WHERE `config`='active_super_loto'");
-        tracker_cache_set(MC_KEY_CFG, 0, MC_TTL_CFG);
-    }
-}
-
-// B) Есть ли активные билеты?
-$hasTickets = 0;
-$qTickets = sql_query("SELECT EXISTS(SELECT 1 FROM `super_loto_tickets` WHERE `active`=0) AS ex");
-if ($qTickets) {
-    $hasTickets = (int)mysqli_fetch_row($qTickets)[0];
+if ($already === 1 && $active_loto !== 0) {
+    sql_query("UPDATE `config` SET `value`=0 WHERE `config`='active_super_loto'");
+    tracker_cache_set(MC_KEY_CFG, 0, MC_TTL_CFG);
+    tracker_cache_delete($lotoStateKey);
+    $active_loto = 0;
 }
 
 /** =========================
@@ -98,6 +100,7 @@ if ($day === 7 && $hour >= 18 && $active_loto === 0 && $already === 0 && $hasTic
         // поднять флаг на время розыгрыша
         sql_query("UPDATE `config` SET `value`=1 WHERE `config`='active_super_loto'");
         tracker_cache_set(MC_KEY_CFG, 1, MC_TTL_CFG);
+        tracker_cache_delete($lotoStateKey);
 
         try {
             // ВАЖНО: корректный файл с логикой розыгрыша
@@ -105,16 +108,19 @@ if ($day === 7 && $hour >= 18 && $active_loto === 0 && $already === 0 && $hasTic
 
             // суточный лок, чтобы повторно не запустили сегодня
             tracker_cache_set($lockKey, 1, $secTillMidnight);
+            tracker_cache_delete($lotoStateKey);
         } finally {
             // в любом случае опускаем флаг
             sql_query("UPDATE `config` SET `value`=0 WHERE `config`='active_super_loto'");
             tracker_cache_set(MC_KEY_CFG, 0, MC_TTL_CFG);
+            tracker_cache_delete($lotoStateKey);
         }
     }
 } elseif ($day !== 7 && $active_loto === 1) {
     // вне воскресенья — флаг должен быть опущен
     sql_query("UPDATE `config` SET `value`=0 WHERE `config`='active_super_loto'");
     tracker_cache_set(MC_KEY_CFG, 0, MC_TTL_CFG);
+    tracker_cache_delete($lotoStateKey);
 }
 
 /** =========================
@@ -308,16 +314,16 @@ if ($can_show_poll) {
 //////////////////////////////////////////////////////////////
 // NEW: «Новые поступления» — оптимизированный блок
 
-// Рекомендованные индексы (выполнить один раз в БД):
-// 1) основной под сортировку и фильтры
-//   CREATE INDEX idx_torrents_vis_mod_id ON torrents (visible, moderated, id DESC);
-// 2) если сможете заменить "category <> 31" на whitelist IN (...):
-//   CREATE INDEX idx_torrents_vis_mod_cat_id ON torrents (visible, moderated, category, id DESC);
+// Полезные индексы для этого блока:
+// 1) основной под сортировку и фильтры:
+//   CREATE INDEX idx_torrents_vis_mod_id ON torrents (visible, moderated, id);
+// 2) дополнительный пригодится, если здесь будет равенство/IN по category:
+//   CREATE INDEX idx_torrents_vis_mod_cat_id ON torrents (visible, moderated, category, id);
 
 $isModeratorHome = get_user_class() >= UC_MODERATOR;
 $newTorrentsBlock = tracker_cache_render(
     home_cache_key('new-torrents', 'mod' . (int)$isModeratorHome),
-    180,
+    MC_NEW_TORRENTS_TTL,
     static function (): string {
         $sql = "
         SELECT
@@ -445,7 +451,7 @@ echo $newTorrentsBlock;
 $heroestitle = "Наши герои";
 begin_frame($heroestitle);
 
-$data = tracker_cache_remember(home_cache_key('heroes-data'), 300, static function (): array {
+$data = tracker_cache_remember(home_cache_key('heroes-data'), MC_HEROES_TTL, static function (): array {
     $data = [
         'bonus'    => [],
         'karma'    => [],
@@ -485,7 +491,7 @@ $data = tracker_cache_remember(home_cache_key('heroes-data'), 300, static functi
 
     // COMMENTS TOP 10:
     // сначала дешёвая агрегация по comments.user, затем JOIN к users
-    // (требуется индекс: CREATE INDEX idx_comments_user ON comments(`user`);
+    // (достаточно одного индекса comments(user), без дублей)
     $qComments = "
         SELECT u.id, u.class, u.username, t.num_comm
         FROM (
@@ -594,7 +600,7 @@ begin_frame("Статистика");
 
 global $tracker_lang, $ss_uri, $maxusers, $CURUSER, $use_sessions, $mysqli;
 
-$stats = tracker_cache_remember(home_cache_key('stats'), 300, static function () use ($mysqli): array {
+$stats = tracker_cache_remember(home_cache_key('stats'), MC_STATS_TTL, static function () use ($mysqli): array {
     $query = "
         SELECT
             (SELECT COUNT(*) FROM users) AS registered,

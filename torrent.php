@@ -6,7 +6,8 @@ header ("Content-Type: text/html; charset=" . $tracker_lang['language_charset'])
 header ("Cache-control: no-store");
 header ("Pragma: no-cache");
 
-if($_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $_SERVER["REQUEST_METHOD"] == 'POST')
+$isAjaxRequest = strcasecmp((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''), 'XMLHttpRequest') === 0;
+if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
 {
     $id = (int)$_POST["torrent"];
     $act = (string)$_POST["act"];
@@ -118,12 +119,11 @@ function dltable($name, $arr, $torrent)
                 // check if anyone has this ip
                 $s .= "<tr>\n";
                 if ($e["username"])
-                  $s .= "<td class=\"lol\"><a href=\"userdetails.php?id=$e[userid]\"><b>".get_user_class_color($e["class"], $e["username"])."</b></a>".($mod ? "&nbsp;[<span title=\"{$e["ip"]}\" style=\"cursor: pointer\">IP</span>]" : "")."</td>\n";
+                  $s .= "<td class=\"lol\"><a href=\"userdetails.php?id={$e["userid"]}\"><b>".get_user_class_color($e["class"], $e["username"])."</b></a>".($mod ? "&nbsp;[<span title=\"{$e["ip"]}\" style=\"cursor: pointer\">IP</span>]" : "")."</td>\n";
                 else
                   $s .= "<td>" . ($mod ? $e["ip"] : preg_replace('/\.\d+$/', ".xxx", $e["ip"])) . "</td>\n";
                 $secs = max(10, ($e["la"]) - $e["pa"]);
-                $revived = $e["revived"] == "yes";
-        		$s .= "<td class=\"lol\" align=\"center\">" . ($e[connectable] == "yes" ? "<span style=\"color: green; cursor: help;\" title=\"Порт открыт. Этот пир может подключатся к любому пиру.\">".$tracker_lang['yes']."</span>" : "<span style=\"color: red; cursor: help;\" title=\"Порт закрыт. Рекомендовано проверить настройки Firwewall'а.\">".$tracker_lang['no']."</span>") . "</td>\n";
+        		$s .= "<td class=\"lol\" align=\"center\">" . ($e["connectable"] == "yes" ? "<span style=\"color: green; cursor: help;\" title=\"Порт открыт. Этот пир может подключатся к любому пиру.\">".$tracker_lang['yes']."</span>" : "<span style=\"color: red; cursor: help;\" title=\"Порт закрыт. Рекомендовано проверить настройки Firwewall'а.\">".$tracker_lang['no']."</span>") . "</td>\n";
                 $s .= "<td class=\"lol\" align=\"right\"><nobr>" . mksize($e["uploaded"]) . "</nobr></td>\n";
                 $s .= "<td class=\"lol\" align=\"right\"><nobr>" . mksize($e["uploadoffset"] / $secs) . "/s</nobr></td>\n";
                 $s .= "<td class=\"lol\" align=\"right\"><nobr>" . mksize($e["downloaded"]) . "</nobr></td>\n";
@@ -148,18 +148,42 @@ function dltable($name, $arr, $torrent)
         $s .= "</table>\n";
         return $s;
 }
+function ajax_torrent_row(int $torrentId): array
+{
+    global $CURUSER;
 
+    $canRateSql = '';
+    if (!empty($CURUSER['id'])) {
+        $canRateSql = ", (SELECT COUNT(*) FROM karma WHERE type='torrent' AND value = torrents.id AND user = " . (int)$CURUSER['id'] . ") AS canrate";
+    }
 
+    $res = sql_query(
+        "SELECT torrents.seeders, torrents.modded, torrents.modby, torrents.modname, torrents.karma,
+                torrents.leechers, torrents.info_hash, torrents.free, torrents.filename,
+                UNIX_TIMESTAMP() - UNIX_TIMESTAMP(torrents.last_action) AS lastseed,
+                torrents.name, torrents.owner, torrents.save_as, torrents.descr, torrents.visible,
+                torrents.size, torrents.added, torrents.views, torrents.hits, torrents.times_completed,
+                torrents.id, torrents.type, torrents.tags, torrents.numfiles, torrents.image1,
+                torrents.image2, torrents.image3, torrents.image4, torrents.image5,
+                categories.name AS cat_name, categories.id AS cat_id, users.username
+                {$canRateSql}
+         FROM torrents
+         LEFT JOIN categories ON torrents.category = categories.id
+         LEFT JOIN users ON torrents.owner = users.id
+         WHERE torrents.id = {$torrentId}"
+    ) or sqlerr(__FILE__, __LINE__);
 
+    return mysqli_fetch_assoc($res) ?: [];
+}
 
-
-$res = sql_query("SELECT torrents.seeders,torrents.modded, torrents.modby, torrents.modname, torrents.karma, torrents.leechers, torrents.info_hash, torrents.free, torrents.filename, UNIX_TIMESTAMP() - UNIX_TIMESTAMP(torrents.last_action) AS lastseed,torrents.name, torrents.owner, torrents.save_as, torrents.descr, torrents.visible, torrents.size, torrents.added, torrents.views, torrents.hits, torrents.times_completed, torrents.id, torrents.type, torrents.tags, torrents.numfiles, torrents.image1,torrents.image2,torrents.image3,torrents.image4,torrents.image5, categories.name AS cat_name,categories.id AS cat_id, users.username " . ($CURUSER ? ", (SELECT COUNT(*) FROM karma WHERE type='torrent' AND value = torrents.id AND user = $CURUSER[id]) AS canrate" : "") . "   FROM torrents LEFT JOIN categories ON torrents.category = categories.id LEFT JOIN users ON torrents.owner = users.id  WHERE torrents.id = $id")
-        or sqlerr(__FILE__, __LINE__);
-$row = mysqli_fetch_array($res);
+$row = ajax_torrent_row($id);
+if (!$row) {
+    die('Ошибка');
+}
 
 if ($act == "opisanie")
 {
-$op = format_comment("$row[descr]");
+$op = format_comment((string)$row["descr"]);
                                 print("$op"); 
 
 
@@ -182,7 +206,7 @@ if ($act == "info")
                     /*]]>*/
                     </script>
 <script type="text/javascript" src="js/ajax.js"></script>
-                <?
+                <?php 
 $size = mksize($row["size"]) . " (" . number_format($row["size"]) . " ".$tracker_lang['bytes'].") ";
 $uprow = (isset($row["username"]) ? ("<a href=userdetails.php?id=" . $row["owner"] . ">" . htmlspecialchars($row["username"]) . "</a>") : "<i>Аноним</i>");
 $lastseed = mkprettytime($row["lastseed"]);
@@ -192,14 +216,14 @@ $hash = $row["info_hash"];
 <center>
 <table width="100%" cellspacing="0" cellpadding="5">
 <tr>
-<?                if (!$CURUSER || $row["canrate"] > 0 || $CURUSER['id'] == $row['owner'])
+<?php                 if (!$CURUSER || $row["canrate"] > 0 || $CURUSER['id'] == $row['owner'])
                     print("<td></td><td colspan=\"1\" class=\"lol\"  align=\"center\"><img src=\"pic/minus-dis.png\" title=\"Вы не можете голосовать\" alt=\"\" /> " . karma($row["karma"]) . " <img src=\"pic/plus-dis.png\" title=\"Вы не можете голосовать\" alt=\"\" /></td>");
                 else
                     print("<td></td><td colspan=\"1\" class=\"lol\" align=\"center\" id=\"karma$id\"><img src=\"pic/minus.png\" style=\"cursor:pointer;\" title=\"Уменьшить карму\" alt=\"\" onclick=\"javascript: karma('$id', 'torrent', 'minus');\" /> " . karma($row["karma"]) . " <img src=\"pic/plus.png\" style=\"cursor:pointer;\" onclick=\"javascript: karma('$id', 'torrent', 'plus');\" title=\"Увеличить карму\" alt=\"\" /></td>\n");
 ?>
 </tr>
 <tr><td class="lol" width="33%">
-<?
+<?php 
 if (get_user_class() >= UC_MODERATOR)
     print("<div id=\"moderated\"><b>Проверен:</b> ".($row["modded"] == "no" ? "<a href=\"#\" onclick=\"javascript: check(".$row["id"].")\">Нет</a>" : "<a href=\"userdetails.php?id=".$row["modby"]."\"> ".$row["modname"]." </a>")."</div>");
 
@@ -207,8 +231,8 @@ if (get_user_class() >= UC_MODERATOR)
      <div style="font-weight:bold" id="loading-layer-text">Загрузка. Пожалуйста, подождите...</div><br />
      <img src="pic/loading.gif" border="0" />
 </div>
-</td><td class="lol" width="33%"><b>Размер: </b> <?print("$size");?></td><td class="lol" width="33%"><b>Раздал: </b><?print("$uprow");?></td></tr>
-<tr><td class="lol" width="33%"><b>Активность: </b>Последний раз <?print("$lastseed");?> назад</td><td class="lol" width="33%"><b>Категория: </b> <?print("$catname");?></td><td class="lol" width="33%"><b>Хэш раздачи: </b> <?print("$hash");?></td></tr>
+</td><td class="lol" width="33%"><b>Размер: </b> <?php print("$size");?></td><td class="lol" width="33%"><b>Раздал: </b><?php print("$uprow");?></td></tr>
+<tr><td class="lol" width="33%"><b>Активность: </b>Последний раз <?php print("$lastseed");?> назад</td><td class="lol" width="33%"><b>Категория: </b> <?php print("$catname");?></td><td class="lol" width="33%"><b>Хэш раздачи: </b> <?php print("$hash");?></td></tr>
 <tr>
 <?php
 $tags = '';
@@ -235,7 +259,7 @@ if (!empty($row["tags"])) {
 
 
 </table><br><br><br>
-<?
+<?php 
 }
 
 
@@ -404,7 +428,7 @@ if ($act == "skill")
          ?> 
          <table width="100%" border="1" cellspacing="0" cellpadding="5"> 
          <tr><td class="colhead">Жанр</td><td class="colhead">Название</td></tr> 
-         <? 
+         <?php  
          while ($data = mysqli_fetch_array($similar)) 
          { 
             list($sim_id, $sim_name, $cat_id, $cat_name, $cat_image) = $data; 
@@ -412,7 +436,7 @@ if ($act == "skill")
          } 
          ?> 
          </table> 
-         <? 
+         <?php  
        } 
 
 }
@@ -420,9 +444,6 @@ if ($act == "skill")
 
 if ($act == "peers")
 {
-$res = sql_query("SELECT torrents.seeders,torrents.modded, torrents.modby, torrents.modname, torrents.karma, torrents.leechers, torrents.info_hash, torrents.free, torrents.filename, UNIX_TIMESTAMP() - UNIX_TIMESTAMP(torrents.last_action) AS lastseed,torrents.name, torrents.owner, torrents.save_as, torrents.descr, torrents.visible, torrents.size, torrents.added, torrents.views, torrents.hits, torrents.times_completed, torrents.id, torrents.type, torrents.tags, torrents.numfiles, torrents.image1,torrents.image2,torrents.image3,torrents.image4,torrents.image5, categories.name AS cat_name,categories.id AS cat_id, users.username " . ($CURUSER ? ", (SELECT COUNT(*) FROM karma WHERE type='torrent' AND value = torrents.id AND user = $CURUSER[id]) AS canrate" : "") . "   FROM torrents LEFT JOIN categories ON torrents.category = categories.id LEFT JOIN users ON torrents.owner = users.id  WHERE torrents.id = $id")
-        or sqlerr(__FILE__, __LINE__);
-$row = mysqli_fetch_array($res);
 if(empty($row)) die('Ошибка');
 					    $downloaders = array();
                         $seeders = array();

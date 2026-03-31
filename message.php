@@ -763,25 +763,26 @@ if ($action === 'takemessage') {
 if ($action == 'mass_pm') {
         if (get_user_class() < UC_MODERATOR)
                 stderr($tracker_lang['error'], $tracker_lang['access_denied']);
-        $n_pms = 0 + $_POST['n_pms'];
-        $pmees = $_POST['pmees'];
-        $auto = $_POST['auto'];
+        $pmees = (string)($_POST['pmees'] ?? '');
+        $recipientIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/[\s,]+/', $pmees, -1, PREG_SPLIT_NO_EMPTY)))));
+        $n_pms = count($recipientIds);
+        $auto = $_POST['auto'] ?? '';
 
         if ($auto)
                 $body=$mm_template[$auto][1];
 
         stdhead("Отсылка сообщений", false);
         ?>
-<?
+<?php 
 begin_frame("Массовое Сообщение");
 ?>
         <table class=main border=0 cellspacing=0 cellpadding=0>
         <tr><td class=embedded><div align=center>
         <form id=message method=post action=<?=$_SERVER['PHP_SELF']?> name=message>
         <input type=hidden name=action value=takemass_pm>
-        <? if ($_SERVER["HTTP_REFERER"]) { ?>
+        <?php  if ($_SERVER["HTTP_REFERER"]) { ?>
         <input type=hidden name=returnto value="<?=htmlspecialchars($_SERVER["HTTP_REFERER"]);?>">
-        <? } ?>
+        <?php  } ?>
         <table border=1 cellspacing=0 cellpadding=5>
         <tr><td class=colhead colspan=2>Массовая рассылка для <?=$n_pms?> пользовате<?=($n_pms>1?"лей":"ля")?></td></tr>
         <TR>
@@ -804,14 +805,14 @@ begin_frame("Массовое Сообщение");
          </div></td></tr>
         <tr><td colspan="2" align=center><input type=submit value="Послать!" class=btn>
         </td></tr></table>
-        <input type=hidden name=pmees value="<?=$pmees?>">
+        <input type=hidden name=pmees value="<?=htmlspecialchars($pmees, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')?>">
         <input type=hidden name=n_pms value=<?=$n_pms?>>
         </form><br /><br />
         </div>
         </td>
         </tr>
         </table>
-        <?
+        <?php 
 end_frame();
         stdfoot();
 
@@ -827,21 +828,25 @@ if ($action == 'takemass_pm') {
         if (!$msg)
                 stderr($tracker_lang['error'],"Пожалуйста введите сообщение.");
         $sender_id = ($_POST['sender'] == 'system' ? 0 : $CURUSER['id']);
-        $from_is = mysql_real_escape_string(unesc($_POST['pmees']));
-        // Change
+        $recipientIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/[\s,]+/', (string)unesc($_POST['pmees'] ?? ''), -1, PREG_SPLIT_NO_EMPTY)))));
+        if (!$recipientIds) {
+                stderr($tracker_lang['error'], "Не выбраны получатели для массовой рассылки.");
+        }
+        $recipientSql = implode(", ", $recipientIds);
         $subject = trim($_POST['subject']);
-        $query = "INSERT INTO messages (sender, receiver, added, msg, subject, location, poster) ". "SELECT $sender_id, u.id, '" . get_date_time(time()) . "', " .
-        sqlesc($msg) . ", " . sqlesc($subject) . ", 1, $sender_id " . sqlesc($from_is);
-        // End of Change
+        $query = "INSERT INTO messages (sender, receiver, added, msg, subject, location, poster) " .
+                 "SELECT $sender_id, u.id, '" . get_date_time(time()) . "', " .
+                 sqlesc($msg) . ", " . sqlesc($subject) . ", 1, $sender_id " .
+                 "FROM users AS u WHERE u.id IN ($recipientSql)";
         sql_query($query) or sqlerr(__FILE__, __LINE__);
         $n = mysql_affected_rows();
-        $n_pms = (int) $_POST['n_pms'];
+        $n_pms = count($recipientIds);
         $comment = (string) $_POST['comment'];
         $snapshot = (int) $_POST['snap'];
         // add a custom text or stats snapshot to comments in profile
         if ($comment || $snapshot)
         {
-                $res = sql_query("SELECT u.id, u.uploaded, u.downloaded, u.modcomment ".sqlesc($from_is)) or sqlerr(__FILE__, __LINE__);
+                $res = sql_query("SELECT u.id, u.uploaded, u.downloaded, u.modcomment FROM users AS u WHERE u.id IN ($recipientSql)") or sqlerr(__FILE__, __LINE__);
                 if (mysql_num_rows($res) > 0)
                 {
                         $l = 0;
@@ -1187,6 +1192,7 @@ if ($action === "forward") {
         tracker_invalidate_message_cache($to_id, $curuser_id);
 
         stderr($tracker_lang['success'] ?? 'Удачно', "ЛС переслано.");
+    }
 }
 // конец пересылка
 

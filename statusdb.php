@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['do'] ?? '') === 'optimize' 
             echo "<div style='padding:5px 0;'><b>{$safe_table}</b>: {$row['Msg_type']} – <span style='color: #005599;'>{$row['Msg_text']}</span></div>";
         }
     }
-    echo "<br><a href='admincp.php?op=StatusDB'><b>← Вернуться назад</b></a>";
+    echo "<br><a href='admincp.php'><b>← Вернуться в админку</b></a>";
     end_frame();
     stdfoot();
     die;
@@ -62,7 +62,7 @@ input[type="submit"]:hover {
     background: #0072cc;
 }
 </style>
-<form method="post" action="admincp.php?op=StatusDB&do=optimize">
+<form method="post" action="statusdb.php?do=optimize">
 <table class="dbtable">
     <tr>
         <th>✓</th>
@@ -100,6 +100,7 @@ echo <<<HTML
 </table><br>
 <input type="submit" value="Оптимизировать выбранные таблицы">
 </form>
+<div style="margin-top:12px"><a href="admincp.php"><b>← Вернуться в админку</b></a></div>
 HTML;
 
 end_frame();

@@ -30,7 +30,7 @@ function iUsers() {
             stdmsg("Ошибка", "Не указано имя пользователя или не заполнены поля для изменения.", "error");
         }
     } else {
-        echo "<form method=\"post\" action=\"".$admin_file.".php?op=iUsers\">"
+        echo "<form method=\"post\" action=\"".$admin_file.".php?op=iusers\">"
         ."<table border=\"0\" cellspacing=\"0\" cellpadding=\"3\">"
         ."<tr><td class=\"colhead\" colspan=\"2\">Смена пароля</td></tr>"
         ."<tr>"
@@ -47,13 +47,14 @@ function iUsers() {
         ."</tr>"
         ."<tr><td colspan=\"2\" align=\"center\"><input type=\"submit\" name=\"isub\" value=\"Сделать\"></td></tr>"
         ."</table>"
-        ."<input type=\"hidden\" name=\"op\" value=\"iUsers\" />"
+        ."<input type=\"hidden\" name=\"op\" value=\"iusers\" />"
         ."</form>";
     }
 }
 
 switch ($op) {
     case "iUsers":
+    case "iusers":
         iUsers();
         break;
 }

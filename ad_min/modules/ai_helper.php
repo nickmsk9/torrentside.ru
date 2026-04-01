@@ -377,8 +377,8 @@ function AiHelper(): void
     echo '<div class="ai-admin-card">';
     echo '<h2 class="ai-admin-title">AI-помощник администратора</h2>';
     echo '<div class="ai-admin-muted" style="margin-bottom:12px;">Быстрый разбор логов, чата и подозрительной активности. Если локальная модель доступна, инструмент добавит короткое объяснение поверх сырых данных.</div>';
-    echo '<form method="post" action="admincp.php?op=AiHelper" class="ai-admin-stack">';
-    echo '<input type="hidden" name="op" value="AiHelper">';
+    echo '<form method="post" action="admincp.php?op=ai_helper" class="ai-admin-stack">';
+    echo '<input type="hidden" name="op" value="ai_helper">';
     echo '<label class="ai-admin-muted">Готовый сценарий</label>';
     echo '<select name="ai_action" class="ai-admin-select">';
     $options = [
@@ -400,9 +400,9 @@ function AiHelper(): void
     echo '<label class="ai-admin-muted"><input type="checkbox" name="use_model" value="yes"' . ($useModel ? ' checked' : '') . '> Использовать локальную модель для краткого объяснения</label>';
     echo '<div class="ai-admin-actions">';
     echo '<button class="ai-admin-btn primary" type="submit">Запустить анализ</button>';
-    echo '<a class="ai-admin-btn" href="admincp.php?op=AiHelper&ai_action=chat">Проверить чат</a>';
-    echo '<a class="ai-admin-btn" href="admincp.php?op=AiHelper&ai_action=logs">Проверить логи</a>';
-    echo '<a class="ai-admin-btn" href="admincp.php?op=AiHelper&ai_action=anomaly">Аномальная активность</a>';
+    echo '<a class="ai-admin-btn" href="admincp.php?op=ai_helper&ai_action=chat">Проверить чат</a>';
+    echo '<a class="ai-admin-btn" href="admincp.php?op=ai_helper&ai_action=logs">Проверить логи</a>';
+    echo '<a class="ai-admin-btn" href="admincp.php?op=ai_helper&ai_action=anomaly">Аномальная активность</a>';
     echo '</div>';
     echo '</form>';
     echo '</div>';
@@ -554,6 +554,7 @@ function AiHelper(): void
 
 switch ($op) {
     case 'ai_helper':
+    case 'AiHelper':
         AiHelper();
         break;
 }

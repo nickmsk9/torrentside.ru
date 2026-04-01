@@ -9,11 +9,11 @@ if (!defined('IN_TRACKER')) {
 dbconn(false);
 loggedinorreturn();
 
-stdhead("Мои списки пользователей");
-begin_frame("Мои списки пользователей");
-
 if (get_user_class() < UC_SYSOP)
     stderr("Ошибка", "У вас нет доступа к конфигурации!");
+
+stdhead("Редактор конфигурации");
+begin_frame("Редактор конфигурации");
 
 $config_path = $rootpath . "include/config.php";
 
@@ -112,7 +112,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['config'])) {
     }
 
     file_put_contents($config_path, $out);
-    header("Location: admincp.php?op=Config&saved=1");
+    header("Location: config_editor.php?saved=1");
     exit;
 }
 
@@ -128,7 +128,8 @@ if (isset($_GET['saved'])) {
     echo "<div style='color: green; font-weight: bold;'>Конфигурация успешно сохранена.</div><br>";
 }
 
-echo "<form method='post' action='admincp.php?op=Config'>";
+echo "<p>Здесь можно менять ключевые параметры движка без ручного редактирования файла конфигурации.</p>";
+echo "<form method='post' action='config_editor.php'>";
 echo "<table width='100%' class='main' cellspacing='5' cellpadding='4'>";
 
 foreach ($config_groups as $group => $items) {
@@ -159,5 +160,6 @@ foreach ($config_groups as $group => $items) {
 }
 
 echo "</table><br><center><input type='submit' value='Сохранить изменения' style='padding: 8px 16px; font-weight: bold;'></center></form>";
+echo "<div style='margin-top:14px'><a href='admincp.php'><b>← Вернуться в админку</b></a></div>";
 end_frame();
 stdfoot();

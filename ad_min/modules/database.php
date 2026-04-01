@@ -17,8 +17,8 @@ function StatusDB() {
         $content .= "<option value=\"$tbl\" selected>$tbl</option>\n";
     }
 
-    echo "<form method='post' action='{$admin_file}.php'>
-        <input type='hidden' name='op' value='StatusDB'>
+    echo "<form method='post' action='{$admin_file}.php?op=database'>
+        <input type='hidden' name='op' value='database'>
         <table border='0' cellspacing='0' cellpadding='5' align='center'>
         <tr>
             <td>
@@ -111,7 +111,6 @@ function StatusDB() {
 
 // Запуск по параметру
 $op = $_REQUEST['op'] ?? '';
-if ($op === 'StatusDB') {
+if ($op === 'StatusDB' || $op === 'statusdb' || $op === 'database') {
     StatusDB();
 }
-

@@ -442,12 +442,12 @@ if (get_user_class() >= UC_ADMINISTRATOR) {
   <a class="tool-btn" href="recover.php">Восстановить юзера</a>
   <a class="tool-btn" href="uploaders.php">Аплоадеры</a>
   <a class="tool-btn" href="users.php">Список юзеров</a>
-  <a class="tool-btn" href="tags.php">Теги</a>
-  <a class="tool-btn" href="smilies.php">Смайлы</a>
+  <a class="tool-btn" href="tags-admin.php">Теги</a>
+  <a class="tool-btn" href="smiles.php">Смайлы</a>
   <a class="tool-btn" href="delacctadmin.php">Удалить юзера</a>
   <a class="tool-btn" href="stats.php">Статистика</a>
   <a class="tool-btn" href="testip.php">Проверка IP</a>
-  <a class="tool-btn" href="ipcheck.php">Повторные IP</a>
+  <a class="tool-btn" href="testip.php">Повторные IP</a>
   <a class="tool-btn" href="findnotconnectable.php">Юзеры за NAT</a>
 </nav>
 HTML;

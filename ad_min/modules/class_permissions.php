@@ -83,6 +83,12 @@ function ClassPermissions(): void
                 'sort_order' => (int)($_POST['sort_order'] ?? 1),
                 'is_transition' => (string)($_POST['is_transition'] ?? 'no'),
                 'is_active' => (string)($_POST['is_active'] ?? 'yes'),
+                'auto_enabled' => (string)($_POST['auto_enabled'] ?? 'no'),
+                'auto_metric' => (string)($_POST['auto_metric'] ?? ''),
+                'auto_period_days' => (int)($_POST['auto_period_days'] ?? 0),
+                'auto_direction' => (string)($_POST['auto_direction'] ?? 'max'),
+                'auto_min_value' => (int)($_POST['auto_min_value'] ?? 0),
+                'auto_refresh_minutes' => (int)($_POST['auto_refresh_minutes'] ?? 10),
             ]);
 
             $savedTrophy = class_permissions_get_trophy($savedId);
@@ -149,6 +155,7 @@ function ClassPermissions(): void
     $classCatalog = class_permissions_get_class_catalog();
     $baseClassOptions = class_permissions_get_selectable_classes(UC_SYSOP);
     $trophies = class_permissions_get_trophies(true);
+    $metricCatalog = class_permissions_transition_metric_catalog();
     $trophyHistory = $editingTrophy ? class_permissions_get_trophy_history((int)$editingTrophy['id'], 12) : [];
 
     begin_frame('Управление классами, доступами и кубками');
@@ -305,6 +312,9 @@ function ClassPermissions(): void
                 ? '<img src="/pic/' . htmlspecialchars($pic, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" alt="" style="max-width:120px;max-height:40px">'
                 : '<small>Нет картинки</small>';
             $type = (($trophy['is_transition'] ?? 'no') === 'yes') ? 'Переходящий кубок' : 'Обычный ранг';
+            if (($trophy['is_transition'] ?? 'no') === 'yes' && ($trophy['auto_enabled'] ?? 'no') === 'yes') {
+                $type .= '<br><small>Авто: ' . htmlspecialchars(class_permissions_transition_metric_label((string)($trophy['auto_metric'] ?? '')), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</small>';
+            }
             $status = (($trophy['is_active'] ?? 'yes') === 'yes') ? 'Активен' : 'Скрыт';
 
             echo '<tr>';
@@ -348,6 +358,16 @@ function ClassPermissions(): void
     echo '<tr><td class="rowhead">Порядок</td><td class="lol"><input type="text" name="sort_order" size="10" value="' . (int)($editingTrophy['sort_order'] ?? (count($trophies) + 1)) . '"></td></tr>';
     echo '<tr><td class="rowhead">Тип</td><td class="lol"><label><input type="radio" name="is_transition" value="no"' . ((($editingTrophy['is_transition'] ?? 'no') === 'no') ? ' checked' : '') . '> Обычный ранг</label> <label><input type="radio" name="is_transition" value="yes"' . ((($editingTrophy['is_transition'] ?? 'no') === 'yes') ? ' checked' : '') . '> Переходящий кубок</label></td></tr>';
     echo '<tr><td class="rowhead">Статус</td><td class="lol"><label><input type="radio" name="is_active" value="yes"' . ((($editingTrophy['is_active'] ?? 'yes') === 'yes') ? ' checked' : '') . '> Активен</label> <label><input type="radio" name="is_active" value="no"' . ((($editingTrophy['is_active'] ?? 'yes') === 'no') ? ' checked' : '') . '> Скрыт</label></td></tr>';
+    echo '<tr><td class="rowhead">Автовыдача</td><td class="lol"><label><input type="radio" name="auto_enabled" value="yes"' . ((($editingTrophy['auto_enabled'] ?? 'no') === 'yes') ? ' checked' : '') . '> Включена</label> <label><input type="radio" name="auto_enabled" value="no"' . ((($editingTrophy['auto_enabled'] ?? 'no') === 'no') ? ' checked' : '') . '> Выключена</label><br><small>Для переходящих кубков система сможет сама пересчитывать владельца по выбранной метрике.</small></td></tr>';
+    echo '<tr><td class="rowhead">Метрика</td><td class="lol"><select name="auto_metric"><option value="">Без авто-логики</option>';
+    foreach ($metricCatalog as $metricKey => $metricMeta) {
+        $selected = ((string)($editingTrophy['auto_metric'] ?? '') === (string)$metricKey) ? ' selected' : '';
+        echo '<option value="' . htmlspecialchars((string)$metricKey, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $selected . '>' . htmlspecialchars((string)$metricMeta['label'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</option>';
+    }
+    echo '</select></td></tr>';
+    echo '<tr><td class="rowhead">Период в днях</td><td class="lol"><input type="text" name="auto_period_days" size="10" value="' . (int)($editingTrophy['auto_period_days'] ?? 0) . '"><br><small>`0` означает считать за всё время.</small></td></tr>';
+    echo '<tr><td class="rowhead">Мин. значение</td><td class="lol"><input type="text" name="auto_min_value" size="10" value="' . (int)($editingTrophy['auto_min_value'] ?? 0) . '"><br><small>Если лидер не набирает минимум, кубок остается без владельца.</small></td></tr>';
+    echo '<tr><td class="rowhead">Обновлять раз в минут</td><td class="lol"><input type="text" name="auto_refresh_minutes" size="10" value="' . (int)($editingTrophy['auto_refresh_minutes'] ?? 10) . '"><br><small>Пересчет произойдет лениво при открытии страниц.</small></td></tr>';
     echo '<tr><td class="rowhead">ID владельца кубка</td><td class="lol"><input type="text" name="holder_user_id" size="12" value="' . (int)($editingTrophy['holder_user_id'] ?? 0) . '"><br><small>Для обычного ранга оставьте `0`. Для переходящего кубка можно сразу указать нового владельца.</small></td></tr>';
     echo '<tr><td class="rowhead">Комментарий к выдаче</td><td class="lol"><input type="text" name="holder_comment" size="80" value="' . htmlspecialchars((string)($editingTrophy['holder_comment'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"><br><small>Попадает в историю переходящего кубка.</small></td></tr>';
     echo '<tr><td class="lol" colspan="2" align="center"><input type="submit" value="' . ($editingTrophy ? 'Сохранить ранг / кубок' : 'Добавить ранг / кубок') . '"></td></tr>';

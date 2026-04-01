@@ -354,6 +354,30 @@ if (!function_exists('class_permissions_ensure_schema')) {
             if (!class_permissions_column_exists('rangclass', 'is_active')) {
                 sql_query("ALTER TABLE rangclass ADD COLUMN is_active ENUM('yes','no') NOT NULL DEFAULT 'yes' AFTER holder_comment");
             }
+            if (!class_permissions_column_exists('rangclass', 'auto_enabled')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_enabled ENUM('yes','no') NOT NULL DEFAULT 'no' AFTER is_active");
+            }
+            if (!class_permissions_column_exists('rangclass', 'auto_metric')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_metric VARCHAR(64) NOT NULL DEFAULT '' AFTER auto_enabled");
+            }
+            if (!class_permissions_column_exists('rangclass', 'auto_period_days')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_period_days SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER auto_metric");
+            }
+            if (!class_permissions_column_exists('rangclass', 'auto_direction')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_direction ENUM('max','min') NOT NULL DEFAULT 'max' AFTER auto_period_days");
+            }
+            if (!class_permissions_column_exists('rangclass', 'auto_min_value')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_min_value BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER auto_direction");
+            }
+            if (!class_permissions_column_exists('rangclass', 'auto_refresh_minutes')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_refresh_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 10 AFTER auto_min_value");
+            }
+            if (!class_permissions_column_exists('rangclass', 'auto_last_winner_value')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_last_winner_value BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER auto_refresh_minutes");
+            }
+            if (!class_permissions_column_exists('rangclass', 'auto_last_computed_at')) {
+                sql_query("ALTER TABLE rangclass ADD COLUMN auto_last_computed_at DATETIME DEFAULT NULL AFTER auto_last_winner_value");
+            }
             sql_query("UPDATE rangclass SET sort_order = id WHERE sort_order = 0");
         }
 
@@ -390,6 +414,9 @@ if (!function_exists('class_permissions_ensure_schema')) {
 
         class_permissions_normalize_class_sort_orders();
         class_permissions_normalize_trophy_sort_orders();
+        if (function_exists('class_permissions_seed_transition_trophies')) {
+            class_permissions_seed_transition_trophies();
+        }
 
         $ready = true;
     }
@@ -932,6 +959,490 @@ if (!function_exists('current_user_profile_name')) {
     }
 }
 
+if (!function_exists('class_permissions_transition_metric_catalog')) {
+    function class_permissions_transition_metric_catalog(): array
+    {
+        return [
+            'torrents_total' => ['label' => 'Больше всего раздач', 'unit' => 'раздач', 'supports_period' => true],
+            'comments_total' => ['label' => 'Больше всего комментариев', 'unit' => 'комм.', 'supports_period' => true],
+            'posts_total' => ['label' => 'Больше всего постов на форуме', 'unit' => 'постов', 'supports_period' => true],
+            'uploaded_total' => ['label' => 'Максимальная общая раздача', 'unit' => '', 'supports_period' => false],
+            'bonus_total' => ['label' => 'Самый большой бонусный баланс', 'unit' => 'бонусов', 'supports_period' => false],
+            'invites_total' => ['label' => 'Больше всего инвайтов', 'unit' => 'инвайтов', 'supports_period' => false],
+            'seeding_now' => ['label' => 'Больше всего активных сидов', 'unit' => 'сидов', 'supports_period' => false],
+        ];
+    }
+}
+
+if (!function_exists('class_permissions_transition_metric_label')) {
+    function class_permissions_transition_metric_label(string $metric): string
+    {
+        $catalog = class_permissions_transition_metric_catalog();
+        return (string)($catalog[$metric]['label'] ?? 'Без авто-логики');
+    }
+}
+
+if (!function_exists('class_permissions_seed_transition_trophies')) {
+    function class_permissions_seed_transition_trophies(): void
+    {
+        if (!class_permissions_table_exists('rangclass')) {
+            return;
+        }
+
+        $res = sql_query("SELECT COUNT(*) AS total FROM rangclass WHERE is_transition = 'yes'");
+        $row = $res instanceof mysqli_result ? mysqli_fetch_assoc($res) : null;
+        if ((int)($row['total'] ?? 0) > 0) {
+            return;
+        }
+
+        $sortRes = sql_query("SELECT MAX(sort_order) AS max_sort FROM rangclass");
+        $sortRow = $sortRes instanceof mysqli_result ? mysqli_fetch_assoc($sortRes) : null;
+        $sortOrder = max(0, (int)($sortRow['max_sort'] ?? 0));
+
+        $defaults = [
+            [
+                'name' => 'Главный релизер',
+                'rangpic' => 'best_release.gif',
+                'description' => 'Автоматически выдается пользователю с наибольшим числом опубликованных раздач.',
+                'auto_metric' => 'torrents_total',
+            ],
+            [
+                'name' => 'Король комментариев',
+                'rangpic' => 'top.gif',
+                'description' => 'Автоматически выдается самому активному комментатору трекера.',
+                'auto_metric' => 'comments_total',
+            ],
+            [
+                'name' => 'Бонусный магнат',
+                'rangpic' => 'kredit.gif',
+                'description' => 'Автоматически выдается пользователю с самым большим бонусным балансом.',
+                'auto_metric' => 'bonus_total',
+            ],
+            [
+                'name' => 'Аплоад-легенда',
+                'rangpic' => 'starbig.gif',
+                'description' => 'Автоматически выдается пользователю с максимальной общей раздачей.',
+                'auto_metric' => 'uploaded_total',
+            ],
+        ];
+
+        foreach ($defaults as $item) {
+            $sortOrder++;
+            sql_query("
+                INSERT INTO rangclass
+                    (name, rangpic, description, sort_order, is_transition, holder_user_id, holder_comment, is_active, auto_enabled, auto_metric, auto_period_days, auto_direction, auto_min_value, auto_refresh_minutes, auto_last_winner_value, auto_last_computed_at)
+                VALUES (
+                    " . sqlesc((string)$item['name']) . ",
+                    " . sqlesc((string)$item['rangpic']) . ",
+                    " . sqlesc((string)$item['description']) . ",
+                    {$sortOrder},
+                    'yes',
+                    0,
+                    '',
+                    'yes',
+                    'yes',
+                    " . sqlesc((string)$item['auto_metric']) . ",
+                    0,
+                    'max',
+                    1,
+                    10,
+                    0,
+                    NULL
+                )
+            ");
+        }
+
+        class_permissions_normalize_trophy_sort_orders();
+        class_permissions_invalidate_trophy_cache();
+    }
+}
+
+if (!function_exists('class_permissions_render_trophy_icon')) {
+    function class_permissions_render_trophy_icon(array $trophy, string $className = 'transition-trophy-icon'): string
+    {
+        $name = htmlspecialchars((string)($trophy['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $pic = trim((string)($trophy['rangpic'] ?? ''));
+        if ($pic === '') {
+            return '<span class="' . htmlspecialchars($className, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" title="' . $name . '">*</span>';
+        }
+
+        return '<img class="' . htmlspecialchars($className, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" src="/pic/' . htmlspecialchars($pic, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" alt="' . $name . '" title="' . $name . '">';
+    }
+}
+
+if (!function_exists('class_permissions_render_trophy_icons')) {
+    function class_permissions_render_trophy_icons(array $trophies, string $className = 'transition-trophy-icon'): string
+    {
+        $html = '';
+        foreach ($trophies as $trophy) {
+            $html .= class_permissions_render_trophy_icon((array)$trophy, $className);
+        }
+        return $html;
+    }
+}
+
+if (!function_exists('class_permissions_get_user_transition_trophies')) {
+    function class_permissions_get_user_transition_trophies(int $userId, bool $includeInactive = false): array
+    {
+        $userId = max(0, $userId);
+        if ($userId <= 0) {
+            return [];
+        }
+
+        $items = [];
+        foreach (class_permissions_get_trophies($includeInactive) as $trophy) {
+            if (($trophy['is_transition'] ?? 'no') !== 'yes') {
+                continue;
+            }
+            if ((int)($trophy['holder_user_id'] ?? 0) !== $userId) {
+                continue;
+            }
+            $items[] = $trophy;
+        }
+
+        return $items;
+    }
+}
+
+if (!function_exists('class_permissions_transition_metric_winner')) {
+    function class_permissions_transition_metric_winner(array $trophy): ?array
+    {
+        $metric = trim((string)($trophy['auto_metric'] ?? ''));
+        $catalog = class_permissions_transition_metric_catalog();
+        if ($metric === '' || !isset($catalog[$metric])) {
+            return null;
+        }
+
+        $periodDays = max(0, (int)($trophy['auto_period_days'] ?? 0));
+        $minValue = max(0, (int)($trophy['auto_min_value'] ?? 0));
+
+        $userFilters = [];
+        if (class_permissions_column_exists('users', 'enabled')) {
+            $userFilters[] = "u.enabled = 'yes'";
+        }
+        if (class_permissions_column_exists('users', 'status')) {
+            $userFilters[] = "u.status <> 'pending'";
+        }
+        $userWhere = $userFilters ? (' AND ' . implode(' AND ', $userFilters)) : '';
+
+        $query = '';
+        switch ($metric) {
+            case 'torrents_total':
+                if (!class_permissions_table_exists('torrents')) {
+                    return null;
+                }
+                $dateFilter = '';
+                if ($periodDays > 0 && class_permissions_column_exists('torrents', 'added')) {
+                    $dateFilter = " AND t.added >= DATE_SUB(NOW(), INTERVAL {$periodDays} DAY)";
+                }
+                $query = "
+                    SELECT u.id, u.username, u.class, COUNT(*) AS score
+                    FROM torrents t
+                    INNER JOIN users u ON u.id = t.owner
+                    WHERE t.owner > 0{$dateFilter}{$userWhere}
+                    GROUP BY u.id
+                    ORDER BY score DESC, u.class DESC, u.username ASC
+                    LIMIT 1
+                ";
+                break;
+
+            case 'comments_total':
+                if (!class_permissions_table_exists('comments')) {
+                    return null;
+                }
+                $dateFilter = '';
+                if ($periodDays > 0 && class_permissions_column_exists('comments', 'added')) {
+                    $dateFilter = " AND c.added >= DATE_SUB(NOW(), INTERVAL {$periodDays} DAY)";
+                }
+                $query = "
+                    SELECT u.id, u.username, u.class, COUNT(*) AS score
+                    FROM comments c
+                    INNER JOIN users u ON u.id = c.user
+                    WHERE c.user > 0{$dateFilter}{$userWhere}
+                    GROUP BY u.id
+                    ORDER BY score DESC, u.class DESC, u.username ASC
+                    LIMIT 1
+                ";
+                break;
+
+            case 'posts_total':
+                if (!class_permissions_table_exists('posts')) {
+                    return null;
+                }
+                $dateFilter = '';
+                if ($periodDays > 0 && class_permissions_column_exists('posts', 'added')) {
+                    $dateFilter = " AND p.added >= DATE_SUB(NOW(), INTERVAL {$periodDays} DAY)";
+                }
+                $query = "
+                    SELECT u.id, u.username, u.class, COUNT(*) AS score
+                    FROM posts p
+                    INNER JOIN users u ON u.id = p.userid
+                    WHERE p.userid > 0{$dateFilter}{$userWhere}
+                    GROUP BY u.id
+                    ORDER BY score DESC, u.class DESC, u.username ASC
+                    LIMIT 1
+                ";
+                break;
+
+            case 'uploaded_total':
+                $query = "
+                    SELECT u.id, u.username, u.class, CAST(u.uploaded AS UNSIGNED) AS score
+                    FROM users u
+                    WHERE u.id > 0{$userWhere}
+                    ORDER BY score DESC, u.class DESC, u.username ASC
+                    LIMIT 1
+                ";
+                break;
+
+            case 'bonus_total':
+                if (!class_permissions_column_exists('users', 'bonus')) {
+                    return null;
+                }
+                $query = "
+                    SELECT u.id, u.username, u.class, CAST(ROUND(u.bonus) AS UNSIGNED) AS score
+                    FROM users u
+                    WHERE u.id > 0{$userWhere}
+                    ORDER BY score DESC, u.class DESC, u.username ASC
+                    LIMIT 1
+                ";
+                break;
+
+            case 'invites_total':
+                if (!class_permissions_column_exists('users', 'invites')) {
+                    return null;
+                }
+                $query = "
+                    SELECT u.id, u.username, u.class, CAST(u.invites AS UNSIGNED) AS score
+                    FROM users u
+                    WHERE u.id > 0{$userWhere}
+                    ORDER BY score DESC, u.class DESC, u.username ASC
+                    LIMIT 1
+                ";
+                break;
+
+            case 'seeding_now':
+                if (!class_permissions_table_exists('peers')) {
+                    return null;
+                }
+                $query = "
+                    SELECT u.id, u.username, u.class, COUNT(DISTINCT p.torrent) AS score
+                    FROM peers p
+                    INNER JOIN users u ON u.id = p.userid
+                    WHERE p.userid > 0 AND p.seeder = 'yes'{$userWhere}
+                    GROUP BY u.id
+                    ORDER BY score DESC, u.class DESC, u.username ASC
+                    LIMIT 1
+                ";
+                break;
+        }
+
+        if ($query === '') {
+            return null;
+        }
+
+        $res = sql_query($query);
+        $row = $res instanceof mysqli_result ? mysqli_fetch_assoc($res) : null;
+        if (!$row || (int)($row['id'] ?? 0) <= 0) {
+            return null;
+        }
+
+        $row['id'] = (int)($row['id'] ?? 0);
+        $row['class'] = (int)($row['class'] ?? 0);
+        $row['score'] = (int)($row['score'] ?? 0);
+        if ($row['score'] < $minValue) {
+            return null;
+        }
+
+        return $row;
+    }
+}
+
+if (!function_exists('class_permissions_transition_metric_comment')) {
+    function class_permissions_transition_metric_comment(array $trophy, int $score): string
+    {
+        $metric = trim((string)($trophy['auto_metric'] ?? ''));
+        $catalog = class_permissions_transition_metric_catalog();
+        $meta = $catalog[$metric] ?? ['label' => 'Автовыдача', 'unit' => ''];
+        $periodDays = max(0, (int)($trophy['auto_period_days'] ?? 0));
+        $periodText = $periodDays > 0 ? (' за ' . $periodDays . ' дн.') : '';
+        $value = ($metric === 'uploaded_total')
+            ? mksize((float)$score)
+            : number_format($score, 0, '.', ' ');
+
+        return 'Авто: ' . (string)$meta['label'] . $periodText . ' (' . $value . ')';
+    }
+}
+
+if (!function_exists('class_permissions_refresh_transition_trophies')) {
+    function class_permissions_refresh_transition_trophies(bool $force = false): array
+    {
+        static $running = false;
+        if ($running) {
+            return ['processed' => 0, 'updated' => 0];
+        }
+
+        $running = true;
+        class_permissions_ensure_schema();
+
+        $processed = 0;
+        $updated = 0;
+        foreach (class_permissions_get_trophies(true) as $trophy) {
+            if (($trophy['is_transition'] ?? 'no') !== 'yes') {
+                continue;
+            }
+            if (($trophy['is_active'] ?? 'yes') !== 'yes') {
+                continue;
+            }
+            if (($trophy['auto_enabled'] ?? 'no') !== 'yes') {
+                continue;
+            }
+
+            $refreshMinutes = max(5, (int)($trophy['auto_refresh_minutes'] ?? 10));
+            $lastComputed = trim((string)($trophy['auto_last_computed_at'] ?? ''));
+            $lastComputedTs = $lastComputed !== '' ? strtotime($lastComputed) : false;
+            if (!$force && $lastComputedTs && $lastComputedTs > (time() - ($refreshMinutes * 60))) {
+                continue;
+            }
+
+            $processed++;
+            $trophyId = (int)($trophy['id'] ?? 0);
+            $winner = class_permissions_transition_metric_winner($trophy);
+            $now = get_date_time();
+
+            if ($winner) {
+                $winnerId = (int)$winner['id'];
+                $score = (int)$winner['score'];
+                $comment = class_permissions_transition_metric_comment($trophy, $score);
+
+                if ((int)($trophy['holder_user_id'] ?? 0) !== $winnerId) {
+                    class_permissions_assign_transition_trophy_holder($trophyId, $winnerId, 0, $comment);
+                    $updated++;
+                }
+
+                sql_query("
+                    UPDATE rangclass
+                    SET
+                        holder_comment = " . sqlesc($comment) . ",
+                        auto_last_winner_value = {$score},
+                        auto_last_computed_at = " . sqlesc($now) . "
+                    WHERE id = {$trophyId}
+                ");
+            } else {
+                $comment = 'Авто: подходящий владелец пока не найден.';
+                if ((int)($trophy['holder_user_id'] ?? 0) > 0) {
+                    class_permissions_release_transition_trophy($trophyId, (int)$trophy['holder_user_id'], 0, $comment);
+                    $updated++;
+                }
+
+                sql_query("
+                    UPDATE rangclass
+                    SET
+                        holder_comment = " . sqlesc($comment) . ",
+                        auto_last_winner_value = 0,
+                        auto_last_computed_at = " . sqlesc($now) . "
+                    WHERE id = {$trophyId}
+                ");
+            }
+        }
+
+        if ($processed > 0) {
+            class_permissions_invalidate_trophy_cache();
+        }
+
+        $running = false;
+        return ['processed' => $processed, 'updated' => $updated];
+    }
+}
+
+if (!function_exists('class_permissions_transition_scoreboard')) {
+    function class_permissions_transition_scoreboard(int $limit = 8): array
+    {
+        $limit = max(1, min(50, $limit));
+        $rows = [];
+
+        foreach (class_permissions_get_trophies(false) as $trophy) {
+            if (($trophy['is_transition'] ?? 'no') !== 'yes') {
+                continue;
+            }
+            $holderId = (int)($trophy['holder_user_id'] ?? 0);
+            if ($holderId <= 0 || empty($trophy['holder_username'])) {
+                continue;
+            }
+
+            if (!isset($rows[$holderId])) {
+                $rows[$holderId] = [
+                    'id' => $holderId,
+                    'username' => (string)$trophy['holder_username'],
+                    'class' => (int)($trophy['holder_class'] ?? 0),
+                    'count' => 0,
+                    'trophies' => [],
+                ];
+            }
+
+            $rows[$holderId]['count']++;
+            $rows[$holderId]['trophies'][] = $trophy;
+        }
+
+        $rows = array_values($rows);
+        usort($rows, static function (array $left, array $right): int {
+            $countCmp = (int)($right['count'] ?? 0) <=> (int)($left['count'] ?? 0);
+            if ($countCmp !== 0) {
+                return $countCmp;
+            }
+
+            return strcasecmp((string)($left['username'] ?? ''), (string)($right['username'] ?? ''));
+        });
+
+        $rows = array_slice($rows, 0, $limit);
+        foreach ($rows as $index => &$row) {
+            $row['position'] = $index + 1;
+            $row['icons_html'] = class_permissions_render_trophy_icons((array)($row['trophies'] ?? []), 'transition-trophy-icon transition-trophy-icon-small');
+            $safeUsername = htmlspecialchars((string)$row['username'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $row['user_html'] = '<a href="userdetails.php?id=' . (int)$row['id'] . '">' . get_user_class_color((int)$row['class'], $safeUsername) . '</a>';
+        }
+        unset($row);
+
+        return $rows;
+    }
+}
+
+if (!function_exists('class_permissions_transition_summary')) {
+    function class_permissions_transition_summary(): array
+    {
+        $summary = [
+            'total' => 0,
+            'holders' => 0,
+            'auto' => 0,
+            'updated_at' => '',
+        ];
+
+        $holders = [];
+        foreach (class_permissions_get_trophies(false) as $trophy) {
+            if (($trophy['is_transition'] ?? 'no') !== 'yes') {
+                continue;
+            }
+
+            $summary['total']++;
+            if (($trophy['auto_enabled'] ?? 'no') === 'yes') {
+                $summary['auto']++;
+            }
+
+            $holderId = (int)($trophy['holder_user_id'] ?? 0);
+            if ($holderId > 0) {
+                $holders[$holderId] = true;
+            }
+
+            $updatedAt = trim((string)($trophy['auto_last_computed_at'] ?? ''));
+            if ($updatedAt !== '' && ($summary['updated_at'] === '' || strcmp($updatedAt, $summary['updated_at']) > 0)) {
+                $summary['updated_at'] = $updatedAt;
+            }
+        }
+
+        $summary['holders'] = count($holders);
+        return $summary;
+    }
+}
+
 if (!function_exists('class_permissions_get_trophies')) {
     function class_permissions_get_trophies(bool $includeInactive = true): array
     {
@@ -947,6 +1458,14 @@ if (!function_exists('class_permissions_get_trophies')) {
             $hasHolderAssignedAt = class_permissions_column_exists('rangclass', 'holder_assigned_at');
             $hasHolderComment = class_permissions_column_exists('rangclass', 'holder_comment');
             $hasActive = class_permissions_column_exists('rangclass', 'is_active');
+            $hasAutoEnabled = class_permissions_column_exists('rangclass', 'auto_enabled');
+            $hasAutoMetric = class_permissions_column_exists('rangclass', 'auto_metric');
+            $hasAutoPeriodDays = class_permissions_column_exists('rangclass', 'auto_period_days');
+            $hasAutoDirection = class_permissions_column_exists('rangclass', 'auto_direction');
+            $hasAutoMinValue = class_permissions_column_exists('rangclass', 'auto_min_value');
+            $hasAutoRefreshMinutes = class_permissions_column_exists('rangclass', 'auto_refresh_minutes');
+            $hasAutoLastWinnerValue = class_permissions_column_exists('rangclass', 'auto_last_winner_value');
+            $hasAutoLastComputedAt = class_permissions_column_exists('rangclass', 'auto_last_computed_at');
 
             $where = ($includeInactive || !$hasActive) ? '' : "WHERE r.is_active = 'yes'";
             $join = $hasHolder ? "LEFT JOIN users u ON u.id = r.holder_user_id" : '';
@@ -964,6 +1483,14 @@ if (!function_exists('class_permissions_get_trophies')) {
                     " . ($hasHolderAssignedAt ? 'r.holder_assigned_at' : 'NULL AS holder_assigned_at') . ",
                     " . ($hasHolderComment ? 'r.holder_comment' : "'' AS holder_comment") . ",
                     " . ($hasActive ? 'r.is_active' : "'yes' AS is_active") . ",
+                    " . ($hasAutoEnabled ? 'r.auto_enabled' : "'no' AS auto_enabled") . ",
+                    " . ($hasAutoMetric ? 'r.auto_metric' : "'' AS auto_metric") . ",
+                    " . ($hasAutoPeriodDays ? 'r.auto_period_days' : '0 AS auto_period_days') . ",
+                    " . ($hasAutoDirection ? 'r.auto_direction' : "'max' AS auto_direction") . ",
+                    " . ($hasAutoMinValue ? 'r.auto_min_value' : '0 AS auto_min_value') . ",
+                    " . ($hasAutoRefreshMinutes ? 'r.auto_refresh_minutes' : '10 AS auto_refresh_minutes') . ",
+                    " . ($hasAutoLastWinnerValue ? 'r.auto_last_winner_value' : '0 AS auto_last_winner_value') . ",
+                    " . ($hasAutoLastComputedAt ? 'r.auto_last_computed_at' : 'NULL AS auto_last_computed_at') . ",
                     " . ($hasHolder ? 'u.username AS holder_username' : "'' AS holder_username") . ",
                     " . ($hasHolder ? 'u.class AS holder_class' : '0 AS holder_class') . "
                 FROM rangclass r
@@ -978,6 +1505,10 @@ if (!function_exists('class_permissions_get_trophies')) {
                 $row['sort_order'] = (int)($row['sort_order'] ?? 0);
                 $row['holder_user_id'] = (int)($row['holder_user_id'] ?? 0);
                 $row['holder_class'] = (int)($row['holder_class'] ?? 0);
+                $row['auto_period_days'] = (int)($row['auto_period_days'] ?? 0);
+                $row['auto_min_value'] = (int)($row['auto_min_value'] ?? 0);
+                $row['auto_refresh_minutes'] = (int)($row['auto_refresh_minutes'] ?? 10);
+                $row['auto_last_winner_value'] = (int)($row['auto_last_winner_value'] ?? 0);
                 $rows[] = $row;
             }
             return $rows;
@@ -1076,6 +1607,25 @@ if (!function_exists('class_permissions_save_trophy')) {
         $sortOrder = max(1, min(9999, (int)($payload['sort_order'] ?? 1)));
         $isTransition = (($payload['is_transition'] ?? 'no') === 'yes') ? 'yes' : 'no';
         $isActive = (($payload['is_active'] ?? 'yes') === 'no') ? 'no' : 'yes';
+        $autoEnabled = (($payload['auto_enabled'] ?? 'no') === 'yes') ? 'yes' : 'no';
+        $autoMetric = preg_replace('/[^a-z0-9_]/i', '', (string)($payload['auto_metric'] ?? '')) ?? '';
+        $autoPeriodDays = max(0, min(3650, (int)($payload['auto_period_days'] ?? 0)));
+        $autoDirection = (($payload['auto_direction'] ?? 'max') === 'min') ? 'min' : 'max';
+        $autoMinValue = max(0, (int)($payload['auto_min_value'] ?? 0));
+        $autoRefreshMinutes = max(5, min(1440, (int)($payload['auto_refresh_minutes'] ?? 10)));
+
+        if (!isset(class_permissions_transition_metric_catalog()[$autoMetric])) {
+            $autoMetric = '';
+        }
+        if ($isTransition !== 'yes') {
+            $autoEnabled = 'no';
+            $autoMetric = '';
+            $autoPeriodDays = 0;
+            $autoDirection = 'max';
+            $autoMinValue = 0;
+        } elseif ($autoMetric === '') {
+            $autoEnabled = 'no';
+        }
 
         if ($trophyId > 0) {
             $stmt = $mysqli->prepare("
@@ -1086,18 +1636,24 @@ if (!function_exists('class_permissions_save_trophy')) {
                     description = ?,
                     sort_order = ?,
                     is_transition = ?,
-                    is_active = ?
+                    is_active = ?,
+                    auto_enabled = ?,
+                    auto_metric = ?,
+                    auto_period_days = ?,
+                    auto_direction = ?,
+                    auto_min_value = ?,
+                    auto_refresh_minutes = ?
                 WHERE id = ?
             ");
-            $stmt->bind_param('sssissi', $name, $rangpic, $description, $sortOrder, $isTransition, $isActive, $trophyId);
+            $stmt->bind_param('sssissssisiii', $name, $rangpic, $description, $sortOrder, $isTransition, $isActive, $autoEnabled, $autoMetric, $autoPeriodDays, $autoDirection, $autoMinValue, $autoRefreshMinutes, $trophyId);
             $stmt->execute();
             $stmt->close();
         } else {
             $stmt = $mysqli->prepare("
-                INSERT INTO rangclass (name, rangpic, description, sort_order, is_transition, is_active)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO rangclass (name, rangpic, description, sort_order, is_transition, is_active, auto_enabled, auto_metric, auto_period_days, auto_direction, auto_min_value, auto_refresh_minutes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $stmt->bind_param('sssiss', $name, $rangpic, $description, $sortOrder, $isTransition, $isActive);
+            $stmt->bind_param('sssissssisii', $name, $rangpic, $description, $sortOrder, $isTransition, $isActive, $autoEnabled, $autoMetric, $autoPeriodDays, $autoDirection, $autoMinValue, $autoRefreshMinutes);
             $stmt->execute();
             $trophyId = (int)$stmt->insert_id;
             $stmt->close();
@@ -1150,7 +1706,6 @@ if (!function_exists('class_permissions_release_transition_trophy')) {
             return;
         }
 
-        sql_query("UPDATE users SET rangclass = 0 WHERE id = {$holderUserId} AND rangclass = {$trophyId}");
         sql_query("
             UPDATE rangclass
             SET holder_user_id = 0, holder_assigned_at = NULL, holder_comment = " . sqlesc($comment) . "
@@ -1158,7 +1713,6 @@ if (!function_exists('class_permissions_release_transition_trophy')) {
         ");
 
         class_permissions_record_trophy_history($trophyId, $holderUserId, 0, $changedBy, $comment);
-        class_permissions_invalidate_user_auth_cache($holderUserId);
         class_permissions_invalidate_trophy_cache();
     }
 }
@@ -1194,21 +1748,6 @@ if (!function_exists('class_permissions_assign_transition_trophy_holder')) {
             class_permissions_release_transition_trophy($trophyId, $previousHolderId, $changedBy, $comment);
         }
 
-        $otherTrophies = sql_query("
-            SELECT id
-            FROM rangclass
-            WHERE is_transition = 'yes'
-              AND holder_user_id = {$userId}
-              AND id <> {$trophyId}
-        ");
-        while ($otherTrophies instanceof mysqli_result && ($row = mysqli_fetch_assoc($otherTrophies))) {
-            $otherId = (int)($row['id'] ?? 0);
-            if ($otherId > 0) {
-                class_permissions_release_transition_trophy($otherId, $userId, $changedBy, 'Снято из-за выдачи другого переходящего кубка.');
-            }
-        }
-
-        sql_query("UPDATE users SET rangclass = {$trophyId} WHERE id = {$userId}");
         sql_query("
             UPDATE rangclass
             SET
@@ -1219,7 +1758,6 @@ if (!function_exists('class_permissions_assign_transition_trophy_holder')) {
         ");
 
         class_permissions_record_trophy_history($trophyId, $previousHolderId, $userId, $changedBy, $comment);
-        class_permissions_invalidate_user_auth_cache($userId, $previousHolderId);
         class_permissions_invalidate_trophy_cache();
     }
 }

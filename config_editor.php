@@ -2,20 +2,67 @@
 
 require "include/bittorrent.php";
 
-// === фиксы пустой страницы ===
-if (!defined('IN_TRACKER')) {
-    define('IN_TRACKER', true);   // чтобы include/config.php не делал die()
-}
 dbconn(false);
 loggedinorreturn();
 
 if (get_user_class() < UC_SYSOP)
     stderr("Ошибка", "У вас нет доступа к конфигурации!");
 
-stdhead("Редактор конфигурации");
-begin_frame("Редактор конфигурации");
-
 $config_path = $rootpath . "include/config.php";
+
+function config_editor_export_value(mixed $value, string $type): string
+{
+    return match ($type) {
+        'bool' => (!empty($value) ? 'true' : 'false'),
+        'number' => (string)(int)$value,
+        default => var_export((string)$value, true),
+    };
+}
+
+function config_editor_replace_assignment(string $configText, string $key, string $valueCode): string
+{
+    $pattern = '/^\s*\$' . preg_quote($key, '/') . '\s*=.*?;\s*$/m';
+    $replacement = '$' . $key . ' = ' . $valueCode . ';';
+
+    if (preg_match($pattern, $configText)) {
+        return (string)preg_replace($pattern, $replacement, $configText, 1);
+    }
+
+    return rtrim($configText) . "\n" . $replacement . "\n";
+}
+
+function config_editor_save_config(string $configPath, array $configGroups, array $newValues): void
+{
+    $configText = (string)@file_get_contents($configPath);
+    if ($configText === '') {
+        $configText = "<?php\n\n// Защита от прямого доступа\nif (!defined(\"IN_TRACKER\") && !defined(\"IN_ANNOUNCE\")) {\n    die(\"Hacking attempt!\");\n}\n";
+    }
+
+    foreach ($configGroups as $items) {
+        foreach ($items as $key => [, $type]) {
+            $rawValue = $newValues[$key] ?? null;
+            $configText = config_editor_replace_assignment(
+                $configText,
+                $key,
+                config_editor_export_value($rawValue, $type)
+            );
+        }
+    }
+
+    $tmpPath = $configPath . '.tmp';
+    if (@file_put_contents($tmpPath, $configText, LOCK_EX) === false) {
+        stderr("Ошибка", "Не удалось записать временный файл конфигурации.");
+    }
+
+    if (is_file($configPath)) {
+        @copy($configPath, $configPath . '.bak');
+    }
+
+    if (!@rename($tmpPath, $configPath)) {
+        @unlink($tmpPath);
+        stderr("Ошибка", "Не удалось заменить основной файл конфигурации.");
+    }
+}
 
 // --- Определяем все конфиг-переменные по группам ---
 $config_groups = [
@@ -88,43 +135,42 @@ $config_groups = [
     ],
 ];
 
-// --- Обработка отправки ---
-if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['config'])) {
-    $new = $_POST['config'];
-    $out = "<?php\n\n// Защита от прямого доступа\nif (!defined(\"IN_TRACKER\") && !defined(\"IN_ANNOUNCE\")) {\n    die(\"Hacking attempt!\");\n}\n\n";
+// --- Обработка отправки ДО вывода HTML ---
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['config']) && is_array($_POST['config'])) {
+    if (!is_file($config_path)) {
+        stderr("Ошибка", "Файл конфигурации не найден: " . htmlspecialchars($config_path, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+    }
+    if (!is_writable($config_path)) {
+        stderr("Ошибка", "Файл конфигурации недоступен для записи: " . htmlspecialchars($config_path, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+    }
 
-    foreach ($config_groups as $group => $items) {
-        $out .= "\n// --- $group ---\n";
-        foreach ($items as $key => [$label, $type]) {
-            $val = trim($new[$key] ?? '');
-            switch ($type) {
-                case "bool":
-                    $val = $val === "1" ? "true" : "false";
-                    break;
-                case "number":
-                    $val = (int)$val;
-                    break;
-                default:
-                    $val = "'" . addslashes($val) . "'";
-            }
-            $out .= "\$$key = $val;\n";
+    $normalized = [];
+    foreach ($config_groups as $items) {
+        foreach ($items as $key => [, $type]) {
+            $raw = $_POST['config'][$key] ?? '';
+            $normalized[$key] = match ($type) {
+                'bool' => ((string)$raw === '1'),
+                'number' => (int)$raw,
+                default => trim((string)$raw),
+            };
         }
     }
 
-    file_put_contents($config_path, $out);
+    config_editor_save_config($config_path, $config_groups, $normalized);
     header("Location: config_editor.php?saved=1");
     exit;
 }
 
 // --- Загрузка значений ---
 if (!is_file($config_path)) {
-    stderr("Ошибка", "Файл конфигурации не найден: " . htmlspecialchars($config_path));
+    stderr("Ошибка", "Файл конфигурации не найден: " . htmlspecialchars($config_path, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
 }
 include $config_path;
 
+stdhead("Редактор конфигурации");
+begin_frame("Редактор конфигурации");
 
-
-if (isset($_GET['saved'])) {
+if (isset($_GET['saved']) && $_GET['saved'] === '1') {
     echo "<div style='color: green; font-weight: bold;'>Конфигурация успешно сохранена.</div><br>";
 }
 

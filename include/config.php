@@ -8,7 +8,7 @@ if (!defined("IN_TRACKER") && !defined("IN_ANNOUNCE")) {
 
 // --- Основное ---
 $SITE_ONLINE = true;
-$SITENAME = 'TorrentSide.ru';
+$SITENAME = 'TorrentSide2.ru';
 $SITEEMAIL = 'nickmsk9@icloud.com';
 $site_base_url = 'http://localhost:8084';
 

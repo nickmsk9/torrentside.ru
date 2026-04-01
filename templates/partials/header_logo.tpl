@@ -10,7 +10,7 @@
        style="background-image:url('{$baseUrl}/styles/images/_up_06.jpg');"></div>
 
   <div style="height:146px; display:flex; align-items:center; justify-content:center;">
-    <img src="{$baseUrl}/styles/images/logo.png" alt="Логотип">
+    <img src="{$baseUrl}/styles/images/logo.png" alt="{$siteName|default:'Логотип сайта'|escape}" title="{$siteName|default:'Логотип сайта'|escape}">
   </div>
 </div>
 

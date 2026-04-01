@@ -204,6 +204,10 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
     $ratioColor = htmlspecialchars($ratioColorValue, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $ratioHtml = '<font color="' . $ratioColor . '">' . htmlspecialchars($ratioText, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</font>';
 
+    class_permissions_refresh_transition_trophies();
+    $transitionScoreboard = class_permissions_transition_scoreboard(8);
+    $transitionSummary = class_permissions_transition_summary();
+
     $adminPanel = [
         'show' => false,
         'unchecked_torrents' => 0,
@@ -276,6 +280,8 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
         'secondary_url' => 'rules.php',
         'secondary_label' => 'Правила',
         'hint' => 'Правила, FAQ и свежие раздачи под рукой.',
+        'trophy_rows' => [],
+        'trophy_stats' => [],
     ];
 
     if ($currentUserId > 0) {
@@ -304,6 +310,27 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
             $bestBlock['primary_url'] = 'browse.php';
             $bestBlock['primary_label'] = 'Выбрать первую раздачу';
             $bestBlock['hint'] = 'После первых скачиваний здесь появится ритм.';
+        }
+    }
+
+    foreach ($transitionScoreboard as $row) {
+        $bestBlock['trophy_rows'][] = [
+            'position' => (int)($row['position'] ?? 0),
+            'user_html' => (string)($row['user_html'] ?? ''),
+            'icons_html' => (string)($row['icons_html'] ?? ''),
+            'count' => (int)($row['count'] ?? 0),
+        ];
+    }
+
+    $bestBlock['trophy_stats'] = [
+        'Кубков: ' . number_format((int)($transitionSummary['total'] ?? 0), 0, '.', ' '),
+        'Владельцев: ' . number_format((int)($transitionSummary['holders'] ?? 0), 0, '.', ' '),
+        'Авто: ' . number_format((int)($transitionSummary['auto'] ?? 0), 0, '.', ' '),
+    ];
+    if (!empty($transitionSummary['updated_at'])) {
+        $updatedTs = strtotime((string)$transitionSummary['updated_at']);
+        if ($updatedTs) {
+            $bestBlock['trophy_stats'][] = 'Пересчет: ' . date('H:i', $updatedTs);
         }
     }
 

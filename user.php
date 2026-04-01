@@ -370,29 +370,115 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
             die("У вас нет прав");
         }
 
+        class_permissions_refresh_transition_trophies();
+
         print("<h2>Модерирование</h2>\n");
 
-        $rangclass1 = "<option value='0'>--- Без ранга / кубка ---</option>\n";
-        foreach (class_permissions_get_trophies(false) as $rank) {
+        $rankOptions = "<option value='0'>--- Без ранга ---</option>\n";
+        foreach (class_permissions_get_trophies(true) as $rank) {
+            if (($rank['is_transition'] ?? 'no') === 'yes') {
+                continue;
+            }
             $rankId = (int)($rank['id'] ?? 0);
             $selected = ((int)$user['rangclass'] === $rankId) ? " selected" : "";
             $label = htmlspecialchars((string)($rank['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            if (($rank['is_transition'] ?? 'no') === 'yes') {
-                $label .= ' [переходящий кубок]';
-                if (!empty($rank['holder_username']) && (int)($rank['holder_user_id'] ?? 0) !== (int)$user['id']) {
-                    $label .= ' [' . htmlspecialchars((string)$rank['holder_username'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ']';
-                }
+            $rankOptions .= "<option value='{$rankId}'{$selected}>{$label}</option>\n";
+        }
+
+        $transitionTrophies = class_permissions_get_user_transition_trophies((int)$id, true);
+        $transitionHtml = '<small>У пользователя пока нет переходящих кубков.</small>';
+        if ($transitionTrophies) {
+            $transitionItems = [];
+            foreach ($transitionTrophies as $trophy) {
+                $transitionItems[] =
+                    '<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;">'
+                    . class_permissions_render_trophy_icon($trophy, 'transition-trophy-icon')
+                    . '<div><b>' . htmlspecialchars((string)($trophy['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</b>'
+                    . (!empty($trophy['holder_comment']) ? '<br><small>' . htmlspecialchars((string)$trophy['holder_comment'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</small>' : '')
+                    . '</div></div>';
             }
-            $rangclass1 .= "<option value='{$rankId}'{$selected}>{$label}</option>\n";
+            $transitionHtml = implode('', $transitionItems);
+        }
+
+        $countryOptions = "<option value=\"0\">— Не выбрано —</option>";
+        $countriesRes = sql_query("SELECT id, name FROM countries ORDER BY name");
+        while ($countriesRes instanceof mysqli_result && ($countryRow = mysqli_fetch_assoc($countriesRes))) {
+            $countryId = (int)($countryRow['id'] ?? 0);
+            $selected = ((int)($user['country'] ?? 0) === $countryId) ? ' selected' : '';
+            $countryOptions .= '<option value="' . $countryId . '"' . $selected . '>' . htmlspecialchars((string)($countryRow['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</option>';
+        }
+
+        $currentLanguage = preg_replace('~[^a-z0-9_-]+~i', '', (string)($user['language'] ?? 'russian'));
+        $languageOptions = '';
+        foreach (glob(__DIR__ . '/languages/lang_*', GLOB_ONLYDIR) ?: [] as $dir) {
+            $code = preg_replace('~^lang_~', '', basename($dir));
+            if ($code === '') {
+                continue;
+            }
+            $selected = ($code === $currentLanguage) ? ' selected' : '';
+            $languageOptions .= '<option value="' . htmlspecialchars($code, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $selected . '>' . htmlspecialchars(ucfirst($code), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</option>';
+        }
+        if ($languageOptions === '') {
+            $languageOptions = '<option value="russian" selected>Russian</option>';
+        }
+
+        $timezoneList = [
+            "-12"=>"(GMT -12:00) Эниветок, Кваджалейн","-11"=>"(GMT -11:00) О-в Мидуэй, Самоа","-10"=>"(GMT -10:00) Гавайи",
+            "-9"=>"(GMT -09:00) Аляска","-8"=>"(GMT -08:00) Тихоокеанское (США/Канада)","-7"=>"(GMT -07:00) Горное (США/Канада)",
+            "-6"=>"(GMT -06:00) Центральное (США/Канада), Мехико","-5"=>"(GMT -05:00) Восточное (США/Канада)","-4"=>"(GMT -04:00) Атлантическое",
+            "-3.5"=>"(GMT -03:30) Ньюфаундленд","-3"=>"(GMT -03:00) Бразилия, Аргентина","-2"=>"(GMT -02:00) Среднеатлантическое",
+            "-1"=>"(GMT -01:00) Азоры, Кабо-Верде","0"=>"(GMT) Лондон, Касабланка","1"=>"(GMT +01:00) Центральная Европа",
+            "2"=>"(GMT +02:00) Киев, Минск","3"=>"(GMT +03:00) Москва, Найроби","3.5"=>"(GMT +03:30) Тегеран",
+            "4"=>"(GMT +04:00) Баку, Маскат","4.5"=>"(GMT +04:30) Кабул","5"=>"(GMT +05:00) Карачи, Екатеринбург",
+            "5.5"=>"(GMT +05:30) Дели","5.75"=>"(GMT +05:45) Катманду","6"=>"(GMT +06:00) Алматы, Дакка",
+            "6.5"=>"(GMT +06:30) Янгон","7"=>"(GMT +07:00) Бангкок, Ханой","8"=>"(GMT +08:00) Пекин, Сингапур",
+            "9"=>"(GMT +09:00) Токио, Сеул","9.5"=>"(GMT +09:30) Аделаида, Дарвин","10"=>"(GMT +10:00) Сидней, Владивосток",
+            "11"=>"(GMT +11:00) Магадан","12"=>"(GMT +12:00) Окленд, Камчатка"
+        ];
+        $timezoneOptions = '';
+        $currentTimezone = (string)($user['tzoffset'] ?? '0');
+        foreach ($timezoneList as $zoneValue => $zoneLabel) {
+            $selected = ($currentTimezone === (string)$zoneValue) ? ' selected' : '';
+            $timezoneOptions .= '<option value="' . htmlspecialchars((string)$zoneValue, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $selected . '>' . htmlspecialchars($zoneLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</option>';
+        }
+
+        $privacyOptions = '';
+        foreach (['strong' => 'Сильная', 'normal' => 'Обычная', 'low' => 'Низкая'] as $privacyValue => $privacyLabel) {
+            $selected = (($user['privacy'] ?? 'normal') === $privacyValue) ? ' selected' : '';
+            $privacyOptions .= '<option value="' . $privacyValue . '"' . $selected . '>' . $privacyLabel . '</option>';
+        }
+
+        $acceptPmsOptions = '';
+        foreach (['yes' => 'Все пользователи', 'friends' => 'Только друзья', 'no' => 'Только администрация'] as $pmValue => $pmLabel) {
+            $selected = (($user['acceptpms'] ?? 'yes') === $pmValue) ? ' selected' : '';
+            $acceptPmsOptions .= '<option value="' . $pmValue . '"' . $selected . '>' . $pmLabel . '</option>';
+        }
+
+        $birthdayValue = '';
+        if (!empty($user['birthday']) && $user['birthday'] !== '0000-00-00') {
+            $birthdayValue = htmlspecialchars((string)$user['birthday'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         }
 
         print("<form method=\"post\" action=\"modtask.php\">\n");
         print("<input type=\"hidden\" name=\"action\" value=\"edituser\">\n");
         print("<input type=\"hidden\" name=\"userid\" value=\"$id\">\n");
         print("<input type=\"hidden\" name=\"returnto\" value=\"userdetails.php?id=$id\">\n");
-        print("<table class=\"main\" border=\"1\" cellspacing=\"0\" cellpadding=\"5\">\n");
+        print("<table class=\"main\" border=\"1\" cellspacing=\"0\" cellpadding=\"5\" width=\"100%\">\n");
         print("<tr><td class=\"rowhead\">Ник</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"username\" value=\"" . htmlspecialchars((string)$user["username"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
-        print("<tr><td class=\"rowhead\">Аватар</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"avatar\" value=\"" . htmlspecialchars((string)$user["avatar"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Email</td><td colspan=\"2\" align=\"left\"><input type=\"email\" size=\"60\" name=\"email\" value=\"" . htmlspecialchars((string)($user["email"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Статус</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"title\" value=\"" . htmlspecialchars((string)($user["title"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Аватар</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"avatar\" value=\"" . htmlspecialchars((string)$user["avatar"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"><br><small>Разрешены прямые ссылки на изображение и локальные пути вида `pic/avatars/...`.</small></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Сайт</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"website\" value=\"" . htmlspecialchars((string)($user["website"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Telegram</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"40\" name=\"telegram\" value=\"" . htmlspecialchars((string)($user["telegram"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Skype</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"40\" name=\"skype\" value=\"" . htmlspecialchars((string)($user["skype"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Страна</td><td colspan=\"2\" align=\"left\"><select name=\"country\">{$countryOptions}</select></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Язык</td><td colspan=\"2\" align=\"left\"><select name=\"language\">{$languageOptions}</select></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Часовой пояс</td><td colspan=\"2\" align=\"left\"><select name=\"tzoffset\">{$timezoneOptions}</select></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Приватность</td><td colspan=\"2\" align=\"left\"><select name=\"privacy\">{$privacyOptions}</select></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Принимать ЛС</td><td colspan=\"2\" align=\"left\"><select name=\"acceptpms\">{$acceptPmsOptions}</select></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Дата рождения</td><td colspan=\"2\" align=\"left\"><input type=\"date\" name=\"birthday\" value=\"{$birthdayValue}\"><br><label><input type=\"radio\" name=\"resetb\" value=\"yes\"> Сбросить</label> <label><input type=\"radio\" name=\"resetb\" value=\"no\" checked> Оставить</label></td></tr>\n");
+        print("<tr><td class=\"rowhead\">О себе</td><td colspan=\"2\" align=\"left\"><textarea cols=\"70\" rows=\"6\" name=\"info\">" . htmlspecialchars((string)($user['info'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</textarea></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Переходящие кубки</td><td colspan=\"2\" align=\"left\">{$transitionHtml}<br><small>Автовыдача и ручное переназначение настраиваются в модуле управления классами и кубками.</small></td></tr>\n");
 
         if ($CURUSER["class"] < UC_SYSOP) {
             print("<input type=\"hidden\" name=\"donor\" value=\"" . htmlspecialchars((string)$user["donor"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\">\n");
@@ -426,13 +512,11 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
         }
         print("</select><br><small>Профиль задает отдельные возможности выбранного класса.</small></td></tr>\n");
 
-        print("<tr><td class=\"rowhead\">Сбросить день рождения</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"resetb\" value=\"yes\">Да <input type=\"radio\" name=\"resetb\" value=\"no\" checked>Нет</td></tr>\n");
-
         $modcomment = htmlspecialchars((string)($user['modcomment'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $supportfor = htmlspecialchars((string)($user['supportfor'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         print("<tr><td class=\"rowhead\">Убрать рейтинг</td><td class=\"tablea\" colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"hiderating\" value=\"yes\"" . (($user["hiderating"]=="yes") ? " checked" : "") . ">Да <input type=\"radio\" name=\"hiderating\" value=\"no\"" . (($user["hiderating"]=="no") ? " checked" : "") . ">Нет</td></tr>\n");
         print("<tr><td class=\"rowhead\">Поддержка</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"support\" value=\"yes\"" . (($user["support"] == "yes") ? " checked" : "") . ">Да <input type=\"radio\" name=\"support\" value=\"no\"" . (($user["support"] == "no") ? " checked" : "") . ">Нет</td></tr>\n");
-        print("<tr><td class=\"rowhead\">Поддержка для:</td><td colspan=\"2\" align=\"left\"><textarea cols=\"60\" rows=\"6\" name=\"supportfor\">$supportfor</textarea></td></tr>\n");
+        print("<tr><td class=\"rowhead\">Поддержка для</td><td colspan=\"2\" align=\"left\"><textarea cols=\"60\" rows=\"6\" name=\"supportfor\">$supportfor</textarea></td></tr>\n");
         print("<tr><td class=\"rowhead\">История пользователя</td><td colspan=\"2\" align=\"left\"><textarea cols=\"60\" rows=\"6\"" . (get_user_class() < UC_SYSOP ? " readonly" : " name=\"modcomment\"") . ">$modcomment</textarea></td></tr>\n");
         print("<tr><td class=\"rowhead\">Добавить заметку</td><td colspan=\"2\" align=\"left\"><textarea cols=\"60\" rows=\"3\" name=\"modcomm\"></textarea></td></tr>\n");
 
@@ -453,7 +537,7 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
         if ($CURUSER["class"] < UC_ADMINISTRATOR) {
             print("<input type=\"hidden\" name=\"rangclass\" value=\"" . (int)$user['rangclass'] . "\">\n");
         } else {
-            print("<tr><td class=\"rowhead\">Ранг / кубок</td><td colspan=\"2\" align=\"left\"><select name=\"rangclass\">\n" . $rangclass1 . "\n</select><br><small>Переходящий кубок сразу сменит текущего владельца.</small></td></tr>\n");
+            print("<tr><td class=\"rowhead\">Обычный ранг</td><td colspan=\"2\" align=\"left\"><select name=\"rangclass\">\n{$rankOptions}\n</select><br><small>Переходящие кубки теперь живут отдельно и не затирают обычный ранг профиля.</small></td></tr>\n");
         }
 
         $enabled = (($user['enabled'] ?? '') === 'yes');
@@ -466,15 +550,15 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
 
         print("<tr><td class=\"rowhead\">Изменить раздачу</td><td align=\"left\"><input type=\"text\" name=\"amountup\" size=\"10\" /><td><select name=\"formatup\"><option value=\"mb\">MB</option><option value=\"gb\">GB</option></select></td></tr>");
         print("<tr><td class=\"rowhead\">Изменить скачку</td><td align=\"left\"><input type=\"text\" name=\"amountdown\" size=\"10\" /><td><select name=\"formatdown\"><option value=\"mb\">MB</option><option value=\"gb\">GB</option></select></td></tr>");
-        print("<tr><td class=\"rowhead\">Чат Бан</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"schoutboxpos\" value=\"yes\"" . (($user["schoutboxpos"]=="yes") ? " checked" : "") . ">Нет <input type=\"radio\" name=\"schoutboxpos\" value=\"no\"" . (($user["schoutboxpos"]=="no") ? " checked" : "") . ">Да</td></tr>\n");
-        print("<tr><td class=\"rowhead\">В группе?</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"groups\" value=\"yes\"" . (($user["groups"]=="yes") ? " checked" : "") . ">Нет <input type=\"radio\" name=\"groups\" value=\"no\"" . (($user["groups"]=="no") ? " checked" : "") . ">Да</td></tr>\n");
+        print("<tr><td class=\"rowhead\">Чат-бан</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"schoutboxpos\" value=\"yes\"" . (($user["schoutboxpos"]=="yes") ? " checked" : "") . ">Нет <input type=\"radio\" name=\"schoutboxpos\" value=\"no\"" . (($user["schoutboxpos"]=="no") ? " checked" : "") . ">Да</td></tr>\n");
+        print("<tr><td class=\"rowhead\">В группе</td><td colspan=\"2\" align=\"left\"><input type=\"radio\" name=\"groups\" value=\"yes\"" . (($user["groups"]=="yes") ? " checked" : "") . ">Да <input type=\"radio\" name=\"groups\" value=\"no\"" . (($user["groups"]=="no") ? " checked" : "") . ">Нет</td></tr>\n");
         print("<tr><td class=\"rowhead\">Сбросить passkey</td><td colspan=\"2\" align=\"left\"><input name=\"resetkey\" value=\"1\" type=\"checkbox\"></td></tr>\n");
         if ($CURUSER["class"] < UC_ADMINISTRATOR) {
             print("<input type=\"hidden\" name=\"deluser\">");
         } else {
             print("<tr><td class=\"rowhead\">Удалить</td><td colspan=\"2\" align=\"left\"><input type=\"checkbox\" name=\"deluser\"></td></tr>");
         }
-        print("<tr><td colspan=\"3\" align=\"center\"><input type=\"submit\" class=\"btn\" value=\"ОК\"></td></tr>\n");
+        print("<tr><td colspan=\"3\" align=\"center\"><input type=\"submit\" class=\"btn\" value=\"Сохранить\"></td></tr>\n");
         print("</table>\n");
         print("<input type=\"hidden\" id=\"upchange\" name=\"upchange\" value=\"plus\"><input type=\"hidden\" id=\"downchange\" name=\"downchange\" value=\"plus\">\n");
         print("</form>\n");

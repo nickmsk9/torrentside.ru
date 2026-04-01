@@ -17,6 +17,12 @@ function h(?string $s): string {
     return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+$currentAvatarUrl = tracker_avatar_url((string)($CURUSER['avatar'] ?? ''), '/pic/default_avatar.gif');
+$profileUrl = rtrim((string)$DEFAULTBASEURL, '/') . '/userdetails.php?id=' . (int)$CURUSER['id'];
+$userbarImageUrl = rtrim((string)$DEFAULTBASEURL, '/') . '/torrentbar/bar.php/' . (int)$CURUSER['id'] . '.png';
+$userbarBbCode = "[url={$profileUrl}][img]{$userbarImageUrl}[/img][/url]";
+$userbarImageCode = "[img]{$userbarImageUrl}[/img]";
+
 stdhead($CURUSER["username"] . " :: редактирование профиля", false);
 
 if (!empty($_GET["edited"])) {
@@ -37,7 +43,7 @@ begin_frame($CURUSER["username"]);
 <table border="1" cellspacing="0" cellpadding="10" align="center" width="100%">
 <tr>
 <td>
-<form method="post" action="takeprofedit.php" name="profileform" id="profileform">
+<form method="post" action="takeprofedit.php" name="profileform" id="profileform" enctype="multipart/form-data">
 <table border="1" cellspacing="0" cellpadding="5" width="100%">
 <?php
 /* -------- Стили -------- */
@@ -92,7 +98,23 @@ foreach ($timezones as $k=>$v) {
 tr("Часовой пояс", "<select name=\"tzoffset\">\n$timezone_opts\n</select>", 1);
 
 /* -------- Аватара, статус -------- */
-tr("Адрес аватары", "<input name=\"avatar\" size=\"50\" value=\"" . h($CURUSER["avatar"] ?? "") . "\"><br>Размер ≤ 100×100 пикселей.", 1);
+$avatarEditor = ''
+    . '<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">'
+    .   '<div style="min-width:110px;text-align:center">'
+    .     '<img src="' . h($currentAvatarUrl) . '" alt="Текущий аватар" width="100" height="100"'
+    .     ' style="display:block;width:100px;height:100px;border-radius:14px;object-fit:cover;border:1px solid #d7dfe8;box-shadow:0 4px 14px rgba(0,0,0,.08)">'
+    .     '<div style="margin-top:6px;font-size:11px;color:#66758c">Текущий аватар</div>'
+    .   '</div>'
+    .   '<div style="flex:1 1 320px;min-width:260px">'
+    .     '<input name="avatar" size="50" value="' . h($CURUSER["avatar"] ?? "") . '" placeholder="https://... или pic/avatars/..." style="width:98%"><br>'
+    .     '<div style="margin-top:8px"><input type="file" name="avatar_file" accept=".png,.jpg,.jpeg,.gif"></div>'
+    .     '<label style="display:inline-block;margin-top:8px"><input type="checkbox" name="avatar_clear" value="1"> убрать аватар и вернуть стандартный</label>'
+    .     '<div style="margin-top:8px;color:#66758c;font-size:11px;line-height:1.45">'
+    .       'Можно указать прямую ссылку на картинку или загрузить файл. Загруженные аватары сохраняются в <b>`pic/avatars`</b> и автоматически приводятся к размеру профиля.'
+    .     '</div>'
+    .   '</div>'
+    . '</div>';
+tr("Аватар", $avatarEditor, 1);
 tr("Статус", "<input name=\"title\" size=\"50\" value=\"" . h($CURUSER["title"] ?? "") . "\">", 1);
 
 
@@ -213,12 +235,16 @@ tr("Новый пароль", "<input type=\"password\" name=\"chpassword\" size
 tr("Пароль ещё раз", "<input type=\"password\" name=\"passagain\" size=\"50\" />", 1);
 
 /* -------- Юзербар -------- */
-$userbar = "[url=$DEFAULTBASEURL][img]$DEFAULTBASEURL/torrentbar/bar.php?id=".(int)$CURUSER["id"]."[/img][/url]";
 tr(
     $tracker_lang['my_userbar'] ?? "Мой юзербар",
-    "<img src=\"torrentbar/bar.php?id=".(int)$CURUSER['id']."\" alt=\"Userbar\"><br>".
-    ($tracker_lang['my_userbar_descr'] ?? "Скопируйте и вставьте этот код") . ":<br>".
-    "<input type=\"text\" size=\"65\" value=\"".h($userbar)."\" readonly>",
+    '<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">'
+    . '<div style="min-width:360px;max-width:100%"><img src="' . h($userbarImageUrl) . '" alt="Userbar" style="max-width:100%"></div>'
+    . '<div style="flex:1 1 320px;min-width:260px">'
+    . ($tracker_lang['my_userbar_descr'] ?? "Скопируйте и вставьте этот код") . ":<br>"
+    . '<div style="margin-top:6px">BBCode со ссылкой на профиль:<br><input type="text" size="72" value="' . h($userbarBbCode) . '" readonly></div>'
+    . '<div style="margin-top:8px">Только картинка:<br><input type="text" size="72" value="' . h($userbarImageCode) . '" readonly></div>'
+    . '<div style="margin-top:8px;color:#66758c;font-size:11px;line-height:1.45">Ссылка ведёт прямо на ваш профиль, а сама картинка доступна по стабильному PNG-адресу.</div>'
+    . '</div></div>',
     1
 );
 

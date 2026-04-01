@@ -2,15 +2,18 @@
 <html lang="ru">
 <head>
     <meta charset="utf-8">
-    <title>{$title}</title>
+    <title>{$title|default:$siteName|escape}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="application-name" content="{$siteName|escape}">
 
     <!-- Стили -->
     <link rel="stylesheet" href="/styles/engine.css?v={$cssVersion|escape}" type="text/css">
 
     <!-- Favicon & RSS -->
     <link rel="alternate" type="application/rss+xml" title="Последние торренты" href="{$baseUrl}/rss.php">
-    <link rel="shortcut icon" href="{$baseUrl}/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/favicon.ico?v={$faviconVersion|escape}" type="image/x-icon">
+    <link rel="shortcut icon" href="/favicon.ico?v={$faviconVersion|escape}" type="image/x-icon">
+    <link rel="apple-touch-icon" href="/favicon.ico?v={$faviconVersion|escape}">
 
     <!-- jQuery 3.7.1 -->
     <script src="/js/jquery-3.7.1.min.js"></script>

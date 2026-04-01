@@ -9,6 +9,7 @@ declare(strict_types=1);
  */
 
 // Базовый URL нужен здесь — без хардкода домена
+$rawHost = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
 if (!defined('DEFAULTBASEURL')) {
     // Определяем схему (учитываем reverse proxy)
     $https =
@@ -19,7 +20,6 @@ if (!defined('DEFAULTBASEURL')) {
     $scheme = $https ? 'https' : 'http';
 
     // Санитизируем хост, поддерживаем нестандартные порты
-    $rawHost = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
     $host = preg_replace('/[^A-Za-z0-9\.\-\:\[\]]/', '', (string)$rawHost);
     if (strpos($host, ':') === false) {
         $port = (int)($_SERVER['SERVER_PORT'] ?? 0);
@@ -35,6 +35,7 @@ if (!defined('DEFAULTBASEURL')) {
 }
 
 ### BEGIN-ANTIDDOS ###
+$isCli = PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg';
 $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $isBot =
     (stripos($ua, 'googlebot') !== false) ||
@@ -50,9 +51,26 @@ $isDownloadWithPasskey =
 
 // Имя куки завязываем на IP (как было)
 $cookieName = md5('837sgsa' . ($_SERVER['REMOTE_ADDR'] ?? '0'));
+$antiDdosTitle = 'TorrentSide';
+$antiDdosConfig = __DIR__ . '/config.php';
+if (is_readable($antiDdosConfig)) {
+    $configPreview = (string)@file_get_contents($antiDdosConfig);
+    if (
+        $configPreview !== ''
+        && preg_match('/\$SITENAME\s*=\s*([\'"])(.*?)\1\s*;/u', $configPreview, $m)
+    ) {
+        $antiDdosTitle = trim(stripslashes((string)$m[2]));
+    }
+}
+if ($antiDdosTitle === '') {
+    $antiDdosTitle = preg_replace('/:\d+$/', '', (string)$rawHost);
+}
+if ($antiDdosTitle === '') {
+    $antiDdosTitle = 'TorrentSide';
+}
 
 // Если нет куки, не бот и не announce — включаем простую защиту с автопостом
-if (empty($_COOKIE[$cookieName]) && !$isAnnounce && !$isBot && !$isDownloadWithPasskey) {
+if (!$isCli && empty($_COOKIE[$cookieName]) && !$isAnnounce && !$isBot && !$isDownloadWithPasskey) {
 
     // Если пришли со скрытым полем — ставим куку и редиректим обратно
     if (isset($_POST[$cookieName])) {
@@ -74,7 +92,9 @@ if (empty($_COOKIE[$cookieName]) && !$isAnnounce && !$isBot && !$isDownloadWithP
     // Первая страница — отдаём автопост-форму без хардкодов домена
     $action = DEFAULTBASEURL . ((string)($_SERVER['REQUEST_URI'] ?? '/'));
     $hn = htmlspecialchars($cookieName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    echo '<!doctype html><html><head><meta charset="utf-8"><title>Checking…</title></head><body>',
+    echo '<!doctype html><html><head><meta charset="utf-8"><title>',
+         htmlspecialchars($antiDdosTitle, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+         '</title><link rel="icon" href="/favicon.ico" type="image/x-icon"></head><body>',
          '<form id="f" action="', htmlspecialchars($action, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
          '" method="post"><input type="hidden" name="', $hn, '" value="a">',
          '<noscript><p>Нажмите «Продолжить», чтобы подтвердить запрос.</p><input type="submit" value="Continue"></noscript>',

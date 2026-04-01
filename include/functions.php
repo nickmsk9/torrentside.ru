@@ -1746,6 +1746,48 @@ function mksizeint($bytes) {
 				return floor($bytes / 1099511627776) . " TB";
 }
 
+if (!function_exists('tracker_normalize_public_url')) {
+    function tracker_normalize_public_url(string $raw, string $fallback = ''): string
+    {
+        global $DEFAULTBASEURL;
+
+        $raw = trim($raw);
+        if ($raw === '') {
+            $raw = $fallback;
+        }
+
+        if ($raw === '') {
+            $raw = '/';
+        }
+
+        if (preg_match('~^(https?://|//|data:image/)~i', $raw)) {
+            return $raw;
+        }
+
+        if ($raw[0] !== '/') {
+            $raw = '/' . ltrim($raw, '/');
+        }
+
+        $base = rtrim((string)($DEFAULTBASEURL ?? ''), '/');
+        return $base !== '' ? ($base . $raw) : $raw;
+    }
+}
+
+if (!function_exists('tracker_avatar_url')) {
+    function tracker_avatar_url(?string $raw, string $fallback = '/pic/default_avatar.gif'): string
+    {
+        return tracker_normalize_public_url((string)$raw, $fallback);
+    }
+}
+
+if (!function_exists('tracker_is_local_avatar_path')) {
+    function tracker_is_local_avatar_path(?string $raw): bool
+    {
+        $raw = ltrim(trim((string)$raw), '/');
+        return $raw !== '' && str_starts_with($raw, 'pic/avatars/');
+    }
+}
+
 function deadtime() {
 	global $announce_interval;
 	return time() - floor($announce_interval * 1.3);

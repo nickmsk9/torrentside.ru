@@ -103,34 +103,53 @@ if (!empty($user['birthday']) && $user['birthday'] !== '0000-00-00') {
     }
 }
 
-// Текущий ранг / переходящий кубок
+class_permissions_refresh_transition_trophies();
+
+// Обычный ранг и переходящие кубки
 $currentRank = ((int)($user['rangclass'] ?? 0) > 0)
     ? class_permissions_get_trophy((int)$user['rangclass'])
     : null;
+$transitionTrophies = class_permissions_get_user_transition_trophies((int)$id, false);
 $rangclass = '';
-$rangclassLabel = 'Ранг';
+$transitionRangclass = '';
+
+if ($currentRank && ($currentRank['is_transition'] ?? 'no') === 'yes') {
+    $currentRank = null;
+}
+
 if ($currentRank) {
     $currentRankPic = htmlspecialchars((string)($currentRank['rangpic'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $currentRankName = htmlspecialchars((string)($currentRank['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $extra = '';
-
-    if (($currentRank['is_transition'] ?? 'no') === 'yes') {
-        $rangclassLabel = 'Переходящий кубок';
-        $assignedAt = trim((string)($currentRank['holder_assigned_at'] ?? ''));
-        $holderComment = trim((string)($currentRank['holder_comment'] ?? ''));
-        if ($assignedAt !== '') {
-            $extra .= '<br><small>С ' . htmlspecialchars($assignedAt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</small>';
-        }
-        if ($holderComment !== '') {
-            $extra .= '<br><small>' . htmlspecialchars($holderComment, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</small>';
-        }
-    }
 
     $image = $currentRankPic !== ''
         ? "<img src=\"/pic/{$currentRankPic}\" alt=\"{$currentRankName}\" title=\"{$currentRankName}\" style='margin-left:5pt' align=\"top\">"
         : '';
 
-    $rangclass = $image . '<span style="margin-left:6px"><b>' . $currentRankName . '</b>' . $extra . '</span>';
+    $rangclass = $image . '<span style="margin-left:6px"><b>' . $currentRankName . '</b></span>';
+}
+
+if ($transitionTrophies) {
+    $transitionItems = [];
+    foreach ($transitionTrophies as $trophy) {
+        $trophyName = htmlspecialchars((string)($trophy['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $meta = [];
+        $assignedAt = trim((string)($trophy['holder_assigned_at'] ?? ''));
+        if ($assignedAt !== '') {
+            $meta[] = 'с ' . htmlspecialchars($assignedAt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+        $holderComment = trim((string)($trophy['holder_comment'] ?? ''));
+        if ($holderComment !== '') {
+            $meta[] = htmlspecialchars($holderComment, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        $transitionItems[] =
+            '<div class="profile-transition-item">'
+            . class_permissions_render_trophy_icon($trophy, 'transition-trophy-icon')
+            . '<span><b>' . $trophyName . '</b>'
+            . ($meta ? '<br><small>' . implode(' · ', $meta) . '</small>' : '')
+            . '</span></div>';
+    }
+    $transitionRangclass = implode('', $transitionItems);
 }
 
 // Заголовок страницы
@@ -142,6 +161,7 @@ $profileCaption = "Профиль пользователя "
     . "<span class=\"profile-caption-meta\">"
     . get_user_class_color($user['class'], $safeUsername)
     . get_user_icons($user, true)
+    . class_permissions_render_trophy_icons($transitionTrophies, 'transition-trophy-icon transition-trophy-icon-small')
     . " " . $country
     . "</span>";
 
@@ -168,6 +188,8 @@ $status = ($status !== '')
   .profile-caption-meta{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;vertical-align:middle}
   .profile-caption-meta img{vertical-align:middle}
   .profile-caption-meta .profile-country-flag{height:15px !important;width:auto !important;max-width:none !important;object-fit:contain}
+  .profile-transition-item{display:flex;align-items:flex-start;gap:8px;padding:4px 0}
+  .profile-transition-item small{color:#666;line-height:1.35}
   .category .profile-caption-meta, .tit .profile-caption-meta{font-size:12px;font-weight:600}
   .tit h1, .category{line-height:1.2;word-break:break-word}
 
@@ -381,7 +403,11 @@ HTML;
 
 // ------ Ранг
 if ($rangclass !== '') {
-    echo '<tr><td class="rowhead">' . htmlspecialchars($rangclassLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ' <img src="pic/logs.gif"></td><td class="lol" align="left">' . $rangclass . '</td></tr>';
+    echo '<tr><td class="rowhead">Ранг <img src="pic/logs.gif"></td><td class="lol" align="left">' . $rangclass . '</td></tr>';
+}
+
+if ($transitionRangclass !== '') {
+    echo '<tr><td class="rowhead">Переходящие кубки <img src="pic/logs.gif"></td><td class="lol" align="left">' . $transitionRangclass . '</td></tr>';
 }
 
 // ------ Бонусы
@@ -731,9 +757,6 @@ if ((int)($CURUSER['id'] ?? 0) !== (int)$id) {
         echo '<a href="javascript:void(0);" onclick="addtofriends(' . (int)$id . ', \'add\');">Добавить в друзья</a>&nbsp;| ' . "\n";
     }
 
-    if (get_user_class() >= UC_MODERATOR && (int)$user['class'] < get_user_class()) {
-        echo '<a href="javascript:void(0);" onclick="moderate(' . (int)$id . ');">Модерирование</a>' . "\n";
-    }
     echo "</p>\n";
     echo '<div id="actions" ' . $actionsStyle . '></div>' . "\n";
 } else {
@@ -949,6 +972,9 @@ echo '<script src="js/user.js" type="text/javascript" defer></script>' . "\n";
     <span class="tab" id="uploaded">Загрузил</span>
     <span class="tab" id="downloading">Сейчас качает</span>
     <span class="tab" id="uploading">Сейчас раздает</span>
+    <?php if (get_user_class() >= UC_MODERATOR && (int)$user['class'] < get_user_class()): ?>
+    <span class="tab" id="moderate">Модерирование</span>
+    <?php endif; ?>
     <span id="loading"></span>
 
     <div id="body" user="<?php echo (int)$id; ?>">

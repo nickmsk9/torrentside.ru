@@ -13,7 +13,7 @@ dbconn(false);
 loggedinorreturn();
 
 /** Глобалы из ядра */
-global $CURUSER, $BASEUSER, $BASEURL, $DEFAULTBASEURL, $SITEEMAIL, $SITENAME;
+global $CURUSER, $BASEUSER, $BASEURL, $DEFAULTBASEURL, $SITEEMAIL, $SITENAME, $avatar_max_width, $avatar_max_height;
 /** @var mysqli|null $mysqli */
 $mysqli = $GLOBALS['mysqli'] ?? null;
 if (!$mysqli instanceof mysqli) bark('Нет подключения к БД.');
@@ -102,6 +102,141 @@ function sanitize_profile_website(?string $raw): string {
     return $normalized;
 }
 
+function sanitize_profile_avatar_input(?string $raw): string {
+    $raw = trim((string)$raw);
+    if ($raw === '') {
+        return '';
+    }
+
+    if (preg_match('#^(?:https?|ftp)://[^\s<>"\']+?\.(?:gif|jpe?g|png)$#i', $raw)) {
+        return mb_substr($raw, 0, 255);
+    }
+
+    if (preg_match('#^/?pic/[A-Za-z0-9_\-./]+\.(?:gif|jpe?g|png)$#i', $raw)) {
+        return ltrim($raw, '/');
+    }
+
+    bark('Аватар должен быть прямой ссылкой на изображение или локальным путём внутри /pic.');
+}
+
+function profile_avatar_upload_error_text(int $code): string
+{
+    return match ($code) {
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Файл аватара слишком большой.',
+        UPLOAD_ERR_PARTIAL => 'Файл аватара загрузился не полностью.',
+        UPLOAD_ERR_NO_TMP_DIR => 'На сервере отсутствует временная папка для загрузки.',
+        UPLOAD_ERR_CANT_WRITE => 'Сервер не смог сохранить загруженный файл.',
+        UPLOAD_ERR_EXTENSION => 'Загрузка файла была остановлена расширением PHP.',
+        default => 'Не удалось загрузить файл аватара.',
+    };
+}
+
+function profile_avatar_remove_local(string $avatarPath): void
+{
+    if (!tracker_is_local_avatar_path($avatarPath)) {
+        return;
+    }
+
+    $fullPath = __DIR__ . '/' . ltrim($avatarPath, '/');
+    if (is_file($fullPath)) {
+        @unlink($fullPath);
+    }
+}
+
+function profile_avatar_prepare_canvas($srcImage, int $srcWidth, int $srcHeight, int $dstWidth, int $dstHeight, int $imageType)
+{
+    $dstImage = imagecreatetruecolor($dstWidth, $dstHeight);
+    if ($imageType === IMAGETYPE_PNG || $imageType === IMAGETYPE_GIF) {
+        imagealphablending($dstImage, false);
+        imagesavealpha($dstImage, true);
+        $transparent = imagecolorallocatealpha($dstImage, 0, 0, 0, 127);
+        imagefilledrectangle($dstImage, 0, 0, $dstWidth, $dstHeight, $transparent);
+    } else {
+        $background = imagecolorallocate($dstImage, 255, 255, 255);
+        imagefilledrectangle($dstImage, 0, 0, $dstWidth, $dstHeight, $background);
+    }
+
+    imagecopyresampled($dstImage, $srcImage, 0, 0, 0, 0, $dstWidth, $dstHeight, $srcWidth, $srcHeight);
+    return $dstImage;
+}
+
+function profile_avatar_store_uploaded(array $file, int $userId, int $maxWidth, int $maxHeight): string
+{
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error === UPLOAD_ERR_NO_FILE) {
+        return '';
+    }
+    if ($error !== UPLOAD_ERR_OK) {
+        bark(profile_avatar_upload_error_text($error));
+    }
+
+    $tmpPath = (string)($file['tmp_name'] ?? '');
+    if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+        bark('Файл аватара не был корректно загружен.');
+    }
+
+    if (((int)($file['size'] ?? 0)) > 5 * 1024 * 1024) {
+        bark('Файл аватара превышает допустимый размер 5 МБ.');
+    }
+
+    $imageInfo = @getimagesize($tmpPath);
+    if (!$imageInfo || empty($imageInfo[2])) {
+        bark('Загруженный файл не является изображением.');
+    }
+
+    $imageType = (int)$imageInfo[2];
+    $extensionMap = [
+        IMAGETYPE_GIF => 'gif',
+        IMAGETYPE_JPEG => 'jpg',
+        IMAGETYPE_PNG => 'png',
+    ];
+    if (!isset($extensionMap[$imageType])) {
+        bark('Поддерживаются только GIF, JPG и PNG для аватара.');
+    }
+
+    $srcBytes = @file_get_contents($tmpPath);
+    $srcImage = is_string($srcBytes) ? @imagecreatefromstring($srcBytes) : false;
+    if (!$srcImage) {
+        bark('Не удалось обработать изображение аватара.');
+    }
+
+    $srcWidth = max(1, imagesx($srcImage));
+    $srcHeight = max(1, imagesy($srcImage));
+    $maxWidth = max(40, $maxWidth);
+    $maxHeight = max(40, $maxHeight);
+    $scale = min($maxWidth / $srcWidth, $maxHeight / $srcHeight, 1);
+    $dstWidth = max(1, (int)round($srcWidth * $scale));
+    $dstHeight = max(1, (int)round($srcHeight * $scale));
+
+    $dstImage = profile_avatar_prepare_canvas($srcImage, $srcWidth, $srcHeight, $dstWidth, $dstHeight, $imageType);
+
+    $avatarsDir = __DIR__ . '/pic/avatars';
+    if (!is_dir($avatarsDir) && !@mkdir($avatarsDir, 0775, true) && !is_dir($avatarsDir)) {
+        imagedestroy($srcImage);
+        imagedestroy($dstImage);
+        bark('Не удалось создать каталог для аватаров.');
+    }
+
+    $fileName = sprintf('u%d_%s_%s.%s', $userId, date('YmdHis'), bin2hex(random_bytes(4)), $extensionMap[$imageType]);
+    $targetPath = $avatarsDir . '/' . $fileName;
+
+    $saved = match ($imageType) {
+        IMAGETYPE_GIF => imagegif($dstImage, $targetPath),
+        IMAGETYPE_JPEG => imagejpeg($dstImage, $targetPath, 90),
+        IMAGETYPE_PNG => imagepng($dstImage, $targetPath, 6),
+        default => false,
+    };
+
+    imagedestroy($srcImage);
+    imagedestroy($dstImage);
+
+    if (!$saved) {
+        bark('Не удалось сохранить аватар на сервере.');
+    }
+
+    return 'pic/avatars/' . $fileName;
+}
+
 /** ---------------------- CSRF (мягкая проверка) ---------------------- */
 // Если в форме передан токен и в сессии он есть — сверим. Если нет — пропустим (обратная совместимость).
 if (isset($_POST['csrf_token'], $_SESSION['csrf_token'])
@@ -125,6 +260,7 @@ $oldpassword = (string)($_POST['oldpassword'] ?? '');
 $website_clear = isset($_POST['website_clear']) && $_POST['website_clear'] === '1';
 $website_in    = (string)($_POST['website'] ?? '');
 $website_out   = $website_clear ? '' : sanitize_profile_website($website_in);
+$avatar_clear  = isset($_POST['avatar_clear']) && $_POST['avatar_clear'] === '1';
 
 // Часовой пояс (если есть такая колонка в БД)
 $tzoffset = isset($_POST['tzoffset']) ? trim((string)$_POST['tzoffset']) : null;
@@ -193,7 +329,14 @@ if (!in_array($gender, ['1','2','3'], true)) $gender = '1';
 
 $title      = norm_string($_POST["title"] ?? '');
 $info       = (string)($_POST["info"] ?? '');
-$avatar     = norm_string($_POST["avatar"] ?? '');
+$avatarInput = sanitize_profile_avatar_input($_POST["avatar"] ?? '');
+$avatarUpload = profile_avatar_store_uploaded(
+    is_array($_FILES['avatar_file'] ?? null) ? $_FILES['avatar_file'] : [],
+    (int)$CURUSER['id'],
+    (int)($avatar_max_width ?? 100),
+    (int)($avatar_max_height ?? 100)
+);
+$avatar = $avatar_clear ? '' : ($avatarUpload !== '' ? $avatarUpload : $avatarInput);
 $skype      = mb_substr(norm_string($_POST["skype"] ?? ''), 0, 255);
 $stylesheet = max(1, (int)($_POST["stylesheet"] ?? 1));
 $country    = max(0, (int)($_POST["country"] ?? 0));
@@ -243,6 +386,10 @@ $telegram = normalize_telegram($telegram_in);
 if (!empty($_POST['resetpasskey']) && $_POST['resetpasskey'] === '1') {
     $newpasskey = tracker_generate_passkey();
     $updateset[] = "passkey = " . sqlesc($newpasskey);
+}
+
+if (($avatar_clear || $avatarUpload !== '') && tracker_is_local_avatar_path((string)($CURUSER['avatar'] ?? '')) && (string)($CURUSER['avatar'] ?? '') !== $avatar) {
+    profile_avatar_remove_local((string)$CURUSER['avatar']);
 }
 
 /** ---------------------- Формирование UPDATE ---------------------- */

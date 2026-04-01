@@ -7,13 +7,17 @@ if (!defined('UC_SYSOP')) {
 
 // Инициализация Smarty
 require_once dirname(__DIR__, 2) . '/include/smarty_init.php';
-global $smarty, $CURUSER, $tracker_lang, $DEFAULTBASEURL;
+global $smarty, $CURUSER, $tracker_lang, $DEFAULTBASEURL, $SITENAME;
 
 // ====================== Заголовок страницы ======================
-$titleEscaped = htmlspecialchars($title ?? '', ENT_QUOTES | ENT_SUBSTITUTE);
+$pageTitle = trim((string)($title ?? ''));
+$siteName = trim((string)($SITENAME ?? 'TorrentSide'));
+$titleForHead = $pageTitle !== '' ? $pageTitle : $siteName;
 $baseUrl      = rtrim((string)($DEFAULTBASEURL ?? ''), '/');
 $engineCssPath = dirname(__DIR__) . '/engine.css';
 $cssVersion = is_file($engineCssPath) ? (string)filemtime($engineCssPath) : (string)time();
+$faviconPath = dirname(__DIR__, 2) . '/favicon.ico';
+$faviconVersion = is_file($faviconPath) ? (string)filemtime($faviconPath) : $cssVersion;
 
 // Верхнее меню (главная навигация)
 $navItems = [
@@ -31,9 +35,11 @@ $navItems = [
 
 // Передаём в Smarty head и логотип
 if (isset($smarty)) {
-    $smarty->assign('title', $titleEscaped);
+    $smarty->assign('title', $titleForHead);
+    $smarty->assign('siteName', $siteName);
     $smarty->assign('baseUrl', $baseUrl);
     $smarty->assign('cssVersion', $cssVersion);
+    $smarty->assign('faviconVersion', $faviconVersion);
     $smarty->assign('navItems', $navItems);
     echo $smarty->fetch('partials/head_block.tpl');
     echo $smarty->fetch('partials/header_logo.tpl');
@@ -78,9 +84,7 @@ if (isset($smarty)) {
         $ratio  = $dwn > 0 ? number_format($upl / $dwn, 3) : ($upl > 0 ? 'Inf.' : '---');
 
         // Аватар (дефолтный, если пусто)
-        $avatar = !empty($CURUSER['avatar'])
-            ? htmlspecialchars($CURUSER['avatar'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            : 'pic/default_avatar.png';
+        $avatar = tracker_avatar_url((string)($CURUSER['avatar'] ?? ''), '/pic/default_avatar.gif');
 
         $smarty->assign('userMenu', [
             'id'       => $uid,
@@ -89,7 +93,7 @@ if (isset($smarty)) {
             'uploaded' => $uped,
             'download' => $downed,
             'bonus'    => $bonus,
-            'avatar'   => $avatar,
+            'avatar'   => htmlspecialchars($avatar, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
             'loggedin' => true,
         ]);
     } else {

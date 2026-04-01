@@ -144,55 +144,32 @@ $staffCard = static function (array $u) use ($DEFAULTBASEURL, $h, $calcAge, $isO
     $L_pm       = $h($lang['staff_pm']       ?? 'ЛС');
 
     return <<<HTML
-<td class="embedded" width="33%">
-  <div id="rounded-box-3">
-    <b class="r3"></b><b class="r1"></b><b class="r1"></b>
-    <div class="inner-box">
-      <table border="0" cellpadding="10" cellspacing="0" width="100%">
-        <tr>
-          <td class="embedded">
-            <div class="left-card" style="width:240px;min-height:105px;margin:3px;">
-              <table class="inlay" width="100%">
-                <tr valign="top">
-                  <td width="90">{$avatar}</td>
-                  <td width="140">
-                    <p><b>{$L_nick}:</b> <a href="{$h($profileUrl)}">{$nameHtml}</a></p>
-                    <p><b>{$L_age}:</b> {$h($calcAge($u['birthday']))}</p>
-                    <p><b>{$L_status}:</b> {$onlineHtml}</p>
-                    <p><b>{$L_contact}:</b> <a href="{$pmUrl}">{$L_pm}</a></p>
-                  </td>
-                </tr>
-              </table>
-            </div>
-          </td>
-        </tr>
-      </table>
+<article class="staff-card">
+  <div class="staff-card-top">
+    <div class="staff-avatar">{$avatar}</div>
+    <div class="staff-card-body">
+      <p><b>{$L_nick}:</b> <a href="{$h($profileUrl)}">{$nameHtml}</a></p>
+      <p><b>{$L_age}:</b> {$h($calcAge($u['birthday']))}</p>
+      <p><b>{$L_status}:</b> {$onlineHtml}</p>
+      <p><b>{$L_contact}:</b> <a href="{$pmUrl}">{$L_pm}</a></p>
     </div>
-    <b class="r1"></b><b class="r1"></b><b class="r3"></b>
   </div>
-</td>
+</article>
 HTML;
 };
 
-/** Секция (по 3 карточки в строке) */
+/** Секция */
 $renderSection = static function (string $title, array $users) use ($staffCard, $h): string {
     if (!$users) return '';
-    $html = [];
-    $html[] = '<tr><td class="embedded" colspan="12"><div class="c_title">'.$h($title).'</div></td></tr>';
-    $html[] = '<tr><td class="embedded" colspan="12"><hr color="#4040c0" size="1"></td></tr>';
-
-    $col = 0; $rowOpen = false;
+    $cards = [];
     foreach ($users as $u) {
-        if ($col === 0) { $html[] = '<tr>'; $rowOpen = true; }
-        $html[] = $staffCard($u);
-        if (++$col === 3) { $html[] = '</tr>'; $rowOpen = false; $col = 0; }
+        $cards[] = $staffCard($u);
     }
-    if ($rowOpen) {
-        while ($col < 3) { $html[] = '<td class="embedded" width="33%"></td>'; $col++; }
-        $html[] = '</tr>';
-    }
-    $html[] = '<tr><td class="embedded" colspan="12">&nbsp;</td></tr>';
-    return implode("\n", $html);
+
+    return '<section class="staff-section">'
+        . '<div class="staff-section-title">' . $h($title) . '</div>'
+        . '<div class="staff-grid">' . implode("\n", $cards) . '</div>'
+        . '</section>';
 };
 
 /** ------ Данные ------ */
@@ -218,23 +195,19 @@ $T_mod  = $lang['class_moderator']     ?? 'Модераторы';
 begin_frame($lang['staff_header'] ?? 'Персонал');
 ?>
 <style>
-  table.inlay td { border: none; padding: 3px; }
-  table.inlay p  { margin: 0; }
   .badge-online, .badge-offline { display:inline-block; padding:2px 6px; font-size:12px; border-radius:10px; }
   .badge-online  { background:#e6ffed; color:#036703; }
   .badge-offline { background:#fdeaea; color:#8a0404; }
-  .c_title { font-weight:700; font-size:15px; }
+  .staff-directory-notice { margin:0 0 10px; }
+  .staff-directory-notice strong { color:#b10000; }
 </style>
-
-<table width="100%" cellspacing="0">
-  <tr><td class="embedded" colspan="12"><?=$h($lang['staff_notice_rules'] ?? 'Вопросы, на которые есть ответы в правилах или FAQ, будут оставлены без внимания.')?></td></tr>
-  <tr><td class="embedded" colspan="12"><span style="color:red"><b><?=$h($lang['staff_notice_beg'] ?? 'Навязчивые просьбы на должность Администратора и Модератора будут караться баном!')?></b></span></td></tr>
-  <tr><td class="embedded" colspan="12">&nbsp;</td></tr>
-
+<div class="staff-directory">
+  <div class="embedded staff-directory-notice"><?=$h($lang['staff_notice_rules'] ?? 'Вопросы, на которые есть ответы в правилах или FAQ, будут оставлены без внимания.')?></div>
+  <div class="embedded staff-directory-notice"><strong><?=$h($lang['staff_notice_beg'] ?? 'Навязчивые просьбы на должность Администратора и Модератора будут караться баном!')?></strong></div>
   <?= $renderSection($T_sys, $byClass[UC_SYSOP] ?? []) ?>
   <?= $renderSection($T_adm, $byClass[UC_ADMINISTRATOR] ?? []) ?>
   <?= $renderSection($T_mod, $byClass[UC_MODERATOR] ?? []) ?>
-</table>
+</div>
 <?php
 end_frame();
 end_main_frame();

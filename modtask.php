@@ -18,17 +18,111 @@ if (get_user_class() < UC_MODERATOR) {
     puke($tracker_lang['access_denied']);
 }
 
+function modtask_valid_telegram(string $value): bool
+{
+    $value = trim($value);
+    if ($value === '') {
+        return true;
+    }
+
+    return (bool)(
+        preg_match('~^https?://t\.me/([A-Za-z0-9_]{5,32})$~i', $value)
+        || preg_match('~^@?[A-Za-z0-9_]{5,32}$~', $value)
+    );
+}
+
+function modtask_normalize_telegram(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('~^https?://t\.me/([A-Za-z0-9_]{5,32})$~i', $value, $matches)) {
+        return $matches[1];
+    }
+
+    return ltrim($value, '@');
+}
+
+function modtask_sanitize_profile_website(?string $raw): string
+{
+    $raw = trim((string)$raw);
+    if ($raw === '') {
+        return '';
+    }
+
+    $normalized = preg_match('~^[a-z][a-z0-9+\\-.]*://~i', $raw) ? $raw : ('https://' . $raw);
+    $parts = @parse_url($normalized);
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
+    if (!in_array($scheme, ['http', 'https'], true)) {
+        stderr('Ошибка', 'Некорректный сайт пользователя.');
+    }
+
+    $normalized = (string)preg_replace('~[\x00-\x1F\x7F]~', '', $normalized);
+    $normalized = mb_substr($normalized, 0, 255);
+    if (!filter_var($normalized, FILTER_VALIDATE_URL)) {
+        stderr('Ошибка', 'Некорректный сайт пользователя.');
+    }
+
+    return $normalized;
+}
+
+function modtask_sanitize_avatar(?string $raw): string
+{
+    global $tracker_lang;
+
+    $raw = trim((string)$raw);
+    if ($raw === '') {
+        return '';
+    }
+
+    if (preg_match('#^(?:https?|ftp)://[^\s<>"\']+?\.(?:gif|jpe?g|png)$#i', $raw)) {
+        return mb_substr($raw, 0, 255);
+    }
+
+    if (preg_match('#^/?pic/[A-Za-z0-9_\-./]+\.(?:gif|jpe?g|png)$#i', $raw)) {
+        return ltrim($raw, '/');
+    }
+
+    stderr('Ошибка', $tracker_lang['avatar_adress_invalid']);
+}
+
 $action = $_POST['action'] ?? '';
 
 if ($action === 'edituser') {
     // --- INPUTS (нормализуем всё сразу) ---
     $userid   = (int)($_POST['userid'] ?? 0);
     $username = trim((string)($_POST['username'] ?? ''));
-    $avatar   = trim((string)($_POST['avatar'] ?? ''));
+    $email    = trim((string)($_POST['email'] ?? ''));
+    $title    = trim((string)($_POST['title'] ?? ''));
+    $avatar   = modtask_sanitize_avatar($_POST['avatar'] ?? '');
+    $website  = modtask_sanitize_profile_website($_POST['website'] ?? '');
+    $telegramRaw = trim((string)($_POST['telegram'] ?? ''));
+    $skype    = mb_substr(trim((string)($_POST['skype'] ?? '')), 0, 255);
+    $country  = max(0, (int)($_POST['country'] ?? 0));
+    $language = preg_replace('~[^a-z0-9_-]+~i', '', (string)($_POST['language'] ?? 'russian'));
+    if ($language === '' || !is_dir(__DIR__ . '/languages/lang_' . $language)) {
+        $language = 'russian';
+    }
+    $tzoffset = trim((string)($_POST['tzoffset'] ?? '0'));
+    $allowedTz = ["-12","-11","-10","-9","-8","-7","-6","-5","-4","-3.5","-3","-2","-1","0","1","2","3","3.5","4","4.5","5","5.5","5.75","6","6.5","7","8","9","9.5","10","11","12"];
+    if (!in_array($tzoffset, $allowedTz, true)) {
+        $tzoffset = '0';
+    }
+    $privacy = (string)($_POST['privacy'] ?? 'normal');
+    if (!in_array($privacy, ['strong', 'normal', 'low'], true)) {
+        $privacy = 'normal';
+    }
+    $acceptpms = (string)($_POST['acceptpms'] ?? 'yes');
+    if (!in_array($acceptpms, ['yes', 'friends', 'no'], true)) {
+        $acceptpms = 'yes';
+    }
+    $info = (string)($_POST['info'] ?? '');
     $groups   = ($_POST['groups'] ?? 'no') === 'yes' ? 'yes' : 'no';
 
     $resetb   = ($_POST['resetb'] ?? 'no') === 'yes' ? 'yes' : 'no';
-    $birthdayClause = ($resetb === 'yes') ? ", birthday = '0000-00-00'" : "";
+    $birthdayInput = trim((string)($_POST['birthday'] ?? ''));
 
     $enabled  = ($_POST['enabled'] ?? 'no') === 'yes' ? 'yes' : 'no';
     $warned   = ($_POST['warned']  ?? '') === 'yes' ? 'yes' : (($_POST['warned'] ?? '') === 'no' ? 'no' : '');
@@ -61,16 +155,26 @@ if ($action === 'edituser') {
         stderr($tracker_lang['error'], "Неверный идентификатор пользователя или класса.");
     }
 
-    // Проверка аватара (если указан)
-    if ($avatar !== '') {
-        // Разрешаем http/https/ftp, файл .gif|.jpg|.jpeg|.png
-        if (!preg_match('#^(?:https?|ftp)://[^\s<>"]+?\.(?:gif|jpe?g|png)$#i', $avatar)) {
-            stderr($tracker_lang['error'], $tracker_lang['avatar_adress_invalid']);
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        stderr($tracker_lang['error'], 'Укажите корректный email пользователя.');
+    }
+
+    if (!modtask_valid_telegram($telegramRaw)) {
+        stderr($tracker_lang['error'], 'Укажите корректный Telegram: @username или https://t.me/username.');
+    }
+    $telegram = modtask_normalize_telegram($telegramRaw);
+
+    $birthdaySql = "birthday = NULL";
+    if ($resetb !== 'yes' && $birthdayInput !== '') {
+        $birthday = DateTime::createFromFormat('Y-m-d', $birthdayInput);
+        if (!$birthday || $birthday->format('Y-m-d') !== $birthdayInput) {
+            stderr($tracker_lang['error'], 'Некорректная дата рождения.');
         }
+        $birthdaySql = "birthday = " . sqlesc($birthdayInput);
     }
 
     // Текущие данные пользователя
-    $res = sql_query("SELECT warned, enabled, username, schoutboxpos, class, hiderating, uploaded, downloaded, modcomment, rangclass
+    $res = sql_query("SELECT warned, enabled, username, email, schoutboxpos, class, hiderating, uploaded, downloaded, modcomment, rangclass
                       FROM users WHERE id = " . sqlesc($userid))
            or sqlerr(__FILE__, __LINE__);
     $arr = mysqli_fetch_assoc($res) or puke("Ошибка MySQL");
@@ -84,6 +188,14 @@ if ($action === 'edituser') {
     $curDownloaded  = (float)$arr['downloaded'];
     $dbModcomment   = (string)($arr['modcomment'] ?? '');
     $curRangclass   = (int)($arr['rangclass'] ?? 0);
+
+    if (strcasecmp((string)($arr['email'] ?? ''), $email) !== 0) {
+        $emailRes = sql_query("SELECT id FROM users WHERE email = " . sqlesc($email) . " AND id <> " . (int)$userid . " LIMIT 1")
+            or sqlerr(__FILE__, __LINE__);
+        if ($emailRes instanceof mysqli_result && mysqli_num_rows($emailRes) > 0) {
+            stderr($tracker_lang['error'], 'Этот email уже используется другим пользователем.');
+        }
+    }
 
     // Модкоммент можно редактировать только SYSOP
     if (get_user_class() == UC_SYSOP) {
@@ -239,6 +351,18 @@ $updateset[] = "support = " . sqlesc($support);
 $updateset[] = "avatar = " . sqlesc($avatar);
 $updateset[] = "hiderating = " . sqlesc($hiderating);
 $updateset[] = "username = " . sqlesc($username);
+$updateset[] = "email = " . sqlesc($email);
+$updateset[] = "title = " . sqlesc($title);
+$updateset[] = "website = " . sqlesc($website);
+$updateset[] = "telegram = " . sqlesc($telegram);
+$updateset[] = "skype = " . sqlesc($skype);
+$updateset[] = "country = " . (int)$country;
+$updateset[] = "language = " . sqlesc($language);
+$updateset[] = "tzoffset = " . sqlesc($tzoffset);
+$updateset[] = "privacy = " . sqlesc($privacy);
+$updateset[] = "acceptpms = " . sqlesc($acceptpms);
+$updateset[] = "info = " . sqlesc($info);
+$updateset[] = $birthdaySql;
 $updateset[] = "class_profile_id = " . max(0, $classProfileId);
 
     if ($curRangclass !== $rangclass) {
@@ -248,9 +372,7 @@ $updateset[] = "class_profile_id = " . max(0, $classProfileId);
         $newRankName = $newRank ? (string)$newRank['name'] : 'без ранга';
 
         if ($rangclass <= 0) {
-            $rankAction = 'Снят ранг/кубок';
-        } elseif (($newRank['is_transition'] ?? 'no') === 'yes') {
-            $rankAction = 'Выдан переходящий кубок';
+            $rankAction = 'Снят ранг';
         } else {
             $rankAction = 'Изменен ранг';
         }
@@ -269,7 +391,7 @@ $updateset[] = "class_profile_id = " . max(0, $classProfileId);
         $updateset[] = "passkey = " . sqlesc($passkey);
     }
 
-    sql_query("UPDATE users SET " . implode(", ", $updateset) . " $birthdayClause WHERE id = " . (int)$userid)
+    sql_query("UPDATE users SET " . implode(", ", $updateset) . " WHERE id = " . (int)$userid)
         or sqlerr(__FILE__, __LINE__);
 
     if ($curRangclass !== $rangclass) {

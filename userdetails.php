@@ -757,6 +757,10 @@ if ((int)($CURUSER['id'] ?? 0) !== (int)$id) {
         echo '<a href="javascript:void(0);" onclick="addtofriends(' . (int)$id . ', \'add\');">Добавить в друзья</a>&nbsp;| ' . "\n";
     }
 
+    if (get_user_class() >= UC_MODERATOR && (int)($user['class'] ?? 0) < get_user_class()) {
+        echo '<a href="javascript:void(0);" onclick="moderate(' . (int)$id . ');">Модерирование</a>&nbsp;| ' . "\n";
+    }
+
     echo "</p>\n";
     echo '<div id="actions" ' . $actionsStyle . '></div>' . "\n";
 } else {

@@ -370,8 +370,6 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
             die("У вас нет прав");
         }
 
-        class_permissions_refresh_transition_trophies();
-
         print("<h2>Модерирование</h2>\n");
 
         $rankOptions = "<option value='0'>--- Без ранга ---</option>\n";
@@ -470,7 +468,6 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
         print("<tr><td class=\"rowhead\">Аватар</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"avatar\" value=\"" . htmlspecialchars((string)$user["avatar"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"><br><small>Разрешены прямые ссылки на изображение и локальные пути вида `pic/avatars/...`.</small></td></tr>\n");
         print("<tr><td class=\"rowhead\">Сайт</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"60\" name=\"website\" value=\"" . htmlspecialchars((string)($user["website"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
         print("<tr><td class=\"rowhead\">Telegram</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"40\" name=\"telegram\" value=\"" . htmlspecialchars((string)($user["telegram"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
-        print("<tr><td class=\"rowhead\">Skype</td><td colspan=\"2\" align=\"left\"><input type=\"text\" size=\"40\" name=\"skype\" value=\"" . htmlspecialchars((string)($user["skype"] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\"></td></tr>\n");
         print("<tr><td class=\"rowhead\">Страна</td><td colspan=\"2\" align=\"left\"><select name=\"country\">{$countryOptions}</select></td></tr>\n");
         print("<tr><td class=\"rowhead\">Язык</td><td colspan=\"2\" align=\"left\"><select name=\"language\">{$languageOptions}</select></td></tr>\n");
         print("<tr><td class=\"rowhead\">Часовой пояс</td><td colspan=\"2\" align=\"left\"><select name=\"tzoffset\">{$timezoneOptions}</select></td></tr>\n");

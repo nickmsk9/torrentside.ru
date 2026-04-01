@@ -29,8 +29,8 @@ $recover_captcha = true;
 $default_theme = 'Light';
 $default_language = 'russian';
 $pic_base_url = './pic/';
-$avatar_max_width = 100;
-$avatar_max_height = 100;
+$avatar_max_width = 120;
+$avatar_max_height = 120;
 
 // --- Очистка и автообновление ---
 $autoclean_interval = 900;

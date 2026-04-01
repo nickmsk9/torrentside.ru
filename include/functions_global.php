@@ -775,7 +775,7 @@ function format_comment(string $text, bool $strip_html = true): string {
             '<a href="mailto:\\1">\\1</a>',
             '<a href="mailto:\\1">\\2</a>',
             '<span style="color:\\1">\\2</span>',
-            '<span style="font-family:\\1">\\2</span>',
+            '\\2',
             '<div style="text-align:\\1">\\2</div>',
             '<b>\\1</b>',
             '<i>\\1</i>',
@@ -1191,31 +1191,6 @@ function textbbcode2(string $form, string $name, string $content = ''): void
         <td class="b">
           <div>
             <div style="text-align:center">
-              <select name="fontFace" class="editbutton">
-                <option style="font-family: Verdana" value="-1" selected="selected">Шрифт:</option>
-                <option style="font-family: Courier" value="Courier">&nbsp;Courier</option>
-                <option style="font-family: Courier New" value="Courier New">&nbsp;Courier New</option>
-                <option style="font-family: monospace" value="monospace">&nbsp;monospace</option>
-                <option style="font-family: Fixedsys" value="Fixedsys">&nbsp;Fixedsys</option>
-                <option style="font-family: Arial" value="Arial">&nbsp;Arial</option>
-                <option style="font-family: Comic Sans MS" value="Comic Sans MS">&nbsp;Comic Sans</option>
-                <option style="font-family: Georgia" value="Georgia">&nbsp;Georgia</option>
-                <option style="font-family: Tahoma" value="Tahoma">&nbsp;Tahoma</option>
-                <option style="font-family: Times New Roman" value="Times New Roman">&nbsp;Times</option>
-                <option style="font-family: serif" value="serif">&nbsp;serif</option>
-                <option style="font-family: sans-serif" value="sans-serif">&nbsp;sans-serif</option>
-                <option style="font-family: cursive" value="cursive">&nbsp;cursive</option>
-                <option style="font-family: fantasy" value="fantasy">&nbsp;fantasy</option>
-                <option style="font-family: Book Antiqua" value="Book Antiqua">&nbsp;Antiqua</option>
-                <option style="font-family: Century Gothic" value="Century Gothic">&nbsp;Century Gothic</option>
-                <option style="font-family: Franklin Gothic Medium" value="Franklin Gothic Medium">&nbsp;Franklin</option>
-                <option style="font-family: Garamond" value="Garamond">&nbsp;Garamond</option>
-                <option style="font-family: Impact" value="Impact">&nbsp;Impact</option>
-                <option style="font-family: Lucida Console" value="Lucida Console">&nbsp;Lucida</option>
-                <option style="font-family: Palatino Linotype" value="Palatino Linotype">&nbsp;Palatino</option>
-                <option style="font-family: Trebuchet MS" value="Trebuchet MS">&nbsp;Trebuchet</option>
-              </select>
-              &nbsp;
               <select name="codeColor" class="editbutton">
                 <option style="color:black; background:#fff;" value="black" selected="selected">Цвет шрифта:</option>
                 <option style="color:black" value="Black">&nbsp;Черный</option>
@@ -1405,7 +1380,6 @@ function textbbcode2(string $form, string $name, string $content = ''): void
               bbcode.addTag("codeHR","hr", "", "8", ctrl);
               bbcode.addTag("codeBR","br", "", "", ctrl);
               bbcode.addTag("codeSpoiler", "spoiler", null, "S", ctrl);
-              bbcode.addTag("fontFace", function(e){ var v=e.value; e.selectedIndex=0; return "font="+v+""; }, "/font");
               bbcode.addTag("codeColor", function(e){ var v=e.value; e.selectedIndex=0; return "color="+v; }, "/color");
               bbcode.addTag("codeSize", function(e){ var v=e.value; e.selectedIndex=0; return "size="+v; }, "/size");
               bbcode.addTag("codeAlign", function(e){ var v=e.value; e.selectedIndex=0; return "align="+v; }, "/align");

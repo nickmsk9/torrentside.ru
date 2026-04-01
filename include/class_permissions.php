@@ -31,8 +31,20 @@ if (!function_exists('class_permissions_table_exists')) {
             return $cache[$table];
         }
 
-        $res = class_permissions_safe_query("SHOW TABLES LIKE " . sqlesc($table));
-        return $cache[$table] = ($res instanceof mysqli_result && mysqli_num_rows($res) > 0);
+        $resolver = static function () use ($table): bool {
+            $res = class_permissions_safe_query("SHOW TABLES LIKE " . sqlesc($table));
+            return $res instanceof mysqli_result && mysqli_num_rows($res) > 0;
+        };
+
+        if (function_exists('tracker_cache_ns_key') && function_exists('tracker_cache_remember')) {
+            return $cache[$table] = (bool)tracker_cache_remember(
+                tracker_cache_ns_key('class_trophy_schema', 'table.' . $table),
+                600,
+                $resolver
+            );
+        }
+
+        return $cache[$table] = $resolver();
     }
 }
 
@@ -56,8 +68,20 @@ if (!function_exists('class_permissions_column_exists')) {
             return $cache[$cacheKey] = false;
         }
 
-        $res = class_permissions_safe_query("SHOW COLUMNS FROM `{$table}` LIKE " . sqlesc($column));
-        return $cache[$cacheKey] = ($res instanceof mysqli_result && mysqli_num_rows($res) > 0);
+        $resolver = static function () use ($table, $column): bool {
+            $res = class_permissions_safe_query("SHOW COLUMNS FROM `{$table}` LIKE " . sqlesc($column));
+            return $res instanceof mysqli_result && mysqli_num_rows($res) > 0;
+        };
+
+        if (function_exists('tracker_cache_ns_key') && function_exists('tracker_cache_remember')) {
+            return $cache[$cacheKey] = (bool)tracker_cache_remember(
+                tracker_cache_ns_key('class_trophy_schema', 'column.' . $cacheKey),
+                600,
+                $resolver
+            );
+        }
+
+        return $cache[$cacheKey] = $resolver();
     }
 }
 
@@ -233,6 +257,15 @@ if (!function_exists('class_permissions_invalidate_catalog_cache')) {
     {
         if (function_exists('tracker_cache_bump_namespace')) {
             tracker_cache_bump_namespace('class_catalog');
+        }
+    }
+}
+
+if (!function_exists('class_permissions_invalidate_schema_cache')) {
+    function class_permissions_invalidate_schema_cache(): void
+    {
+        if (function_exists('tracker_cache_bump_namespace')) {
+            tracker_cache_bump_namespace('class_trophy_schema');
         }
     }
 }
@@ -419,6 +452,63 @@ if (!function_exists('class_permissions_ensure_schema')) {
         }
 
         $ready = true;
+        class_permissions_invalidate_schema_cache();
+    }
+}
+
+if (!function_exists('class_permissions_transition_system_ready')) {
+    function class_permissions_transition_system_ready(): bool
+    {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+
+        $resolver = static function (): bool {
+            $requiredTables = [
+                'rangclass',
+                'rangclass_history',
+            ];
+            foreach ($requiredTables as $table) {
+                if (!class_permissions_table_exists($table)) {
+                    return false;
+                }
+            }
+
+            $requiredColumns = [
+                'is_transition',
+                'holder_user_id',
+                'holder_assigned_at',
+                'holder_comment',
+                'is_active',
+                'auto_enabled',
+                'auto_metric',
+                'auto_period_days',
+                'auto_direction',
+                'auto_min_value',
+                'auto_refresh_minutes',
+                'auto_last_winner_value',
+                'auto_last_computed_at',
+            ];
+            foreach ($requiredColumns as $column) {
+                if (!class_permissions_column_exists('rangclass', $column)) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+        if (function_exists('tracker_cache_ns_key') && function_exists('tracker_cache_remember')) {
+            $ready = (bool)tracker_cache_remember(
+                tracker_cache_ns_key('class_trophy_schema', 'transition-system-ready'),
+                600,
+                $resolver
+            );
+            return $ready;
+        }
+
+        return $ready = $resolver();
     }
 }
 
@@ -1277,12 +1367,23 @@ if (!function_exists('class_permissions_refresh_transition_trophies')) {
     function class_permissions_refresh_transition_trophies(bool $force = false): array
     {
         static $running = false;
+        static $completed = false;
+        static $result = ['processed' => 0, 'updated' => 0];
+
+        if (!$force && $completed) {
+            return $result;
+        }
         if ($running) {
-            return ['processed' => 0, 'updated' => 0];
+            return $result;
         }
 
         $running = true;
-        class_permissions_ensure_schema();
+        if (!class_permissions_transition_system_ready()) {
+            $running = false;
+            $completed = true;
+            $result = ['processed' => 0, 'updated' => 0];
+            return $result;
+        }
 
         $processed = 0;
         $updated = 0;
@@ -1350,7 +1451,9 @@ if (!function_exists('class_permissions_refresh_transition_trophies')) {
         }
 
         $running = false;
-        return ['processed' => $processed, 'updated' => $updated];
+        $completed = true;
+        $result = ['processed' => $processed, 'updated' => $updated];
+        return $result;
     }
 }
 
@@ -1677,7 +1780,9 @@ if (!function_exists('class_permissions_save_trophy')) {
 if (!function_exists('class_permissions_record_trophy_history')) {
     function class_permissions_record_trophy_history(int $trophyId, int $previousHolderId, int $holderUserId, int $changedBy, string $comment = ''): void
     {
-        class_permissions_ensure_schema();
+        if (!class_permissions_transition_system_ready()) {
+            return;
+        }
 
         $comment = trim($comment);
         if (strlen($comment) > 255) {
@@ -1720,7 +1825,10 @@ if (!function_exists('class_permissions_release_transition_trophy')) {
 if (!function_exists('class_permissions_assign_transition_trophy_holder')) {
     function class_permissions_assign_transition_trophy_holder(int $trophyId, int $userId, int $changedBy, string $comment = ''): void
     {
-        class_permissions_ensure_schema();
+        if (!class_permissions_transition_system_ready()) {
+            stderr('Ошибка', 'Система переходящих кубков не готова. Проверьте раздел кубков в админке.');
+            exit;
+        }
 
         $trophy = class_permissions_get_trophy($trophyId);
         if (!$trophy || ($trophy['is_transition'] ?? 'no') !== 'yes') {
@@ -1765,8 +1873,6 @@ if (!function_exists('class_permissions_assign_transition_trophy_holder')) {
 if (!function_exists('class_permissions_set_user_rank')) {
     function class_permissions_set_user_rank(int $userId, int $trophyId, int $changedBy, string $comment = ''): void
     {
-        class_permissions_ensure_schema();
-
         $userId = (int)$userId;
         $trophyId = (int)$trophyId;
         if ($userId <= 0) {

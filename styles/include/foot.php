@@ -183,27 +183,6 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
 
     $currentUserId = (int)($CURUSER['id'] ?? 0);
     $currentUserClass = (int)($CURUSER['class'] ?? 0);
-    $currentBonus = (int)($CURUSER['bonus'] ?? 0);
-    $currentInvites = (int)($CURUSER['invites'] ?? 0);
-    $currentUploaded = (int)($CURUSER['uploaded'] ?? 0);
-    $currentDownloaded = (int)($CURUSER['downloaded'] ?? 0);
-
-    $ratioText = '---';
-    $ratioValue = null;
-    if ($currentDownloaded > 0) {
-        $ratioValue = $currentUploaded / $currentDownloaded;
-        $ratioText = $ratioValue > 100 ? '100+' : number_format($ratioValue, 2, '.', '');
-    } elseif ($currentUploaded > 0) {
-        $ratioText = 'Inf.';
-    }
-
-    $ratioColorValue = '#000000';
-    if ($ratioValue !== null) {
-        $ratioColorValue = (string)get_ratio_color($ratioValue);
-    }
-    $ratioColor = htmlspecialchars($ratioColorValue, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $ratioHtml = '<font color="' . $ratioColor . '">' . htmlspecialchars($ratioText, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</font>';
-
     class_permissions_refresh_transition_trophies();
     $transitionScoreboard = class_permissions_transition_scoreboard(8);
     $transitionSummary = class_permissions_transition_summary();
@@ -269,49 +248,9 @@ if ($blockhide !== 'right' && $blockhide !== 'all') {
 
     $bestBlock = [
         'loggedin' => $currentUserId > 0,
-        'title' => 'Быстрый старт',
-        'ratio_html' => $ratioHtml,
-        'bonus' => number_format($currentBonus, 0, '.', ' '),
-        'invites' => $currentInvites,
-        'bonus_url' => 'mybonus.php',
-        'invites_url' => $currentUserId > 0 ? ('invite.php?id=' . $currentUserId) : 'signup.php',
-        'primary_url' => 'browse.php',
-        'primary_label' => 'Открыть новинки',
-        'secondary_url' => 'rules.php',
-        'secondary_label' => 'Правила',
-        'hint' => 'Правила, FAQ и свежие раздачи под рукой.',
         'trophy_rows' => [],
         'trophy_stats' => [],
     ];
-
-    if ($currentUserId > 0) {
-        $bestBlock['title'] = 'Хороший темп';
-        $bestBlock['secondary_url'] = 'userdetails.php?id=' . $currentUserId;
-        $bestBlock['secondary_label'] = 'Мой профиль';
-        $bestBlock['hint'] = 'Рейтинг, бонусы и инвайты под рукой.';
-
-        if ($currentBonus >= 100) {
-            $bestBlock['title'] = 'Бонусный ход';
-            $bestBlock['primary_url'] = 'mybonus.php';
-            $bestBlock['primary_label'] = 'Обменять бонусы';
-            $bestBlock['hint'] = 'Баланс уже годится для обмена.';
-        } elseif ($currentInvites > 0) {
-            $bestBlock['title'] = 'Можно звать';
-            $bestBlock['primary_url'] = 'invite.php?id=' . $currentUserId;
-            $bestBlock['primary_label'] = 'Выдать инвайт';
-            $bestBlock['hint'] = 'Есть инвайты для новых людей.';
-        } elseif ($ratioValue !== null && $ratioValue < 1.0) {
-            $bestBlock['title'] = 'Подтяни рейтинг';
-            $bestBlock['primary_url'] = 'browse.php';
-            $bestBlock['primary_label'] = 'Найти раздачи';
-            $bestBlock['hint'] = 'Новинки и сидирование помогут рейтингу.';
-        } elseif ($ratioText === '---') {
-            $bestBlock['title'] = 'Пора начать';
-            $bestBlock['primary_url'] = 'browse.php';
-            $bestBlock['primary_label'] = 'Выбрать первую раздачу';
-            $bestBlock['hint'] = 'После первых скачиваний здесь появится ритм.';
-        }
-    }
 
     foreach ($transitionScoreboard as $row) {
         $bestBlock['trophy_rows'][] = [

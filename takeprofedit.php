@@ -337,7 +337,6 @@ $avatarUpload = profile_avatar_store_uploaded(
     (int)($avatar_max_height ?? 100)
 );
 $avatar = $avatar_clear ? '' : ($avatarUpload !== '' ? $avatarUpload : $avatarInput);
-$skype      = mb_substr(norm_string($_POST["skype"] ?? ''), 0, 255);
 $stylesheet = max(1, (int)($_POST["stylesheet"] ?? 1));
 $country    = max(0, (int)($_POST["country"] ?? 0));
 $language   = preg_replace('~[^a-z0-9_-]+~i', '', (string)($_POST['language'] ?? ($CURUSER['language'] ?? 'russian')));
@@ -375,7 +374,7 @@ while ($arr = mysqli_fetch_assoc($res)) {
 /* ---------- На страницу ---------- */
 $tpp = min(100, max(0, (int)($_POST["torrentsperpage"] ?? 0)));
 
-/* ---------- Telegram (вместо ICQ) ---------- */
+/* ---------- Telegram ---------- */
 $telegram_in = trim((string)unesc($_POST['telegram'] ?? ''));
 if (!is_valid_telegram($telegram_in)) {
     bark('Укажите корректный Telegram: @username (5–32) или https://t.me/username.');
@@ -404,7 +403,6 @@ $updateset[] = "gender = " . sqlesc($gender);
 $updateset[] = "title = " . sqlesc($title);
 $updateset[] = "info = " . sqlesc($info);
 $updateset[] = "avatar = " . sqlesc($avatar);
-$updateset[] = "skype = " . sqlesc($skype);
 $updateset[] = "country = " . (int)$country;
 $updateset[] = "stylesheet = " . (int)$stylesheet;
 $updateset[] = "torrentsperpage = " . (int)$tpp;

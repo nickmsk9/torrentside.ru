@@ -977,17 +977,19 @@ float : right;
 cursor : pointer; 
 } 
 .editor_button select { 
-font-family : tahoma; 
+font-family : inherit; 
 font-size : 11px; 
 } 
 .sceditor-container {
 width : 100% !important;
 max-width : 100%;
 box-sizing : border-box;
+font-family : system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
 }
 .sceditor-container textarea,
 .sceditor-container iframe {
 box-sizing : border-box;
+font-family : inherit !important;
 }
 .sceditor-container .sceditor-toolbar {
 box-sizing : border-box;
@@ -996,6 +998,16 @@ overflow-x : auto;
 overflow-y : hidden;
 -webkit-overflow-scrolling : touch;
 padding : 4px 6px;
+}
+.sceditor-container .sceditor-toolbar,
+.sceditor-container .sceditor-group,
+.sceditor-container .sceditor-button,
+.sceditor-container .sceditor-button div,
+.sceditor-container .sceditor-dropdown,
+.sceditor-container .sceditor-dropdown input,
+.sceditor-container .sceditor-dropdown textarea {
+font-family : inherit !important;
+font-weight : 400;
 }
 .sceditor-container .sceditor-group {
 float : none;
@@ -1018,7 +1030,7 @@ line-height : 24px;
 margin-top : -1px; 
 color : #757575; 
 font-size : 11px; 
-font-family : tahoma; 
+font-family : inherit; 
 background-image : url(../pic/field.gif); 
 background-repeat : repeat-x; 
 width : 532px; 
@@ -1131,17 +1143,17 @@ width:14px;
 height:14px;
 }
 .best-trophy-board{
-margin:8px 0 10px 0;
-padding:6px 6px 5px 6px;
-border:1px solid #e1c07d;
-background:#fff9ef;
-color:#634400;
+margin:0;
+padding:0;
+border:none;
+background:transparent;
+color:inherit;
 }
 .best-trophy-title{
-margin-bottom:4px;
+margin-bottom:6px;
 font-weight:bold;
 text-align:center;
-color:#7d5410;
+color:#89d6fc;
 }
 .best-trophy-table{
 width:100% !important;
@@ -1155,7 +1167,7 @@ background:transparent;
 .best-trophy-pos{
 width:18px;
 font-weight:bold;
-color:#9d3b00;
+color:#89d6fc;
 vertical-align:top;
 }
 .best-trophy-user{
@@ -1169,10 +1181,10 @@ text-align:right;
 .best-trophy-stats{
 margin-top:5px;
 padding-top:4px;
-border-top:1px dotted #d4b06c;
+border-top:1px dotted rgba(137,214,252,.35);
 font-size:10px;
 line-height:1.35;
-color:#7b5c2b;
+color:#9bc9df;
 }
 .staff-directory{
 display:grid;

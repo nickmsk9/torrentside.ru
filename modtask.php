@@ -99,7 +99,6 @@ if ($action === 'edituser') {
     $avatar   = modtask_sanitize_avatar($_POST['avatar'] ?? '');
     $website  = modtask_sanitize_profile_website($_POST['website'] ?? '');
     $telegramRaw = trim((string)($_POST['telegram'] ?? ''));
-    $skype    = mb_substr(trim((string)($_POST['skype'] ?? '')), 0, 255);
     $country  = max(0, (int)($_POST['country'] ?? 0));
     $language = preg_replace('~[^a-z0-9_-]+~i', '', (string)($_POST['language'] ?? 'russian'));
     if ($language === '' || !is_dir(__DIR__ . '/languages/lang_' . $language)) {
@@ -355,7 +354,6 @@ $updateset[] = "email = " . sqlesc($email);
 $updateset[] = "title = " . sqlesc($title);
 $updateset[] = "website = " . sqlesc($website);
 $updateset[] = "telegram = " . sqlesc($telegram);
-$updateset[] = "skype = " . sqlesc($skype);
 $updateset[] = "country = " . (int)$country;
 $updateset[] = "language = " . sqlesc($language);
 $updateset[] = "tzoffset = " . sqlesc($tzoffset);

@@ -1088,7 +1088,6 @@ function userlogin(bool $lightmode = false): void {
             'supportfor',
             'avatar',
             'telegram',
-            'skype',
             'website',
             'uploaded',
             'downloaded',
@@ -2878,19 +2877,28 @@ function textbbcode(string $form, string $name, string $text = ''): void
     // ---------- эскейпы/нормализация ----------
     $h = static fn($s) => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $j = static fn($v) => json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $assetVersion = static function (string $relativePath): string {
+        $fullPath = dirname(__DIR__) . '/' . ltrim($relativePath, '/');
+        return is_file($fullPath) ? ('?v=' . (string)filemtime($fullPath)) : '';
+    };
     // нормализуем id (допустимые: буквы/цифры/_-:.)
     $textareaId = preg_replace('/[^A-Za-z0-9_\-:.]/', '_', $name) ?: 'bbcode_textarea';
+    $themeCssUrl = $DEFAULTBASEURL . '/js/sceditor/themes/default.css' . $assetVersion('js/sceditor/themes/default.css');
+    $contentCssUrl = $DEFAULTBASEURL . '/js/sceditor/themes/content/default.css' . $assetVersion('js/sceditor/themes/content/default.css');
+    $coreJsUrl = $DEFAULTBASEURL . '/js/sceditor/minified/jquery.sceditor.min.js' . $assetVersion('js/sceditor/minified/jquery.sceditor.min.js');
+    $formatJsUrl = $DEFAULTBASEURL . '/js/sceditor/minified/formats/bbcode.js' . $assetVersion('js/sceditor/minified/formats/bbcode.js');
+    $localeJsUrl = $DEFAULTBASEURL . '/js/sceditor/languages/ru.js' . $assetVersion('js/sceditor/languages/ru.js');
 
     // ---------- подключаем ассеты один раз ----------
     static $assetsPrinted = false;
     if (!$assetsPrinted) {
         $assetsPrinted = true; ?>
         <!-- SCEditor CSS -->
-        <link rel="stylesheet" href="<?= $h($DEFAULTBASEURL) ?>/js/sceditor/themes/default.css">
+        <link rel="stylesheet" href="<?= $h($themeCssUrl) ?>">
         <!-- SCEditor core + BBCode + язык (важно: ядро ДО формата) -->
-        <script defer src="<?= $h($DEFAULTBASEURL) ?>/js/sceditor/minified/jquery.sceditor.min.js"></script>
-        <script defer src="<?= $h($DEFAULTBASEURL) ?>/js/sceditor/minified/formats/bbcode.js"></script>
-        <script defer src="<?= $h($DEFAULTBASEURL) ?>/js/sceditor/languages/ru.js"></script>
+        <script defer src="<?= $h($coreJsUrl) ?>"></script>
+        <script defer src="<?= $h($formatJsUrl) ?>"></script>
+        <script defer src="<?= $h($localeJsUrl) ?>"></script>
     <?php }
 
     // ---------- инициализация конкретно этого поля ----------
@@ -2899,6 +2907,7 @@ function textbbcode(string $form, string $name, string $text = ''): void
     (function (win, doc) {
         // безопасные значения из PHP
         var BASE = <?= $j($DEFAULTBASEURL) ?>;
+        var CONTENT_CSS = <?= $j($contentCssUrl) ?>;
         var TA_ID = <?= $j($textareaId) ?>;
         var FORM_NAME = <?= $j($form) ?>;
 
@@ -2926,7 +2935,7 @@ function textbbcode(string $form, string $name, string $text = ''): void
             try {
                 $(ta).sceditor({
                     format: 'bbcode',
-                    style: BASE + '/js/sceditor/themes/content/default.css',
+                    style: CONTENT_CSS,
                     emoticonsRoot: BASE + '/js/sceditor/',
                     width: '100%',
                     height: 250,

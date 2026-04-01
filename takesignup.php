@@ -37,6 +37,25 @@ function validusername(string $username): bool {
 function normalize(string $s): string {
     return trim(preg_replace('/\s+/u', ' ', $s));
 }
+if (!function_exists('is_valid_telegram')) {
+    function is_valid_telegram(string $s): bool {
+        $s = trim($s);
+        if ($s === '') return true;
+        if (preg_match('~^https?://t\.me/([A-Za-z0-9_]{5,32})$~i', $s)) return true;
+        if (preg_match('~^@?[A-Za-z0-9_]{5,32}$~', $s)) return true;
+        return false;
+    }
+}
+if (!function_exists('normalize_telegram')) {
+    function normalize_telegram(string $s): string {
+        $s = trim($s);
+        if ($s === '') return '';
+        if (preg_match('~^https?://t\.me/([A-Za-z0-9_]{5,32})$~i', $s, $m)) {
+            return $m[1];
+        }
+        return ltrim($s, '@');
+    }
+}
 
 // --- обязательные поля из POST ---
 if (!mkglobal("wantusername:wantpassword:passagain:email")) {
@@ -143,12 +162,12 @@ $added      = get_date_time();
 
 // --- вставка пользователя ---
 $columns = [
-    "username","passhash","secret","pss","editsecret","gender","country","icq","email","status",
+    "username","passhash","secret","pss","editsecret","gender","country","telegram","email","status",
     // class — только для самого первого пользователя
 ];
 $values  = [
     sqlesc($wantusername), sqlesc($passhash), sqlesc($secret), sqlesc($modernhash), sqlesc($editsecret),
-    (int)$gender, (int)$country, sqlesc($icq), sqlesc($email), sqlesc($status)
+    (int)$gender, (int)$country, sqlesc($telegram), sqlesc($email), sqlesc($status)
 ];
 
 if (!$users_total) { $columns[] = "class"; $values[] = (int)$class; }

@@ -6,7 +6,7 @@ require_once("include/bittorrent.php");
 dbconn(false);
 loggedinorreturn();
 
-global $CURUSER, $DEFAULTBASEURL, $tracker_lang;
+global $CURUSER, $DEFAULTBASEURL, $tracker_lang, $avatar_max_width, $avatar_max_height;
 /** @var mysqli $mysqli */
 $mysqli = $GLOBALS['mysqli'] ?? null;
 if (!$mysqli instanceof mysqli) {
@@ -19,9 +19,12 @@ function h(?string $s): string {
 
 $currentAvatarUrl = tracker_avatar_url((string)($CURUSER['avatar'] ?? ''), '/pic/default_avatar.gif');
 $profileUrl = rtrim((string)$DEFAULTBASEURL, '/') . '/userdetails.php?id=' . (int)$CURUSER['id'];
-$userbarImageUrl = rtrim((string)$DEFAULTBASEURL, '/') . '/torrentbar/bar.php/' . (int)$CURUSER['id'] . '.png';
+$userbarImageUrl = rtrim((string)$DEFAULTBASEURL, '/') . '/torrentbar/bar.php?id=' . (int)$CURUSER['id'];
 $userbarBbCode = "[url={$profileUrl}][img]{$userbarImageUrl}[/img][/url]";
 $userbarImageCode = "[img]{$userbarImageUrl}[/img]";
+$avatarLimitWidth = max(40, (int)($avatar_max_width ?? 120));
+$avatarLimitHeight = max(40, (int)($avatar_max_height ?? 120));
+$avatarPreviewSize = max(40, min(120, $avatarLimitWidth, $avatarLimitHeight));
 
 stdhead($CURUSER["username"] . " :: редактирование профиля", false);
 
@@ -100,9 +103,9 @@ tr("Часовой пояс", "<select name=\"tzoffset\">\n$timezone_opts\n</sel
 /* -------- Аватара, статус -------- */
 $avatarEditor = ''
     . '<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">'
-    .   '<div style="min-width:110px;text-align:center">'
-    .     '<img src="' . h($currentAvatarUrl) . '" alt="Текущий аватар" width="100" height="100"'
-    .     ' style="display:block;width:100px;height:100px;border-radius:14px;object-fit:cover;border:1px solid #d7dfe8;box-shadow:0 4px 14px rgba(0,0,0,.08)">'
+    .   '<div style="min-width:' . $avatarPreviewSize . 'px;text-align:center">'
+    .     '<img src="' . h($currentAvatarUrl) . '" alt="Текущий аватар" width="' . $avatarPreviewSize . '" height="' . $avatarPreviewSize . '"'
+    .     ' style="display:block;width:' . $avatarPreviewSize . 'px;height:' . $avatarPreviewSize . 'px;border-radius:14px;object-fit:cover;border:1px solid #d7dfe8;box-shadow:0 4px 14px rgba(0,0,0,.08)">'
     .     '<div style="margin-top:6px;font-size:11px;color:#66758c">Текущий аватар</div>'
     .   '</div>'
     .   '<div style="flex:1 1 320px;min-width:260px">'
@@ -110,7 +113,7 @@ $avatarEditor = ''
     .     '<div style="margin-top:8px"><input type="file" name="avatar_file" accept=".png,.jpg,.jpeg,.gif"></div>'
     .     '<label style="display:inline-block;margin-top:8px"><input type="checkbox" name="avatar_clear" value="1"> убрать аватар и вернуть стандартный</label>'
     .     '<div style="margin-top:8px;color:#66758c;font-size:11px;line-height:1.45">'
-    .       'Можно указать прямую ссылку на картинку или загрузить файл. Загруженные аватары сохраняются в <b>`pic/avatars`</b> и автоматически приводятся к размеру профиля.'
+    .       'Можно указать прямую ссылку на картинку или загрузить файл. Загруженные аватары сохраняются в <b>pic/avatars</b> и автоматически приводятся к размеру до <b>' . $avatarLimitWidth . 'x' . $avatarLimitHeight . '</b>.'
     .     '</div>'
     .   '</div>'
     . '</div>';
@@ -204,7 +207,7 @@ if (!empty($CURUSER['birthday']) && $CURUSER['birthday'] !== '0000-00-00') {
 }
 tr("Дата рождения", "<input type=\"date\" name=\"birthday\" value=\"{$birthdayVal}\">", 1);
 
-/* -------- Telegram (вместо ICQ) -------- */
+/* -------- Telegram -------- */
 $tg_val = h($CURUSER["telegram"] ?? "");
 tr(
     "<img alt=\"Telegram\" src=\"pic/telegram.png\" width=\"17\" height=\"17\"> Telegram",
@@ -213,9 +216,6 @@ tr(
     "title=\"Ник Telegram: 5–32 символов или https://t.me/username\" value=\"$tg_val\">",
     1
 );
-
-/* -------- Skype -------- */
-tr("Skype", "<input maxLength=\"255\" size=\"50\" name=\"skype\" value=\"" . h($CURUSER["skype"] ?? "") . "\">", 1);
 
 /* -------- Отображение -------- */
 tr("Показывать аватары", "<input type='checkbox' name='avatars' value='yes'" . (($CURUSER["avatars"] ?? 'yes') === "yes" ? " checked" : "") . ">", 1);
@@ -237,13 +237,15 @@ tr("Пароль ещё раз", "<input type=\"password\" name=\"passagain\" si
 /* -------- Юзербар -------- */
 tr(
     $tracker_lang['my_userbar'] ?? "Мой юзербар",
-    '<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">'
-    . '<div style="min-width:360px;max-width:100%"><img src="' . h($userbarImageUrl) . '" alt="Userbar" style="max-width:100%"></div>'
-    . '<div style="flex:1 1 320px;min-width:260px">'
+    '<div style="display:grid;grid-template-columns:minmax(0,350px) minmax(260px,1fr);gap:14px;align-items:start">'
+    . '<div style="max-width:100%">'
+    .   '<img src="' . h($userbarImageUrl) . '" alt="Userbar" width="350" height="60" style="display:block;width:100%;max-width:350px;height:auto;border:1px solid #d7dfe8;border-radius:10px;background:#f4f8fb">'
+    . '</div>'
+    . '<div style="min-width:0">'
     . ($tracker_lang['my_userbar_descr'] ?? "Скопируйте и вставьте этот код") . ":<br>"
-    . '<div style="margin-top:6px">BBCode со ссылкой на профиль:<br><input type="text" size="72" value="' . h($userbarBbCode) . '" readonly></div>'
-    . '<div style="margin-top:8px">Только картинка:<br><input type="text" size="72" value="' . h($userbarImageCode) . '" readonly></div>'
-    . '<div style="margin-top:8px;color:#66758c;font-size:11px;line-height:1.45">Ссылка ведёт прямо на ваш профиль, а сама картинка доступна по стабильному PNG-адресу.</div>'
+    . '<div style="margin-top:6px">BBCode со ссылкой на профиль:<br><input type="text" value="' . h($userbarBbCode) . '" readonly style="width:100%;box-sizing:border-box"></div>'
+    . '<div style="margin-top:8px">Только картинка:<br><input type="text" value="' . h($userbarImageCode) . '" readonly style="width:100%;box-sizing:border-box"></div>'
+    . '<div style="margin-top:8px;color:#66758c;font-size:11px;line-height:1.45">Ссылка ведёт прямо на ваш профиль, а картинка открывается по прямому URL без внутренней авторизации.</div>'
     . '</div></div>',
     1
 );

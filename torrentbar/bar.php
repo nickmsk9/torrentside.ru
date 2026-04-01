@@ -1,203 +1,157 @@
 <?php
-require_once __DIR__ . '/../include/bittorrent.php';
-// Database Presets
-$config_path = __DIR__ . "/../include/secrets.php";
+declare(strict_types=1);
 
-$template_file = __DIR__ . "/template.png";
+require_once __DIR__ . '/../include/secrets.php';
 
-$rating_x = 66;
-$rating_y = 10;
-
-$upload_x = 60;
-$upload_y = 43;
-
-$download_x = 60;
-$download_y = 26;
-
-$digits_template = __DIR__ . "/digits.png";
-$digits_config = __DIR__ . "/digits.ini";
-
-//===========================================================================
-// Funtions
-//===========================================================================
-
-function getParam() {
+function userbar_get_user_id(): int
+{
     $id = $_GET['id'] ?? null;
-
-    if ($id !== null && is_numeric($id)) {
+    if ($id !== null && ctype_digit((string)$id)) {
         return (int)$id;
     }
 
-    if (!empty($_SERVER['PATH_INFO'])) {
-        $res = basename($_SERVER['PATH_INFO'], ".png");
-        if (is_numeric($res)) {
-            return (int)$res;
+    $pathInfo = (string)($_SERVER['PATH_INFO'] ?? '');
+    if ($pathInfo !== '' && preg_match('~/(\d+)(?:\.png)?$~', $pathInfo, $matches)) {
+        return (int)$matches[1];
+    }
+
+    return 0;
+}
+
+function userbar_escape(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function userbar_compact_size(float $bytes): string
+{
+    $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    $value = max(0.0, $bytes);
+    $unitIndex = 0;
+
+    while ($value >= 1024 && $unitIndex < count($units) - 1) {
+        $value /= 1024;
+        $unitIndex++;
+    }
+
+    if ($unitIndex === 0) {
+        return (string)(int)round($value) . ' ' . $units[$unitIndex];
+    }
+
+    $precision = $value >= 100 ? 0 : ($value >= 10 ? 1 : 2);
+    return rtrim(rtrim(number_format($value, $precision, '.', ''), '0'), '.') . ' ' . $units[$unitIndex];
+}
+
+function userbar_ratio_meta(float $uploaded, float $downloaded): array
+{
+    if ($downloaded <= 0.0) {
+        if ($uploaded <= 0.0) {
+            return ['text' => '---', 'color' => '#8aa4b8'];
         }
+
+        return ['text' => 'Inf.', 'color' => '#6fd1a8'];
     }
 
-    die("Invalid user_id or hacking attempt.");
-}
+    $ratio = $uploaded / $downloaded;
+    $text = $ratio > 100 ? '100+' : number_format($ratio, 2, '.', '');
+    $color = '#d96a6a';
 
-
-
-function mysqli_init_db() {
-    global $mysqli_host, $mysqli_user, $mysqli_pass, $mysqli_db;
-
-    $mysqli = new mysqli($mysqli_host, $mysqli_user, $mysqli_pass, $mysqli_db);
-
-    if ($mysqli->connect_error) {
-        die("Ошибка подключения к базе данных: " . $mysqli->connect_error);
+    if ($ratio >= 1.0) {
+        $color = '#6fd1a8';
+    } elseif ($ratio >= 0.7) {
+        $color = '#f2c96d';
     }
 
-    return $mysqli;
+    return ['text' => $text, 'color' => $color];
 }
 
-
-function ifthen($ifcondition, $iftrue, $iffalse) {
-	if ($ifcondition) {
-		return $iftrue;
-	} else {
-		return $iffalse;
-	}
-}
-
-function getPostfix($val) {
-	$postfix = "b";
-	if ($val>=1024)             { $postfix = "kb"; }
-	if ($val>=1048576)          { $postfix = "mb"; }
-	if ($val>=1073741824)       { $postfix = "gb"; }
-	if ($val>=1099511627776)    { $postfix = "tb"; }
-	if ($val>=1125899906842624) { $postfix = "pb"; }
-	if ($val>=1152921504606846976)       { $postfix = "eb"; }
-	if ($val>=1180591620717411303424)    { $postfix = "zb"; }
-	if ($val>=1208925819614629174706176) { $postfix = "yb"; }
-	
-	return $postfix;
-}
-
-function roundCounter($value, $postfix) {
-	$val=$value;
-	switch ($postfix) {
-	case "kb": $val=$val / 1024;
-		break;
-	case "mb": $val=$val / 1048576;
-		break;
-	case "gb": $val=$val / 1073741824;
-		break;
-	case "tb": $val=$val / 1099511627776;
-		break;
-	case "pb": $val=$val / 1125899906842624;
-		break;
-	case "eb": $val=$val / 1152921504606846976;
-		break;
-	case "zb": $val=$val / 1180591620717411303424;
-		break;
-	case "yb": $val=$val / 1208925819614629174706176;
-		break;
-		
-	default:
-		break;
-	}
-	return $val;
-}
-
-//===========================================================================
-// Main body
-//===========================================================================
-
-// Digits initialization - begin
-$digits_ini = @parse_ini_file($digits_config) or die("Cannot load Digits Configuration file!");
-$digits_img = @imagecreatefrompng($digits_template) or die("Cannot Initialize new GD image stream!");
-// Digits initialization - end
-
-$download_counter = 0;
-$upload_counter = 0;
-$rating_counter = 0;
-
-$img = @imagecreatefrompng($template_file) or die ("Cannot Initialize new GD image stream!");
-
-$userid = getParam();
-if ($userid != "") {
-    include($config_path);
-    $mysqli = mysqli_init_db(); // получаем подключение
-
-    $stmt = $mysqli->prepare("SELECT uploaded, downloaded FROM users WHERE id = ?");
-    $stmt->bind_param("i", $userid);
-    $stmt->execute();
-    $stmt->store_result();
-
-    if ($stmt->num_rows > 0) {
-        $stmt->bind_result($uploaded, $downloaded);
-        $stmt->fetch();
-
-        $upload_counter = $uploaded;
-        $download_counter = $downloaded;
-
-        if ($download_counter > 0) {
-            $rating_counter = $upload_counter / $download_counter;
-        }
+function userbar_trim_username(string $username, int $limit = 20): string
+{
+    $username = trim($username);
+    if ($username === '') {
+        return 'Unknown user';
     }
 
-    $stmt->close();
+    if (function_exists('mb_strwidth') && function_exists('mb_strimwidth')) {
+        return mb_strwidth($username, 'UTF-8') > $limit
+            ? mb_strimwidth($username, 0, $limit, '...', 'UTF-8')
+            : $username;
+    }
+
+    return strlen($username) > $limit ? (substr($username, 0, $limit - 3) . '...') : $username;
 }
 
+function userbar_render_svg(string $username, float $uploaded, float $downloaded): void
+{
+    $ratio = userbar_ratio_meta($uploaded, $downloaded);
+    $displayName = userbar_trim_username($username);
+    $upText = userbar_compact_size($uploaded);
+    $downText = userbar_compact_size($downloaded);
+    $fontStack = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif";
 
-$dot_pos = strpos((string) $rating_counter, ".");
-if ($dot_pos>0) {
-    $rating_counter = (string) round(substr((string) $rating_counter, 0, $dot_pos+1+2), 2);
-} else {
-	$rating_counter = (string) $rating_counter;
-}
-$counter_x = $rating_x;
-for ($i=0; $i<strlen($rating_counter); $i++) {
-	$d_x=$digits_ini[ifthen($rating_counter[$i]==".", "dot", $rating_counter[$i])."_x"];
-	$d_w=$digits_ini[ifthen($rating_counter[$i]==".", "dot", $rating_counter[$i])."_w"];
-	imagecopy($img, $digits_img, $counter_x, $rating_y, $d_x, 0, $d_w, imagesy($digits_img));
-	$counter_x=$counter_x+$d_w-1;
+    header('Content-Type: image/svg+xml; charset=UTF-8');
+    header('Cache-Control: public, max-age=300');
+    header('X-Content-Type-Options: nosniff');
+
+    echo <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" width="350" height="60" viewBox="0 0 350 60" role="img" aria-label="Userbar">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7fbff" />
+      <stop offset="100%" stop-color="#dbeaf6" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2d6f96" />
+      <stop offset="100%" stop-color="#17364e" />
+    </linearGradient>
+  </defs>
+  <rect width="350" height="60" rx="10" fill="url(#bg)" />
+  <rect x="1" y="1" width="348" height="58" rx="9" fill="none" stroke="#b8d1e3" />
+  <rect x="10" y="10" width="104" height="40" rx="8" fill="url(#accent)" />
+  <text x="22" y="25" fill="#cfeeff" font-family="{$fontStack}" font-size="8" letter-spacing="1.4">USERBAR</text>
+  <text x="22" y="42" fill="#ffffff" font-family="{$fontStack}" font-size="15" font-weight="700">{$displayName}</text>
+  <text x="132" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="8" letter-spacing="1">RATIO</text>
+  <text x="132" y="40" fill="{$ratio['color']}" font-family="{$fontStack}" font-size="18" font-weight="700">{$ratio['text']}</text>
+  <text x="210" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="8" letter-spacing="1">UP</text>
+  <text x="210" y="40" fill="#224e6f" font-family="{$fontStack}" font-size="12" font-weight="600">{$upText}</text>
+  <text x="285" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="8" letter-spacing="1">DL</text>
+  <text x="285" y="40" fill="#224e6f" font-family="{$fontStack}" font-size="12" font-weight="600">{$downText}</text>
+</svg>
+SVG;
 }
 
+function userbar_render_error(string $message, int $statusCode = 200): void
+{
+    http_response_code($statusCode);
+    userbar_render_svg($message, 0.0, 0.0);
+}
 
-$postfix = getPostfix($upload_counter);
-$upload_counter = roundCounter($upload_counter, $postfix);
-$dot_pos = strpos((string) $upload_counter, ".");
-if ($dot_pos>0) {
-    $upload_counter = (string) round(substr((string) $upload_counter, 0, $dot_pos+1+2), 2);
-} else {
-	$upload_counter = (string) $upload_counter;
+$userId = userbar_get_user_id();
+if ($userId <= 0) {
+    userbar_render_error('Invalid user', 400);
+    exit;
 }
-$counter_x = $upload_x;
-for ($i=0; $i<strlen($upload_counter); $i++) {
-	$d_x=$digits_ini[ifthen($upload_counter[$i]==".", "dot", $upload_counter[$i])."_x"];
-	$d_w=$digits_ini[ifthen($upload_counter[$i]==".", "dot", $upload_counter[$i])."_w"];
-	imagecopy($img, $digits_img, $counter_x, $upload_y, $d_x, 0, $d_w, imagesy($digits_img));
-	$counter_x=$counter_x+$d_w-1;
-}
-$counter_x+=3;
-$d_x=$digits_ini[$postfix."_x"];
-$d_w=$digits_ini[$postfix."_w"];
-imagecopy($img, $digits_img, $counter_x, $upload_y, $d_x, 0, $d_w, imagesy($digits_img));
 
+if (!($mysqli instanceof mysqli)) {
+    userbar_render_error('DB unavailable', 503);
+    exit;
+}
 
-$postfix = getPostfix($download_counter);
-$download_counter = roundCounter($download_counter, $postfix);
-$dot_pos = strpos((string) $download_counter, ".");
-if ($dot_pos>0) {
-    $download_counter = (string) round(substr((string) $download_counter, 0, $dot_pos+1+2), 2);
-} else {
-	$download_counter = (string) $download_counter;
+$stmt = $mysqli->prepare('SELECT username, uploaded, downloaded FROM users WHERE id = ? LIMIT 1');
+if (!$stmt) {
+    userbar_render_error('Query error', 500);
+    exit;
 }
-$counter_x = $download_x;
-for ($i=0; $i<strlen($download_counter); $i++) {
-	$d_x=$digits_ini[ifthen($download_counter[$i]==".", "dot", $download_counter[$i])."_x"];
-	$d_w=$digits_ini[ifthen($download_counter[$i]==".", "dot", $download_counter[$i])."_w"];
-	imagecopy($img, $digits_img, $counter_x, $download_y, $d_x, 0, $d_w, imagesy($digits_img));
-	$counter_x=$counter_x+$d_w-1;
+
+$stmt->bind_param('i', $userId);
+$stmt->execute();
+$stmt->bind_result($username, $uploaded, $downloaded);
+$found = $stmt->fetch();
+$stmt->close();
+
+if (!$found) {
+    userbar_render_error('User not found', 404);
+    exit;
 }
-$counter_x+=3;
-$d_x=$digits_ini[$postfix."_x"];
-$d_w=$digits_ini[$postfix."_w"];
-imagecopy($img, $digits_img, $counter_x, $download_y, $d_x, 0, $d_w, imagesy($digits_img));
-header("Content-type: image/png");
-imagepng($img);
-imagedestroy($img);
-?>
+
+userbar_render_svg((string)$username, (float)$uploaded, (float)$downloaded);

@@ -120,20 +120,26 @@ function hide(id) {
 
 /* ===================== show_hide: раскрывашки с иконкой ===================== */
 function show_hide(id) {
-  var textEl = document.getElementById('s' + id);
+  var textEl = document.getElementById(id) || document.getElementById('s' + id);
   var imgEl  = document.getElementById('pic' + id);
-  if (!textEl || !imgEl) return;
+  if (!textEl) return false;
 
   var hidden = getComputedStyle(textEl).display === 'none';
   if (hidden) {
     textEl.style.display = 'block';
-    imgEl.src = 'pic/minus.gif';
-    imgEl.title = 'Скрыть';
+    if (imgEl) {
+      imgEl.src = 'pic/minus.gif';
+      imgEl.title = 'Скрыть';
+    }
   } else {
     textEl.style.display = 'none';
-    imgEl.src = 'pic/plus.gif';
-    imgEl.title = 'Показать';
+    if (imgEl) {
+      imgEl.src = 'pic/plus.gif';
+      imgEl.title = 'Показать';
+    }
   }
+
+  return false;
 }
 
 /* ===================== updateText: массовые замены с BBCode ===================== */

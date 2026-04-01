@@ -8,7 +8,6 @@ stdhead('Супер Лото');
 $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $csrf = super_loto_csrf_token();
 ?>
-<script type="text/javascript" src="js/prototype.js"></script>
 <script type="text/javascript" src="js/ajax.js"></script>
 
 <?php begin_frame("Супер Лото 5 из 36"); ?>
@@ -71,20 +70,46 @@ $csrf = super_loto_csrf_token();
   var isSubmitting = false; // защита от двойной отправки
   var lotoCsrfToken = <?= json_encode($csrf, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  function hasClass(el, className) {
+    if (!el) return false;
+    return el.classList
+      ? el.classList.contains(className)
+      : new RegExp("(^|\\s)" + className + "(\\s|$)").test(el.className);
+  }
+
+  function setNodeText(id, value) {
+    var el = byId(id);
+    if (el) el.textContent = value == null ? "" : String(value);
+    return el;
+  }
+
+  function getNodeText(id) {
+    var el = byId(id);
+    return el ? String(el.textContent || "").trim() : "";
+  }
+
   function show_price() {
+    var ticketPrice = byId("ticket_price");
+    var bayButton = byId("bay_button");
+    if (!ticketPrice || !bayButton) return;
+
     if (selected_numbers === 5) {
-      $("ticket_price").style.display = "inline";
-      $("bay_button").style.display   = "inline";
+      ticketPrice.style.display = "inline";
+      bayButton.style.display   = "inline";
     } else {
-      $("ticket_price").style.display = "none";
-      $("bay_button").style.display   = "none";
+      ticketPrice.style.display = "none";
+      bayButton.style.display   = "none";
     }
   }
 
   function mark(el_id) {
-    var number = $("number_" + el_id);
+    var number = byId("number_" + el_id);
     if (!number) return;
-    var isMarked = number.hasClassName ? number.hasClassName("marked") : /(^|\s)marked(\s|$)/.test(number.className);
+    var isMarked = hasClass(number, "marked");
 
     if (!isMarked && selected_numbers < 5) {
       number.className = "marked loto-ball";
@@ -92,8 +117,8 @@ $csrf = super_loto_csrf_token();
 
       // кладём номер в первую пустую ячейку выбранных
       for (var i = 1; i <= 5; i++) {
-        if ($("num_" + i).innerHTML === "") {
-          $("num_" + i).update(el_id);
+        if (getNodeText("num_" + i) === "") {
+          setNodeText("num_" + i, el_id);
           break;
         }
       }
@@ -104,8 +129,8 @@ $csrf = super_loto_csrf_token();
 
       // удаляем этот номер из выбранных
       for (var i = 1; i <= 5; i++) {
-        if ($("num_" + i).innerHTML == el_id) {
-          $("num_" + i).update("");
+        if (getNodeText("num_" + i) == el_id) {
+          setNodeText("num_" + i, "");
           break;
         }
       }
@@ -114,17 +139,21 @@ $csrf = super_loto_csrf_token();
   }
 
   function update_price_info() {
-    $("price_info").update($("price").value + " GB");
-    $("price").style.display = "none";
+    var price = byId("price");
+    var priceInfo = byId("price_info");
+    if (!price || !priceInfo) return;
+    setNodeText("price_info", price.value + " GB");
+    price.style.display = "none";
   }
 
   function show_price_select() {
-    $("price_info").update("");
-    $("price").style.display = "inline";
+    var price = byId("price");
+    setNodeText("price_info", "");
+    if (price) price.style.display = "inline";
   }
 
   function load_user_tickets() {
-    $("user_ticket_info") && $("user_ticket_info").update("");
+    setNodeText("user_ticket_info", "");
     var ajax = new tbdev_ajax();
     ajax.onShow('');
     ajax.requestFile = "super_loto_edit.php";
@@ -136,7 +165,7 @@ $csrf = super_loto_csrf_token();
   }
 
   function load_tickets_stats() {
-    $("tickets_stat_info") && $("tickets_stat_info").update("");
+    setNodeText("tickets_stat_info", "");
     var ajax = new tbdev_ajax();
     ajax.onShow('');
     ajax.requestFile = "super_loto_edit.php";
@@ -152,30 +181,32 @@ $csrf = super_loto_csrf_token();
 
     // проверяем, что выбрано ровно 5 чисел и нет пустот
     if (selected_numbers !== 5) {
-      $("bay_result").update("Нужно выбрать ровно 5 чисел.");
+      setNodeText("bay_result", "Нужно выбрать ровно 5 чисел.");
       return;
     }
     var picks = [];
     for (var i = 1; i <= 5; i++) {
-      var v = $("num_" + i).innerHTML.trim();
+      var v = getNodeText("num_" + i);
       if (v === "") {
-        $("bay_result").update("Нужно выбрать ровно 5 чисел.");
+        setNodeText("bay_result", "Нужно выбрать ровно 5 чисел.");
         return;
       }
       picks.push(v);
     }
     var combination = picks.join(".");
 
-    var price = $("price").value;
+    var priceEl = byId("price");
+    var price = priceEl ? priceEl.value : "";
     if (!price || isNaN(price) || parseInt(price, 10) <= 0) {
-      $("bay_result").update("Выберите корректную ставку.");
+      setNodeText("bay_result", "Выберите корректную ставку.");
       return;
     }
 
     // UI: скрываем форму, показываем загрузку и блокируем кнопку
-    $("bay_form").style.display = "none";
-    $("bay_result").update("Загрузка. Подождите пожалуйста...");
-    var btn = $("bay_button");
+    var bayForm = byId("bay_form");
+    var btn = byId("bay_button");
+    if (bayForm) bayForm.style.display = "none";
+    setNodeText("bay_result", "Загрузка. Подождите пожалуйста...");
     if (btn) { btn.disabled = true; btn.value = "Покупка..."; }
 
     isSubmitting = true;
@@ -200,19 +231,25 @@ $csrf = super_loto_csrf_token();
   }
 
   function show_bay_form() {
-    $("bay_form").style.display   = "block";
-    $("ticket_price").style.display = "none";
-    $("bay_button").style.display   = "none";
-    $("price").style.display        = "block";
-    $("bay_result").update("");
-    $("price_info").update("");
-    $("default_price").selected = true;
+    var bayForm = byId("bay_form");
+    var ticketPrice = byId("ticket_price");
+    var bayButton = byId("bay_button");
+    var price = byId("price");
+    var defaultPrice = byId("default_price");
+
+    if (bayForm) bayForm.style.display = "block";
+    if (ticketPrice) ticketPrice.style.display = "none";
+    if (bayButton) bayButton.style.display = "none";
+    if (price) price.style.display = "block";
+    setNodeText("bay_result", "");
+    setNodeText("price_info", "");
+    if (defaultPrice) defaultPrice.selected = true;
 
     selected_numbers = 0;
-    for (var i = 1; i <= 5; i++) { $("num_" + i).update(""); }
+    for (var i = 1; i <= 5; i++) { setNodeText("num_" + i, ""); }
     for (var j = 1; j <= 36; j++) {
-      var cell = $("number_" + j);
-      var cellMarked = cell && (cell.hasClassName ? cell.hasClassName("marked") : /(^|\s)marked(\s|$)/.test(cell.className));
+      var cell = byId("number_" + j);
+      var cellMarked = hasClass(cell, "marked");
       if (cellMarked) {
         cell.className = "default loto-ball";
       }
@@ -539,7 +576,6 @@ $csrf = super_loto_csrf_token();
 </div>
 
 <?php stdfoot(); ?>
-
 
 
 

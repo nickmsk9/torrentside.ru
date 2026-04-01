@@ -31,8 +31,6 @@
 
     <!-- Прочие скрипты -->
     <script src="/js/functions.js" defer></script>
-    <script src="/js/show_hide.js" defer></script>
-    <script src="/js/overlib.js" defer></script>
 	
 	<style>
   /* --- базовый сброс + фон страницы --- */

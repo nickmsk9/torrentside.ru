@@ -1,7 +1,6 @@
 <?php
 require 'include/bittorrent.php';
 dbconn();
-loggedinorreturn();
 stdhead($lang['staff_header'] ?? 'Персонал');
 begin_main_frame();
 

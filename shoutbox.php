@@ -163,6 +163,11 @@ function sb_private_visible(
         td { vertical-align: top; }
         img { display: inline-block; }
         .pm-tag { color: red; font-weight: bold; }
+        .shoutbox-message .smiley-emoji {
+            font-size: 1.85em;
+            min-width: 1.1em;
+            vertical-align: -0.24em;
+        }
     </style>
 </head>
 <body>
@@ -232,7 +237,7 @@ foreach ($rows as $arr) {
         $name_render = $is_logged
             ? "<a href='javascript:window.top.SmileIT(\"privat({$arr['username']})\",\"shbox\",\"shbox_text\")'>{$usercolor}</a>"
             : $usercolor; // гостям — без клика и SmileIT
-        echo "<tr><td><span class='date'>|{$tm}|</span> {$del}{$name_render} {$sd}</td></tr>\n";
+        echo "<tr><td class='shoutbox-message'><span class='date'>|{$tm}|</span> {$del}{$name_render} {$sd}</td></tr>\n";
         continue;
     }
 
@@ -242,7 +247,7 @@ foreach ($rows as $arr) {
         ? "<a href='javascript:window.top.SmileIT(\"privat({$arr['username']})\",\"shbox\",\"shbox_text\")'>{$usercolor}</a>"
         : $usercolor;
 
-    echo "<tr><td><span class='date'>|{$tm}|</span> {$del}{$name_render} {$sd}</td></tr>\n";
+    echo "<tr><td class='shoutbox-message'><span class='date'>|{$tm}|</span> {$del}{$name_render} {$sd}</td></tr>\n";
 }
 
 echo "</table>";

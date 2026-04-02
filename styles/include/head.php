@@ -109,6 +109,8 @@ if (isset($smarty)) {
 $menuLinks = [
     ['href' => 'index.php',   'label' => $tracker_lang['homepage'] ?? 'Главная'],
     ['href' => 'browse.php',  'label' => $tracker_lang['browse']   ?? 'Скачать'],
+    ['href' => 'persons.php', 'label' => 'Персоны'],
+    ['href' => 'users.php',   'label' => 'Пользователи'],
     ['href' => 'log.php',     'label' => $tracker_lang['log']      ?? 'Лог'],
     ['href' => 'rules.php',   'label' => $tracker_lang['rules']    ?? 'Правила'],
     ['href' => 'faq.php',     'label' => $tracker_lang['faq']      ?? 'FAQ'],
@@ -130,7 +132,7 @@ if (!empty($CURUSER)) {
     $menuLinks = array_merge($menuLinks, [
         ['href' => 'signup.php',  'label' => 'Регистрация'],
         ['href' => 'recover.php', 'label' => 'Напомнить пароль'],
-        ['href' => 'takelogin.php','label'=> 'Войти'],
+        ['href' => 'login.php',   'label' => 'Войти'],
     ]);
 }
 

@@ -152,9 +152,10 @@ function insert_smilies_frame(): void {
     global $smilies, $DEFAULTBASEURL, $smarty;
 
     begin_frame("Смайлы");
+    $smileyRows = tracker_smiley_picker_items((array)$smilies);
     // Тело таблицы отдаём через Smarty, но оставляем прежнюю структуру
     $vars = [
-        'smilies' => $smilies,
+        'smileyRows' => $smileyRows,
         'baseurl' => $DEFAULTBASEURL,
     ];
     _ui_echo_via_smarty(
@@ -166,7 +167,7 @@ function insert_smilies_frame(): void {
             $out  = "<table align=\"center\" class=\"main\" border=\"1\" cellspacing=\"0\" cellpadding=\"5\">";
             $out .= "<tr><td class=\"colhead\">Написание</td><td class=\"colhead\">Смайл</td></tr>\n";
             foreach ($smilies as $code => $url) {
-                $out .= "<tr><td>".$h($code)."</td><td><img src=\"".$h($DEFAULTBASEURL)."/pic/smilies/".$h($url)."\" alt=\"\"></td></tr>\n";
+                $out .= "<tr><td>".$h($code)."</td><td>".tracker_smiley_html((string)$code, (string)$url, ['class' => 'smiley-emoji--picker'])."</td></tr>\n";
             }
             $out .= "</table>";
             return $out;

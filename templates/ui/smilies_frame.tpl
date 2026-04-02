@@ -3,10 +3,10 @@
     <td class="colhead">Написание</td>
     <td class="colhead">Смайл</td>
   </tr>
-  {foreach from=$smilies key=code item=url}
+  {foreach from=$smileyRows item=row}
     <tr>
-      <td>{$code|escape}</td>
-      <td><img src="{$baseurl|escape}/pic/smilies/{$url|escape}" alt="" /></td>
+      <td>{$row.code|escape}</td>
+      <td>{$row.emoji_html nofilter}</td>
     </tr>
   {/foreach}
 </table>

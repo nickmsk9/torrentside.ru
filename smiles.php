@@ -28,8 +28,7 @@
 
 require "include/bittorrent.php";
 dbconn(false);
-loggedinorreturn();
-stdhead();
+stdhead("Смайлы");
 insert_smilies_frame();
 stdfoot();
 ?>

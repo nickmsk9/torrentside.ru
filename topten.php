@@ -5,7 +5,6 @@ require __DIR__ . "/include/bittorrent.php";
 
 gzip();
 dbconn(false);
-loggedinorreturn();
 
 // ------- константа и хелперы -------
 const DEFAULT_AVATAR = '/pic/default_avatar.gif';
@@ -50,6 +49,7 @@ function avatar_url(?string $raw): string {
 
 function usertable(array $rows, string $caption, string $mode): void {
     global $CURUSER;
+    $currentUserId = (int)($CURUSER['id'] ?? 0);
 
     $metricLabel = [
         'ul'  => 'Залил',
@@ -91,7 +91,7 @@ CSS;
     foreach ($rows as $a) {
         $rank++;
 
-        $is_me = ((int)$CURUSER['id'] === (int)$a['userid']);
+        $is_me = ($currentUserId > 0 && $currentUserId === (int)$a['userid']);
         $bg    = $is_me ? "background:#f3efe8;" : "";
 
         // Аватар (src + fallback)

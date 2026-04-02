@@ -177,6 +177,362 @@ function get_user_class_color($class, $username): string
 }
 
 
+function tracker_smiley_emoji(string $code = '', string $file = ''): string
+{
+    static $exact = [
+        'smile1' => '🙂',
+        'smile2' => '😊',
+        'grin' => '😁',
+        'laugh' => '😂',
+        'w00t' => '🥳',
+        'tongue' => '😛',
+        'wink' => '😉',
+        'noexpression' => '😐',
+        'confused' => '😕',
+        'sad' => '🙁',
+        'cry' => '😢',
+        'weep' => '😭',
+        'ohmy' => '😮',
+        'clown' => '🤡',
+        'cool1' => '😎',
+        'cool2' => '😎',
+        'sleeping' => '😴',
+        'innocent' => '😇',
+        'whistle' => '😗',
+        'unsure' => '🫤',
+        'closedeyes' => '😌',
+        'fun' => '😄',
+        'thumbsup' => '👍',
+        'thumbsdown' => '👎',
+        'blush' => '😊',
+        'yes' => '✅',
+        'no' => '❌',
+        'love' => '😍',
+        'question' => '❓',
+        'excl' => '❗',
+        'idea' => '💡',
+        'arrow' => '➡️',
+        'arrow2' => '⤵️',
+        'hmm' => '🤔',
+        'hmmm' => '🤨',
+        'huh' => '😯',
+        'geek' => '🤓',
+        'look' => '🧐',
+        'rolleyes' => '🙄',
+        'kiss' => '😘',
+        'shifty' => '😏',
+        'blink' => '😉',
+        'smartass' => '😏',
+        'sick' => '🤒',
+        'crazy' => '🤪',
+        'wacko' => '😵‍💫',
+        'alien' => '👽',
+        'wizard' => '🧙',
+        'wave' => '👋',
+        'wavecry' => '🥹',
+        'baby' => '👶',
+        'angry' => '😠',
+        'ras' => '😝',
+        'sly' => '😼',
+        'devil' => '😈',
+        'evil' => '😈',
+        'evilmad' => '👿',
+        'sneaky' => '🕵️',
+        'axe' => '🪓',
+        'slap' => '✋',
+        'wall' => '🧱',
+        'rant' => '😤',
+        'jump' => '🤸',
+        'yucky' => '🤢',
+        'nugget' => '🍗',
+        'smart' => '🤓',
+        'shutup' => '🤐',
+        'shutup2' => '🤐',
+        'crockett' => '😎',
+        'zorro' => '🦹',
+        'snap' => '🫰',
+        'beer' => '🍺',
+        'beer2' => '🍻',
+        'drunk' => '🥴',
+        'strongbench' => '💪',
+        'weakbench' => '🫠',
+        'dumbells' => '🏋️',
+        'music' => '🎵',
+        'stupid' => '🙃',
+        'dots' => '💬',
+        'offtopic' => '🧭',
+        'spam' => '📢',
+        'oops' => '😬',
+        'please' => '🥺',
+        'sorry' => '🙏',
+        'hi' => '👋',
+        'yay' => '🙌',
+        'cake' => '🎂',
+        'hbd' => '🥳',
+        'band' => '🎸',
+        'punk' => '🤘',
+        'rofl' => '🤣',
+        'bounce' => '💃',
+        'mbounce' => '🕺',
+        'thankyou' => '🙏',
+        'gathering' => '🎉',
+        'hang' => '😵',
+        'chop' => '🪓',
+        'rip' => '🪦',
+        'whip' => '🪢',
+        'judge' => '⚖️',
+        'chair' => '🪑',
+        'tease' => '😜',
+        'box' => '📦',
+        'boxing' => '🥊',
+        'guns' => '🔫',
+        'shoot' => '🎯',
+        'shoot2' => '🎯',
+        'flowers' => '🌸',
+        'wub' => '❤️',
+        'lovers' => '💞',
+        'kissing' => '😘',
+        'kissing2' => '💋',
+        'console' => '🎮',
+        'group' => '👥',
+        'hump' => '🙈',
+        'hooray' => '🎊',
+        'happy2' => '😁',
+        'clap' => '👏',
+        'clap2' => '🙌',
+        'weirdo' => '🫠',
+        'yawn' => '🥱',
+        'bow' => '🙇',
+        'dawgie' => '🐶',
+        'cylon' => '🤖',
+        'book' => '📚',
+        'fish' => '🐟',
+        'mama' => '🤱',
+        'pepsi' => '🥤',
+        'medieval' => '⚔️',
+        'rambo' => '🪖',
+        'ninja' => '🥷',
+        'hannibal' => '🦹',
+        'party' => '🥳',
+        'snorkle' => '🤿',
+        'evo' => '🏎️',
+        'king' => '🤴',
+        'chef' => '👨‍🍳',
+        'mario' => '🍄',
+        'pope' => '⛪',
+        'fez' => '🎩',
+        'cap' => '🧢',
+        'cowboy' => '🤠',
+        'pirate' => '🏴‍☠️',
+        'pirate2' => '🏴‍☠️',
+        'rock' => '🤘',
+        'cigar' => '🚬',
+        'icecream' => '🍦',
+        'oldtimer' => '👴',
+        'trampoline' => '🤸',
+        'bananadance' => '🍌',
+        'smurf' => '🔵',
+        'yikes' => '😬',
+        'osama' => '😶',
+        'saddam' => '😶',
+        'santa' => '🎅',
+        'indian' => '🪶',
+        'pimp' => '🕴️',
+        'nuke' => '☢️',
+        'jacko' => '🕺',
+        'ike' => '🫡',
+        'greedy' => '🤑',
+        'super' => '🦸',
+        'wolverine' => '🦸',
+        'spidey' => '🕷️',
+        'spider' => '🕷️',
+        'bandana' => '🤠',
+        'construction' => '🚧',
+        'sheep' => '🐑',
+        'police' => '👮',
+        'detective' => '🕵️',
+        'bike' => '🚴',
+        'fishing' => '🎣',
+        'clover' => '🍀',
+        'horse' => '🐎',
+        'shit' => '💩',
+        'soldiers' => '🪖',
+        'icon_arrow' => '➡️',
+        'icon_biggrin' => '😄',
+        'icon_cool' => '😎',
+        'icon_cry' => '😭',
+        'icon_confused' => '😕',
+        'icon_eek' => '😱',
+        'icon_evil' => '😈',
+        'icon_idea' => '💡',
+        'icon_lol' => '🤣',
+        'icon_mad' => '😡',
+        'icon_question' => '❓',
+        'icon_razz' => '😛',
+        'icon_redface' => '😊',
+        'icon_rolleyes' => '🙄',
+        'icon_sad' => '🙁',
+        'icon_smile' => '🙂',
+        'icon_surprised' => '😮',
+        'icon_twisted' => '😈',
+        'icon_wink' => '😉',
+        'icon_exclaim' => '❗',
+        'alcoholic' => '🥃',
+        'deadhorse' => '🪦',
+        'spank' => '✋',
+        'yoji' => '🙂',
+        'locked' => '🔒',
+        'mml' => '🎶',
+        'rtf' => '📖',
+        'morepics' => '🖼️',
+        'rb' => '🟥',
+        'rblocked' => '⛔',
+        'maxlocked' => '🔐',
+        'hslocked' => '🔐',
+    ];
+
+    $base = strtolower(pathinfo($file !== '' ? $file : $code, PATHINFO_FILENAME));
+    if ($base !== '' && isset($exact[$base])) {
+        return $exact[$base];
+    }
+
+    $probe = strtolower(trim($code . ' ' . $base));
+    $rules = [
+        [['cry', 'weep', 'wavecry'], '😭'],
+        [['sad', 'sleep', 'yawn', 'closedeyes', 'unsure'], '😔'],
+        [['laugh', 'lol', 'grin', 'happy', 'smile'], '😄'],
+        [['wink', 'blink', 'whistle'], '😉'],
+        [['tongue', 'razz', 'tease'], '😛'],
+        [['cool', 'geek', 'smart'], '😎'],
+        [['love', 'wub', 'kiss'], '😍'],
+        [['angry', 'mad', 'rant'], '😠'],
+        [['evil', 'devil'], '😈'],
+        [['party', 'yay', 'hooray', 'hbd'], '🥳'],
+        [['beer', 'drunk'], '🍻'],
+        [['music', 'band'], '🎵'],
+        [['thumbsup', 'clap', 'yes'], '👍'],
+        [['thumbsdown', 'no'], '👎'],
+        [['question'], '❓'],
+        [['idea'], '💡'],
+        [['arrow'], '➡️'],
+        [['baby'], '👶'],
+        [['wizard'], '🧙'],
+        [['ninja'], '🥷'],
+        [['pirate'], '🏴‍☠️'],
+        [['cowboy'], '🤠'],
+        [['chef'], '👨‍🍳'],
+        [['fish', 'fishing'], '🎣'],
+        [['bike'], '🚴'],
+        [['flower'], '🌸'],
+        [['clover'], '🍀'],
+        [['book'], '📚'],
+        [['console'], '🎮'],
+        [['box'], '📦'],
+        [['construction'], '🚧'],
+        [['spider'], '🕷️'],
+        [['alien'], '👽'],
+        [['shit'], '💩'],
+    ];
+
+    foreach ($rules as [$needles, $emoji]) {
+        foreach ($needles as $needle) {
+            if ($needle !== '' && str_contains($probe, $needle)) {
+                return $emoji;
+            }
+        }
+    }
+
+    return '🙂';
+}
+
+function tracker_smiley_html(string $code = '', string $file = '', array $options = []): string
+{
+    $emoji = tracker_smiley_emoji($code, $file);
+    $label = trim((string)($options['label'] ?? ($code !== '' ? $code : $file)));
+    if ($label === '') {
+        $label = 'emoji';
+    }
+
+    $classes = trim('smiley-emoji ' . (string)($options['class'] ?? ''));
+    $title = array_key_exists('title', $options) ? trim((string)$options['title']) : trim($code);
+
+    return '<span class="' . htmlspecialchars($classes, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"'
+        . ' role="img"'
+        . ' aria-label="' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"'
+        . ($title !== '' ? ' title="' . htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '')
+        . '>'
+        . $emoji
+        . '</span>';
+}
+
+function tracker_smiley_picker_items(array $smileySet): array
+{
+    $items = [];
+    foreach ($smileySet as $code => $file) {
+        $items[] = [
+            'code' => (string)$code,
+            'file' => (string)$file,
+            'emoji' => tracker_smiley_emoji((string)$code, (string)$file),
+            'emoji_html' => tracker_smiley_html((string)$code, (string)$file, [
+                'class' => 'smiley-emoji--picker',
+                'title' => (string)$code,
+            ]),
+        ];
+    }
+
+    return $items;
+}
+
+function tracker_svg_emoji_data_url(string $emoji): string
+{
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        . '<text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle"'
+        . ' font-size="52" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,Twemoji Mozilla,sans-serif">'
+        . htmlspecialchars($emoji, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+        . '</text></svg>';
+
+    return 'data:image/svg+xml;charset=UTF-8,' . rawurlencode($svg);
+}
+
+function tracker_sceditor_emoticons_config(): array
+{
+    static $config = null;
+    if ($config !== null) {
+        return $config;
+    }
+
+    $groups = [
+        'dropdown' => [
+            ':-)', ':-D', ';-)', ':-P', ':-(', ":'-(", ':-O', ':love:', ':thumbsup:', ':idea:',
+        ],
+        'more' => [
+            ':smile:', ':lol:', ':cool:', ':wave:', ':party:', ':beer:', ':music:', ':crazy:', ':wub:', ':hbd:',
+        ],
+        'hidden' => [
+            ':yes:', ':no:', ':whistle:',
+        ],
+    ];
+
+    global $smilies, $privatesmilies;
+    $source = [];
+    foreach ([$smilies ?? [], $privatesmilies ?? []] as $set) {
+        foreach ($set as $code => $file) {
+            $source[(string)$code] = (string)$file;
+        }
+    }
+
+    $config = [];
+    foreach ($groups as $group => $codes) {
+        $config[$group] = [];
+        foreach ($codes as $code) {
+            $file = $source[$code] ?? '';
+            $config[$group][$code] = tracker_svg_emoji_data_url(tracker_smiley_emoji($code, $file));
+        }
+    }
+
+    return $config;
+}
+
 
 function display_date_time(int $timestamp = 0, int $tzoffset = 0): string {
     if ($timestamp <= 0) {
@@ -839,9 +1195,7 @@ function format_comment(string $text, bool $strip_html = true): string {
     foreach ([$smilies, $privatesmilies] as $set) {
         foreach ($set as $code => $file) {
             if ($code === '' || $file === '') continue;
-            $smileyMap[$code] =
-                '<img class="smiley" src="/pic/smilies/' . rawurlencode($file) . '" alt="' .
-                htmlspecialchars($code, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
+            $smileyMap[$code] = tracker_smiley_html((string)$code, (string)$file);
         }
     }
     if ($smileyMap) {

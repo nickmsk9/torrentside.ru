@@ -3,13 +3,9 @@ declare(strict_types=1);
 
 require 'include/bittorrent.php';
 dbconn();
-loggedinorreturn();
 // --- AJAX: поиск пользователей по имени ---
 if (($_GET['action'] ?? '') === 'ajax_user_search') {
     header('Content-Type: application/json; charset=UTF-8');
-
-    // Если нужен доступ только авторизованным
-    if (!isset($CURUSER['id'])) { echo '[]'; exit; }
 
     global $mysqli;
 
@@ -434,4 +430,3 @@ echo "<p id=\"browse-bottom\">$pagemenu<br>$browsemenu</p>";
 <?php
 end_frame();
 stdfoot();
-

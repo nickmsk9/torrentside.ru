@@ -5,7 +5,6 @@ require_once 'include/bittorrent.php';
 require_once 'languages/lang_russian/lang_pages.php';
 
 dbconn();
-loggedinorreturn();
 
 /** @var mysqli $mysqli */
 $mysqli = $GLOBALS['mysqli'];

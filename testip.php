@@ -83,7 +83,7 @@ if ($ip !== '') {
         }
         $banstable .= "</table>";
 
-        $head = "<div class=\"ban-head\"><img src=\"pic/smilies/excl.gif\" alt=\"!\">"
+        $head = "<div class=\"ban-head\">" . tracker_smiley_html(':!:', 'excl.gif', ['class' => 'smiley-emoji--picker', 'title' => 'Внимание']) . " "
               . "IP адрес <b>" . h($ip) . "</b> забанен:</div>";
 
         stderr('Результат', $head . '<p>' . $banstable . '</p>');

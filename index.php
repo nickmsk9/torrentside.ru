@@ -1,5 +1,6 @@
 <?php
 require "include/bittorrent.php";
+require_once __DIR__ . '/include/multitracker.php';
 gzip();
 dbconn(true);
 stdhead($tracker_lang['war']);
@@ -232,8 +233,9 @@ HTML;
     ];
     foreach ($smiles as $i => $img) {
         $code = htmlspecialchars($codes[$i], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $src  = "pic/smilies/{$img}.gif";
-        $content .= "<a href=\"javascript: SmileIT('$code','shbox','shbox_text')\"><img src=\"$src\" style=\"margin: 2px; vertical-align: middle;\"></a>";
+        $content .= "<a href=\"javascript: SmileIT('$code','shbox','shbox_text')\" style=\"display:inline-flex;margin:2px;text-decoration:none\">"
+            . tracker_smiley_html($codes[$i], $img . '.gif', ['class' => 'smiley-emoji--picker', 'title' => $codes[$i]])
+            . "</a>";
     }
     $content .= "</fieldset></form>";
 }
@@ -600,7 +602,7 @@ begin_frame("Статистика");
 
 global $tracker_lang, $ss_uri, $maxusers, $CURUSER, $use_sessions, $mysqli;
 
-$stats = tracker_cache_remember(home_cache_key('stats'), MC_STATS_TTL, static function () use ($mysqli): array {
+$stats = tracker_cache_remember(home_cache_key('stats', 'v2'), MC_STATS_TTL, static function () use ($mysqli): array {
     $query = "
         SELECT
             (SELECT COUNT(*) FROM users) AS registered,
@@ -617,6 +619,35 @@ $stats = tracker_cache_remember(home_cache_key('stats'), MC_STATS_TTL, static fu
     $res = mysqli_query($mysqli, $query) or sqlerr(__FILE__, __LINE__);
     $row = mysqli_fetch_assoc($res);
 
+    $externalSeeders = 0;
+    $externalLeechers = 0;
+    $externalCompleted = 0;
+    if (function_exists('multitracker_schema_ready') && multitracker_schema_ready()) {
+        $extRes = mysqli_query(
+            $mysqli,
+            "SELECT
+                COALESCE(SUM(ext.external_seeders), 0) AS external_seeders,
+                COALESCE(SUM(ext.external_leechers), 0) AS external_leechers,
+                COALESCE(SUM(ext.external_completed), 0) AS external_completed
+             FROM (
+                SELECT
+                    torrent_id,
+                    MAX(CASE WHEN status = 'ok' THEN seeders ELSE 0 END) AS external_seeders,
+                    MAX(CASE WHEN status = 'ok' THEN leechers ELSE 0 END) AS external_leechers,
+                    MAX(CASE WHEN status = 'ok' THEN completed ELSE 0 END) AS external_completed
+                FROM torrent_external_tracker_stats
+                GROUP BY torrent_id
+             ) AS ext"
+        );
+
+        if ($extRes instanceof mysqli_result) {
+            $extRow = mysqli_fetch_assoc($extRes) ?: [];
+            $externalSeeders = (int)($extRow['external_seeders'] ?? 0);
+            $externalLeechers = (int)($extRow['external_leechers'] ?? 0);
+            $externalCompleted = (int)($extRow['external_completed'] ?? 0);
+        }
+    }
+
     $seeders = (int)$row["seeders"];
     $leechers = (int)$row["leechers"];
     $totalDownloaded = (int)($row["totaldl"] ?? 0);
@@ -627,6 +658,9 @@ $stats = tracker_cache_remember(home_cache_key('stats'), MC_STATS_TTL, static fu
         "torrents" => number_format((int)$row["torrents"]),
         "seeders" => number_format($seeders),
         "leechers" => number_format($leechers),
+        "external_seeders" => number_format($externalSeeders),
+        "external_leechers" => number_format($externalLeechers),
+        "external_completed" => number_format($externalCompleted),
         "male" => number_format((int)$row["male"]),
         "female" => number_format((int)$row["female"]),
         "total_size" => (int)($row["total_size"] ?? 0),
@@ -638,6 +672,9 @@ $registered = $stats["registered"];
 $torrents = $stats["torrents"];
 $seeders_fmt = $stats["seeders"];
 $leechers_fmt = $stats["leechers"];
+$external_seeders_fmt = $stats["external_seeders"];
+$external_leechers_fmt = $stats["external_leechers"];
+$external_completed_fmt = $stats["external_completed"];
 $male = $stats["male"];
 $female = $stats["female"];
 $total_size = $stats["total_size"];
@@ -645,9 +682,19 @@ $test = $stats["test"];
 
 $seeders = (int)str_replace(",", "", $seeders_fmt);
 $leechers = (int)str_replace(",", "", $leechers_fmt);
+$externalSeeders = (int)str_replace(",", "", $external_seeders_fmt);
+$externalLeechers = (int)str_replace(",", "", $external_leechers_fmt);
+$externalCompleted = (int)str_replace(",", "", $external_completed_fmt);
 
 // Суммарное количество пиров
-$peers = $seeders + $leechers;
+$peers = $seeders + $leechers + $externalSeeders + $externalLeechers;
+$seedersTotal = $seeders + $externalSeeders;
+$leechersTotal = $leechers + $externalLeechers;
+$peers_fmt = number_format($peers);
+$seeders_total_fmt = number_format($seedersTotal);
+$leechers_total_fmt = number_format($leechersTotal);
+$local_peer_split_fmt = number_format($seeders) . " / " . number_format($leechers);
+$external_peer_split_fmt = $external_seeders_fmt . " / " . $external_leechers_fmt;
 
 // Вывод таблицы
 print("<table width=\"100%\" class=\"main\" border=\"0\" cellspacing=\"0\" cellpadding=\"2\">
@@ -662,9 +709,12 @@ print("<table width=\"100%\" class=\"main\" border=\"0\" cellspacing=\"0\" cellp
 <tr><td class=\"lol\" align=left><b>Парней</b></td><td align=right class=\"lol\">$male</td></tr>
 <tr><td class=\"lol\" align=left><b>Девушек</b></td><td align=right class=\"lol\">$female</td></tr>
 <tr><td class=\"lol\" align=left><b>".$tracker_lang['tracker_torrents']."</b></td><td class=\"lol\" align=right class=\"a\">$torrents</td></tr>
-<tr><td class=\"lol\" align=left><b>".$tracker_lang['tracker_peers']."</b></td><td class=\"lol\" align=right class=\"a\">$peers</td></tr>
-<tr><td class=\"lol\" align=left><b>".$tracker_lang['tracker_seeders']."</b></td><td class=\"lol\" align=right class=\"b\">$seeders</td></tr>
-<tr><td class=\"lol\" align=left><b>".$tracker_lang['tracker_leechers']."</b></td><td class=\"lol\" align=right class=\"a\">$leechers</td></tr>
+<tr><td class=\"lol\" align=left><b>".$tracker_lang['tracker_peers']."</b></td><td class=\"lol\" align=right class=\"a\">$peers_fmt</td></tr>
+<tr><td class=\"lol\" align=left><b>".$tracker_lang['tracker_seeders']."</b></td><td class=\"lol\" align=right class=\"b\">$seeders_total_fmt</td></tr>
+<tr><td class=\"lol\" align=left><b>".$tracker_lang['tracker_leechers']."</b></td><td class=\"lol\" align=right class=\"a\">$leechers_total_fmt</td></tr>
+<tr><td class=\"lol\" align=left><b>Локальные сидеры / личеры</b></td><td class=\"lol\" align=right class=\"a\">$local_peer_split_fmt</td></tr>
+<tr><td class=\"lol\" align=left><b>Мультитрекер сидеры / личеры</b></td><td class=\"lol\" align=right class=\"a\">$external_peer_split_fmt</td></tr>
+<tr><td class=\"lol\" align=left><b>Мультитрекер скачали</b></td><td class=\"lol\" align=right class=\"a\">$external_completed_fmt</td></tr>
 <tr><td class=\"lol\" align=left><b>Всего траффика</b></td><td class=\"lol\" align=right class=\"a\">$test</td></tr>
 <tr><td class=\"lol\" align=left><b>Общий размер раздач</b></td><td class=\"lol\" align=right class=\"a\">".mksize($total_size)."</td></tr>
 ");

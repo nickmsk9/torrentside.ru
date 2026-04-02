@@ -2728,7 +2728,7 @@ function commenttable(array $rows, string $redaktor = "comment"): void
 
         // Текст комментария (уже HTML от format_comment — НЕ экранируем)
         $comment_html = (string)format_comment((string)($row['text'] ?? ''));
-        $comment_text = "<div id=\"comment_text{$cid}\">{$comment_html}</div>\n";
+        $comment_text = "<div id=\"comment_text{$cid}\" class=\"comment-body\">{$comment_html}</div>\n";
 
         if (!empty($row['editedby'])) {
             $editedById = (int)$row['editedby'];
@@ -2888,6 +2888,7 @@ function textbbcode(string $form, string $name, string $text = ''): void
     $coreJsUrl = $DEFAULTBASEURL . '/js/sceditor/minified/jquery.sceditor.min.js' . $assetVersion('js/sceditor/minified/jquery.sceditor.min.js');
     $formatJsUrl = $DEFAULTBASEURL . '/js/sceditor/minified/formats/bbcode.js' . $assetVersion('js/sceditor/minified/formats/bbcode.js');
     $localeJsUrl = $DEFAULTBASEURL . '/js/sceditor/languages/ru.js' . $assetVersion('js/sceditor/languages/ru.js');
+    $emoticonsConfig = tracker_sceditor_emoticons_config();
 
     // ---------- подключаем ассеты один раз ----------
     static $assetsPrinted = false;
@@ -2910,6 +2911,7 @@ function textbbcode(string $form, string $name, string $text = ''): void
         var CONTENT_CSS = <?= $j($contentCssUrl) ?>;
         var TA_ID = <?= $j($textareaId) ?>;
         var FORM_NAME = <?= $j($form) ?>;
+        var EMOTICONS = <?= $j($emoticonsConfig) ?>;
 
         function get$() {
             return win.jQuery || win.$ || null;
@@ -2936,7 +2938,8 @@ function textbbcode(string $form, string $name, string $text = ''): void
                 $(ta).sceditor({
                     format: 'bbcode',
                     style: CONTENT_CSS,
-                    emoticonsRoot: BASE + '/js/sceditor/',
+                    emoticonsRoot: '',
+                    emoticons: EMOTICONS,
                     width: '100%',
                     height: 250,
                     resizeEnabled: true,

@@ -363,7 +363,9 @@ HTML;
         };
         $sr_fmt   = number_format($sr, 3, '.', '');
         $sr_color = get_ratio_color($sr);
-        $sr_output = '<table><tr><td class="embedded"><span style="color:'.$sr_color.'">'.$sr_fmt.'</span></td><td><img src="/pic/smilies/'.$face.'.gif" alt=""></td></tr></table>';
+        $sr_output = '<table><tr><td class="embedded"><span style="color:'.$sr_color.'">'.$sr_fmt.'</span></td><td>'
+            . tracker_smiley_html('', $face . '.gif', ['class' => 'smiley-emoji--picker', 'title' => 'Рейтинг'])
+            . '</td></tr></table>';
     } else {
         $sr_output = 'Нет';
     }

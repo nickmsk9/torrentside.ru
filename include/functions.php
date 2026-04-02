@@ -414,6 +414,386 @@ if (!function_exists('tracker_user_rating_data')) {
     }
 }
 
+if (!function_exists('tracker_strip_bbcode_tags')) {
+    function tracker_strip_bbcode_tags(string $text): string
+    {
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $text = preg_replace('~\[(?:/?[a-z*]+(?:=[^\]]*)?)\]~iu', '', $text) ?? $text;
+        $text = str_replace(["\r", "\n", "\t"], ' ', $text);
+        $text = trim(preg_replace('~\s+~u', ' ', $text) ?? $text);
+        return $text;
+    }
+}
+
+if (!function_exists('tracker_torrent_extract_meta')) {
+    function tracker_torrent_extract_meta(string $descr): array
+    {
+        $meta = [
+            'title' => '',
+            'original_title' => '',
+            'year' => '',
+            'genre' => '',
+            'released' => '',
+            'director' => '',
+            'roles' => '',
+            'translation' => '',
+            'quality' => '',
+            'format' => '',
+            'duration' => '',
+            'publisher' => '',
+        ];
+
+        if (trim($descr) === '') {
+            return $meta;
+        }
+
+        $aliases = [
+            'title' => ['Название'],
+            'original_title' => ['Оригинальное название'],
+            'year' => ['Год выхода', 'Год выпуска'],
+            'genre' => ['Жанр'],
+            'released' => ['Выпущено', 'Страна'],
+            'director' => ['Режиссер', 'Режиссёр', 'Разработчик'],
+            'roles' => ['В ролях', 'Актеры', 'Актёры'],
+            'translation' => ['Перевод', 'Язык'],
+            'quality' => ['Качество'],
+            'format' => ['Формат'],
+            'duration' => ['Продолжительность'],
+            'publisher' => ['Издатель', 'Кем выпущено'],
+        ];
+
+        $lines = preg_split('~\R+~u', $descr) ?: [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+
+            if (!preg_match('~^\[b\](?:\[u\])?\s*(.+?)\s*(?:\[/u\])?\[/b\]\s*:?\s*(.*?)\s*$~iu', $line, $m)) {
+                continue;
+            }
+
+            $rawLabel = tracker_strip_bbcode_tags((string)$m[1]);
+            $value = tracker_strip_bbcode_tags((string)$m[2]);
+            if ($rawLabel === '' || $value === '') {
+                continue;
+            }
+
+            $normalizedLabel = mb_strtolower(rtrim($rawLabel, ':'), 'UTF-8');
+            foreach ($aliases as $field => $fieldAliases) {
+                foreach ($fieldAliases as $alias) {
+                    if ($normalizedLabel === mb_strtolower($alias, 'UTF-8')) {
+                        if ($meta[$field] === '') {
+                            $meta[$field] = $value;
+                        }
+                        continue 3;
+                    }
+                }
+            }
+        }
+
+        if ($meta['released'] === '' && $meta['publisher'] !== '') {
+            $meta['released'] = $meta['publisher'];
+        }
+
+        return $meta;
+    }
+}
+
+if (!function_exists('tracker_browse_search_url')) {
+    function tracker_browse_search_url(string $term, array $extra = []): string
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return 'browse.php';
+        }
+
+        $query = array_merge([
+            'search' => $term,
+            'where' => 'all',
+            'incldead' => 1,
+        ], $extra);
+
+        return 'browse.php?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+}
+
+if (!function_exists('tracker_render_browse_search_links')) {
+    function tracker_render_browse_search_links(string $raw, int $maxItems = 20): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return '';
+        }
+
+        $parts = preg_split('~\s*(?:,|;|/|\|)\s*~u', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (!$parts) {
+            $parts = [$raw];
+        }
+
+        $links = [];
+        foreach (array_slice($parts, 0, $maxItems) as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+
+            $label = htmlspecialchars($part, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $href = htmlspecialchars(tracker_browse_search_url($part), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $links[] = '<a href="' . $href . '">' . $label . '</a>';
+        }
+
+        return $links ? implode(', ', $links) : htmlspecialchars($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+}
+
+if (!function_exists('tracker_torrent_bookmark_cache_key')) {
+    function tracker_torrent_bookmark_cache_key(int $userId, int $torrentId): string
+    {
+        return tracker_cache_key('bookmark', 'torrent', 'u' . max(0, $userId), 't' . max(0, $torrentId));
+    }
+}
+
+if (!function_exists('tracker_release_group_bookmark_cache_key')) {
+    function tracker_release_group_bookmark_cache_key(int $userId, int $groupId): string
+    {
+        return tracker_cache_key('bookmark', 'release-group', 'u' . max(0, $userId), 'g' . max(0, $groupId));
+    }
+}
+
+if (!function_exists('tracker_invalidate_torrent_bookmark_cache')) {
+    function tracker_invalidate_torrent_bookmark_cache(int $userId, int $torrentId): void
+    {
+        tracker_cache_delete(tracker_torrent_bookmark_cache_key($userId, $torrentId));
+    }
+}
+
+if (!function_exists('tracker_invalidate_release_group_bookmark_cache')) {
+    function tracker_invalidate_release_group_bookmark_cache(int $userId, int $groupId): void
+    {
+        tracker_cache_delete(tracker_release_group_bookmark_cache_key($userId, $groupId));
+    }
+}
+
+if (!function_exists('tracker_user_has_torrent_bookmark')) {
+    function tracker_user_has_torrent_bookmark(int $userId, int $torrentId): bool
+    {
+        if ($userId <= 0 || $torrentId <= 0) {
+            return false;
+        }
+
+        $key = tracker_torrent_bookmark_cache_key($userId, $torrentId);
+        return (bool)tracker_cache_remember($key, 120, static function () use ($userId, $torrentId): bool {
+            $res = sql_query("SELECT 1 FROM torrent_bookmarks WHERE user_id = " . (int)$userId . " AND torrent_id = " . (int)$torrentId . " LIMIT 1");
+            return (bool)($res && mysqli_fetch_row($res));
+        });
+    }
+}
+
+if (!function_exists('tracker_user_has_release_group_bookmark')) {
+    function tracker_user_has_release_group_bookmark(int $userId, int $groupId): bool
+    {
+        if ($userId <= 0 || $groupId <= 0) {
+            return false;
+        }
+
+        $key = tracker_release_group_bookmark_cache_key($userId, $groupId);
+        return (bool)tracker_cache_remember($key, 120, static function () use ($userId, $groupId): bool {
+            $res = sql_query("SELECT 1 FROM release_group_bookmarks WHERE user_id = " . (int)$userId . " AND group_id = " . (int)$groupId . " LIMIT 1");
+            return (bool)($res && mysqli_fetch_row($res));
+        });
+    }
+}
+
+if (!function_exists('tracker_release_group_memberships')) {
+    function tracker_release_group_memberships(int $userId): array
+    {
+        if ($userId <= 0) {
+            return [];
+        }
+
+        $cacheKey = tracker_cache_key('release-group', 'memberships', 'u' . $userId);
+        $rows = tracker_cache_remember($cacheKey, 120, static function () use ($userId): array {
+            $res = sql_query("
+                SELECT
+                    g.id,
+                    g.name,
+                    g.image,
+                    g.access_mode,
+                    gm.role
+                FROM release_group_members AS gm
+                INNER JOIN release_groups AS g ON g.id = gm.group_id
+                WHERE gm.user_id = " . (int)$userId . "
+                ORDER BY CASE gm.role WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END, g.name ASC
+            ");
+
+            $rows = [];
+            while ($res && ($row = mysqli_fetch_assoc($res))) {
+                $rows[] = $row;
+            }
+
+            return $rows;
+        });
+
+        return is_array($rows) ? $rows : [];
+    }
+}
+
+if (!function_exists('tracker_release_group_cache_key')) {
+    function tracker_release_group_cache_key(int $groupId): string
+    {
+        return tracker_cache_key('release-group', 'item', 'g' . max(0, $groupId));
+    }
+}
+
+if (!function_exists('tracker_get_release_group')) {
+    function tracker_get_release_group(int $groupId): ?array
+    {
+        if ($groupId <= 0) {
+            return null;
+        }
+
+        $row = tracker_cache_remember(tracker_release_group_cache_key($groupId), 180, static function () use ($groupId): ?array {
+            $res = sql_query("
+                SELECT
+                    g.*,
+                    u.username AS creator_name,
+                    COALESCE(members.members_count, 0) AS members_count,
+                    COALESCE(torrents.torrents_count, 0) AS torrents_count
+                FROM release_groups AS g
+                LEFT JOIN users AS u ON u.id = g.creator_id
+                LEFT JOIN (
+                    SELECT group_id, COUNT(*) AS members_count
+                    FROM release_group_members
+                    GROUP BY group_id
+                ) AS members ON members.group_id = g.id
+                LEFT JOIN (
+                    SELECT release_group_id, COUNT(*) AS torrents_count
+                    FROM torrents
+                    WHERE release_group_id > 0
+                    GROUP BY release_group_id
+                ) AS torrents ON torrents.release_group_id = g.id
+                WHERE g.id = " . (int)$groupId . "
+                LIMIT 1
+            ");
+
+            $row = $res ? mysqli_fetch_assoc($res) : null;
+            return is_array($row) ? $row : null;
+        });
+
+        return is_array($row) ? $row : null;
+    }
+}
+
+if (!function_exists('tracker_invalidate_release_group_cache')) {
+    function tracker_invalidate_release_group_cache(int ...$groupIds): void
+    {
+        foreach (array_values(array_unique(array_filter(array_map('intval', $groupIds), static fn(int $id): bool => $id > 0))) as $groupId) {
+            tracker_cache_delete(tracker_release_group_cache_key($groupId));
+        }
+    }
+}
+
+if (!function_exists('tracker_release_group_role')) {
+    function tracker_release_group_role(int $groupId, int $userId): ?string
+    {
+        if ($groupId <= 0 || $userId <= 0) {
+            return null;
+        }
+
+        foreach (tracker_release_group_memberships($userId) as $group) {
+            if ((int)($group['id'] ?? 0) === $groupId) {
+                return (string)($group['role'] ?? 'member');
+            }
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('tracker_can_manage_release_group')) {
+    function tracker_can_manage_release_group(int $groupId, int $userId): bool
+    {
+        $role = tracker_release_group_role($groupId, $userId);
+        return in_array($role, ['owner', 'manager'], true) || (function_exists('get_user_class') && get_user_class() >= UC_ADMINISTRATOR);
+    }
+}
+
+if (!function_exists('tracker_release_group_badge_html')) {
+    function tracker_release_group_badge_html(?array $group, bool $withName = true): string
+    {
+        if (!$group || empty($group['id'])) {
+            return '';
+        }
+
+        $groupId = (int)$group['id'];
+        $name = htmlspecialchars((string)($group['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $image = trim((string)($group['image'] ?? ''));
+        $imageHtml = '';
+
+        if ($image !== '') {
+            $src = htmlspecialchars(tracker_normalize_public_url($image, $image), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $imageHtml = '<img src="' . $src . '" alt="' . $name . '" style="display:block;max-width:72px;max-height:28px;width:auto;height:auto;">';
+        }
+
+        $labelHtml = $withName ? '<span style="font-size:11px;line-height:1.2;color:#4c6076;font-weight:700;">' . $name . '</span>' : '';
+
+        return '<a href="groupex.php?id=' . $groupId . '" class="release-group-badge" style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d6dee7;border-radius:10px;background:#fbfdff;text-decoration:none;">'
+            . ($imageHtml !== '' ? $imageHtml : '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;padding:0 8px;border-radius:8px;background:#e9eef5;color:#5f7288;font-size:11px;font-weight:700;">RG</span>')
+            . $labelHtml
+            . '</a>';
+    }
+}
+
+if (!function_exists('tracker_release_group_select_html')) {
+    function tracker_release_group_select_html(int $userId, int $selectedGroupId = 0, string $fieldName = 'release_group_id'): string
+    {
+        $groups = tracker_release_group_memberships($userId);
+        if (!$groups) {
+            return '<span style="color:#6b7d92;">Вы пока не состоите в релиз-группах.</span>';
+        }
+
+        $html = '<select name="' . htmlspecialchars($fieldName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
+        $html .= '<option value="0">(Без релиз-группы)</option>';
+        foreach ($groups as $group) {
+            $groupId = (int)($group['id'] ?? 0);
+            $name = htmlspecialchars((string)($group['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $role = (string)($group['role'] ?? 'member');
+            $selected = $groupId === $selectedGroupId ? ' selected' : '';
+            $html .= '<option value="' . $groupId . '"' . $selected . '>' . $name . ' [' . htmlspecialchars($role, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ']</option>';
+        }
+        $html .= '</select>';
+
+        return $html;
+    }
+}
+
+if (!function_exists('tracker_release_group_for_user')) {
+    function tracker_release_group_for_user(int $userId, int $groupId): int
+    {
+        if ($userId <= 0 || $groupId <= 0) {
+            return 0;
+        }
+
+        foreach (tracker_release_group_memberships($userId) as $group) {
+            if ((int)($group['id'] ?? 0) === $groupId) {
+                return $groupId;
+            }
+        }
+
+        return 0;
+    }
+}
+
+if (!function_exists('tracker_invalidate_release_group_membership_cache')) {
+    function tracker_invalidate_release_group_membership_cache(int ...$userIds): void
+    {
+        foreach (array_values(array_unique(array_filter(array_map('intval', $userIds), static fn(int $id): bool => $id > 0))) as $userId) {
+            tracker_cache_delete(tracker_cache_key('release-group', 'memberships', 'u' . $userId));
+        }
+    }
+}
+
 function pager($rpp, $count, $href, $opts = array())
 {
     $rpp    = max(1, (int)$rpp);
@@ -2895,6 +3275,7 @@ function commenttable(array $rows, string $redaktor = "comment"): void
             'profile_rating_bonus' => (int)($row['profile_rating_bonus'] ?? 0),
         ]);
         $commentUserRatingScore = (int)($commentUserRating['score'] ?? 0);
+        $commentUserRatingProgress = (int)($commentUserRating['progress'] ?? 0);
         $commentUserRatingTitle = 'Рейтинг: ' . $commentUserRatingScore
             . ' · ratio ' . (string)($commentUserRating['ratio_text'] ?? '0')
             . ' · раздач ' . (int)($commentUserRating['torrents_count'] ?? 0)
@@ -2945,8 +3326,23 @@ function commenttable(array $rows, string $redaktor = "comment"): void
                         <div
                             class="comment-user-rating"
                             title="<?= $esc($commentUserRatingTitle) ?>"
-                            style="margin-top:6px;display:inline-block;padding:2px 8px;border:1px solid #d8e1ea;border-radius:999px;background:#f7fafc;color:#63788f;font-size:11px;line-height:1.3;white-space:nowrap;"
-                        >Рейтинг <?= $commentUserRatingScore ?></div>
+                            style="margin-top:7px;width:min(100%, 96px);"
+                        >
+                            <div
+                                class="comment-user-rating-bar"
+                                style="position:relative;height:18px;overflow:hidden;border:1px solid #d9ca87;border-radius:2px;background:linear-gradient(180deg,#fbf3c8 0%,#f6e7a4 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.78);"
+                            >
+                                <div
+                                    class="comment-user-rating-fill"
+                                    aria-hidden="true"
+                                    style="position:absolute;left:0;top:0;bottom:0;width:<?= $commentUserRatingProgress ?>%;background:linear-gradient(180deg,#ecdfa4 0%,#ddc97d 100%);border-right:1px solid rgba(168,144,65,.28);"
+                                ></div>
+                                <div
+                                    class="comment-user-rating-value"
+                                    style="position:relative;z-index:1;display:flex;align-items:center;justify-content:center;height:100%;padding:0 6px;font-size:11px;line-height:1;font-weight:400;color:#8b7a43;text-shadow:0 1px 0 rgba(255,255,255,.6);"
+                                ><?= $commentUserRatingScore ?></div>
+                            </div>
+                        </div>
                     </td>
                     <td width="100%" class="text"><?= $comment_text ?></td>
                 </tr>

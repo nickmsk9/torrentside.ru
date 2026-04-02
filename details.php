@@ -200,14 +200,19 @@ $row = tracker_cache_remember(
                 torrents.descr,
                 torrents.filename,
                 torrents.free,
+                torrents.release_group_id,
                 torrents.image1,
+                torrents.times_completed,
                 torrents.seeders,
                 torrents.leechers,
+                rg.name AS release_group_name,
+                rg.image AS release_group_image,
                 COALESCE(mts.external_seeders, 0) AS external_seeders,
                 COALESCE(mts.external_leechers, 0) AS external_leechers,
                 COALESCE(mts.external_completed, 0) AS external_completed,
                 mts.external_fetched_at
             FROM torrents
+            LEFT JOIN release_groups AS rg ON rg.id = torrents.release_group_id
             " . multitracker_stats_summary_sql('torrents') . "
             WHERE torrents.id = {$id}
             LIMIT 1
@@ -223,19 +228,31 @@ $titleName = htmlspecialchars((string)($row['name'] ?? ''), ENT_QUOTES | ENT_SUB
 stdhead($tracker_lang['torrent_details'] . ' "' . $titleName . '"');
 ?>
 <script type="text/javascript" src="js/ajax.js"></script>
+<link rel="stylesheet" href="/js/photoswipe/photoswipe.css" type="text/css" media="screen" />
+<script type="module">
+  import PhotoSwipeLightbox from '/js/photoswipe/photoswipe-lightbox.esm.min.js';
 
-<!-- === GLightbox вместо Highslide === -->
-<link rel="stylesheet" href="/glightbox/glightbox.min.css" type="text/css" media="screen" />
-<script type="text/javascript" src="/glightbox/glightbox.min.js"></script>
-<script>
-  // Один init на страницу; селектор — для наших постеров
-  document.addEventListener('DOMContentLoaded', function () {
-    window.tsLightbox = GLightbox({
-      selector: '.js-torrent-lightbox',
-      touchNavigation: true,
-      loop: true
+  let torrentLightbox = null;
+
+  function initTorrentGallery() {
+    if (torrentLightbox) {
+      torrentLightbox.destroy();
+    }
+
+    torrentLightbox = new PhotoSwipeLightbox({
+      gallery: 'body',
+      children: 'a.js-torrent-gallery',
+      pswpModule: () => import('/js/photoswipe/photoswipe.esm.min.js'),
+      showHideAnimationType: 'zoom',
+      bgOpacity: 0.92,
+      wheelToZoom: true,
     });
-  });
+
+    torrentLightbox.init();
+  }
+
+  window.tsRefreshTorrentGallery = initTorrentGallery;
+  document.addEventListener('DOMContentLoaded', initTorrentGallery);
 </script>
 <?php
 // --- безопасные значения ---
@@ -253,6 +270,7 @@ $owned   = (get_user_class() >= UC_MODERATOR || ($uid > 0 && $uid === $ownerId))
 $spacer  = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
 $name    = htmlspecialchars((string)($row['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $descrHtml = details_render_descr_html($torrentId, (string)($row['descr'] ?? ''));
+$bookmarkActive = $uid > 0 ? tracker_user_has_torrent_bookmark($uid, $torrentId) : false;
 
 // Кнопки "предыдущий/следующий" + название
 $namer =
@@ -304,9 +322,7 @@ $oRating = new rating((int)$row['id']);
 $img1 = '';
 if (!empty($row['image1'])) {
     $imgSrc = htmlspecialchars((string)$row['image1'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    // Добавил data-gallery, чтобы потом легко группировать несколько картинок
-    // data-title — заголовок лайтбокса; loading/decoding — микрооптимизация
-    $img1 = '<a href="' . $imgSrc . '" class="js-torrent-lightbox" data-gallery="torrent-' . (int)$row['id'] . '" data-title="' . $titleName . '">'
+    $img1 = '<a href="' . $imgSrc . '" class="js-torrent-gallery" data-pswp-width="900" data-pswp-height="1350" data-title="' . $titleName . '">'
           .     '<img border="0" width="200" height="300" src="' . $imgSrc . '" alt="Обложка" loading="lazy" decoding="async" />'
           .   '</a><br>';
 }
@@ -350,7 +366,7 @@ print('</table>'); // ВАЖНО: без лишнего </p>
 
 // ——— Блок «скачать .torrent / magnet» ———
 ?>
-<table align="center" width="70%" border="1" cellspacing="0" cellpadding="5">
+<table align="center" width="70%" border="1" cellspacing="0" cellpadding="5" style="margin-top:14px;">
 <?php
 $torr   = htmlspecialchars($row['name'] ?? $row['filename'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $fname  = (string)($row['filename'] ?? $row['name'] ?? ('torrent-' . $torrentId . '.torrent'));
@@ -361,10 +377,20 @@ $leechersCount = (int)($row['leechers'] ?? 0);
 $externalSeedersCount = (int)($row['external_seeders'] ?? 0);
 $externalLeechersCount = (int)($row['external_leechers'] ?? 0);
 $externalCompletedCount = (int)($row['external_completed'] ?? 0);
+$localCompletedCount = (int)($row['times_completed'] ?? 0);
+$totalCompletedCount = $localCompletedCount + $externalCompletedCount;
 $externalFetchedAt = trim((string)($row['external_fetched_at'] ?? ''));
 $totalSeedersCount = $seedersCount + $externalSeedersCount;
 $totalLeechersCount = $leechersCount + $externalLeechersCount;
 $hasActivePeers = ($totalSeedersCount + $totalLeechersCount) > 0;
+$releaseGroupBadge = '';
+if ((int)($row['release_group_id'] ?? 0) > 0) {
+    $releaseGroupBadge = tracker_release_group_badge_html([
+        'id' => (int)$row['release_group_id'],
+        'name' => (string)($row['release_group_name'] ?? ''),
+        'image' => (string)($row['release_group_image'] ?? ''),
+    ]);
+}
 $trackerRows = tracker_cache_remember(
     tracker_cache_key('details', 'trackers', 't' . $torrentId),
     60,
@@ -397,12 +423,24 @@ $left = ''
 
 $right = ''
   . '<div style="font-weight:700;margin-bottom:6px;">' . $torr . '</div>'
+  . ($releaseGroupBadge !== '' ? '<div style="margin:0 0 10px 0;">' . $releaseGroupBadge . '</div>' : '')
   . '<div style="margin:0 0 8px 0;padding:8px 10px;border:1px solid #d7dee6;border-radius:10px;background:#f8fbff;">'
   .   '<div><b>Локально:</b> сиды ' . $seedersCount . ' / личи ' . $leechersCount . '</div>'
   .   '<div><b>Внешне:</b> сиды ' . $externalSeedersCount . ' / личи ' . $externalLeechersCount . '</div>'
   .   '<div><b>Итого:</b> сиды ' . $totalSeedersCount . ' / личи ' . $totalLeechersCount . '</div>'
+  .   '<div><b>Скачали:</b> ' . $totalCompletedCount . ' <span style="color:#7a8ca2;">(локально ' . $localCompletedCount . ' / мультитрекер ' . $externalCompletedCount . ')</span></div>'
   .   ($externalFetchedAt !== '' ? '<div style="margin-top:4px;color:#64748b;">Кэш внешней статистики: ' . htmlspecialchars($externalFetchedAt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</div>' : '')
   .   ($multitrackerRefreshDone ? '<div style="margin-top:4px;color:#166534;">Данные мультитрекера обновлены принудительно.</div>' : '')
+  .   ($uid > 0
+        ? '<form method="post" action="bookmark.php" style="margin-top:10px;">'
+            . '<input type="hidden" name="type" value="torrent">'
+            . '<input type="hidden" name="entity_id" value="' . $torrentId . '">'
+            . '<input type="hidden" name="returnto" value="' . htmlspecialchars('details.php?id=' . $torrentId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">'
+            . '<button type="submit" style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:8px;background:' . ($bookmarkActive ? '#fef3c7' : '#eef5ff') . ';color:#1d4f91;font-weight:600;cursor:pointer;">'
+            . ($bookmarkActive ? 'Убрать из закладок' : 'Добавить в закладки')
+            . '</button>'
+          . '</form>'
+        : '')
   .   '<form method="post" action="details.php?id=' . $torrentId . '" style="margin-top:8px;">'
   .     '<input type="hidden" name="mt_refresh_token" value="' . htmlspecialchars($multitrackerRefreshToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">'
   .     '<input type="hidden" name="refresh_multitracker" value="1">'

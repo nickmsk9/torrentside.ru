@@ -250,13 +250,16 @@ $image2 = trim((string)($_POST['image1'] ?? ''));
 $image3 = trim((string)($_POST['image2'] ?? ''));
 $image4 = trim((string)($_POST['image3'] ?? ''));
 $image5 = trim((string)($_POST['image4'] ?? ''));
+$releaseGroupId = get_user_class() >= UC_UPLOADER
+    ? tracker_release_group_for_user((int)$CURUSER['id'], (int)($_POST['release_group_id'] ?? 0))
+    : 0;
 
 // --- вставка торрента
 $now = get_date_time();
 $insert = sql_query(
     "INSERT INTO torrents (
         search_text, filename, owner, visible, sticky, info_hash, name, size, numfiles, type, tags,
-        descr, ori_descr, free, image1, image2, image3, image4, image5, category, save_as, added, last_action, poster, modname
+        descr, ori_descr, free, image1, image2, image3, image4, image5, category, save_as, release_group_id, added, last_action, poster, modname
     ) VALUES (" .
     implode(",", array_map('sqlesc', [
         searchfield("$shortfname $dname $torrent"),
@@ -275,7 +278,8 @@ $insert = sql_query(
         (string)$free,
         $image1, $image2, $image3, $image4, $image5,
         (string)$catid,
-        $dname
+        $dname,
+        (string)$releaseGroupId
     ])) .
     ", '$now', '$now', " . sqlesc($CURUSER['id']) . ", " . sqlesc($CURUSER['username']) . ")"
 );
@@ -327,6 +331,9 @@ foreach ($toInsert as $tag) {
 
 tracker_recount_tags_for_categories((int)$catid);
 tracker_invalidate_torrent_cache($id, true);
+if ($releaseGroupId > 0) {
+    tracker_invalidate_release_group_cache($releaseGroupId);
+}
 
 // --- лог
 write_log("Торрент №$id ($torrent) залит пользователем {$CURUSER['username']}", "5DDB6E", "torrent");

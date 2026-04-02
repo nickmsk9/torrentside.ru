@@ -56,7 +56,7 @@ if (isset($_POST['id'])) $id = (int)$_POST['id'];
 if ($id <= 0) die("Access denied: Wrong ID");
 
 /** Permission + base row */
-$res = sql_query("SELECT owner, filename, save_as, image1, image2, image3, image4, image5, tags, category FROM torrents WHERE id = " . sqlesc($id));
+$res = sql_query("SELECT owner, filename, save_as, image1, image2, image3, image4, image5, tags, category, release_group_id FROM torrents WHERE id = " . sqlesc($id));
 $row = mysqli_fetch_assoc($res);
 if (!$row) die("Торрент не найден");
 if (((int)$CURUSER["id"] !== (int)$row["owner"] && get_user_class() < UC_MODERATOR) || !user_has_module('torrent_edit')) {
@@ -180,6 +180,7 @@ $oldTagsArr = $oldtagsNorm === '' ? [] : array_values(array_unique(array_filter(
 $toAdd   = array_values(array_diff($tagsArr, $oldTagsArr));
 $toMinus = array_values(array_diff($oldTagsArr, $tagsArr));
 $oldCategory = (int)($row['category'] ?? 0);
+$oldReleaseGroupId = (int)($row['release_group_id'] ?? 0);
 $affectedTagCategories = array_values(array_unique(array_filter([$oldCategory, $typeIn], static fn(int $category): bool => $category > 0)));
 
 /** Build search_text */
@@ -191,6 +192,9 @@ $image2 = (string)($_POST["image3"] ?? '');
 $image3 = (string)($_POST["image4"] ?? '');
 $image4 = (string)($_POST["image5"] ?? '');
 $image5 = (string)($_POST["image6"] ?? '');
+$releaseGroupId = get_user_class() >= UC_UPLOADER
+    ? tracker_release_group_for_user((int)$CURUSER['id'], (int)($_POST['release_group_id'] ?? 0))
+    : 0;
 
 /** Privileged flags */
 if (get_user_class() >= UC_ADMINISTRATOR) {
@@ -232,6 +236,7 @@ $updateset[] = "image3      = " . sqlesc($image3);
 $updateset[] = "image4      = " . sqlesc($image4);
 $updateset[] = "image5      = " . sqlesc($image5);
 $updateset[] = "category    = " . sqlesc($typeIn);
+$updateset[] = "release_group_id = " . sqlesc($releaseGroupId);
 
 /** DB ops: transaction */
 sql_query("START TRANSACTION");
@@ -295,6 +300,7 @@ sql_query("COMMIT");
 
 tracker_recount_tags_for_categories(...$affectedTagCategories);
 tracker_invalidate_torrent_cache($id, true);
+tracker_invalidate_release_group_cache($oldReleaseGroupId, $releaseGroupId);
 
 /** Log */
 write_log("Торрент '" . $name . "' был отредактирован пользователем {$CURUSER['username']}", "F25B61", "torrent");

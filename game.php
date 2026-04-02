@@ -197,6 +197,14 @@ $catNameSafe = htmlspecialchars($catName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
       $tagsHtml .= "</div>";
       tr("Теги", $tagsHtml, 1);
 
+      if (get_user_class() >= UC_UPLOADER) {
+          tr(
+              "Релиз-группа",
+              tracker_release_group_select_html((int)$CURUSER['id']) . '<br><small>Можно выбрать одну из релиз-групп, в которых вы состоите.</small>',
+              1
+          );
+      }
+
       // Скидка
       if (get_user_class() >= UC_USER) {
           $prc = '<select name="free">';

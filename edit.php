@@ -151,6 +151,14 @@ foreach ($tags as $tag) {
 $tagsInput .= "</div>\n";
 tr('Теги', $tagsInput, 1);
 
+if (get_user_class() >= UC_UPLOADER) {
+    tr(
+        'Релиз-группа',
+        tracker_release_group_select_html((int)$CURUSER['id'], (int)($row['release_group_id'] ?? 0)) . '<br><small>Можно привязать раздачу только к вашей релиз-группе.</small>',
+        1
+    );
+}
+
 /** Видимость */
 $visibleChecked = ((string)($row['visible'] ?? '') === 'yes') ? ' checked' : '';
 tr('Видимость', '<input type="checkbox" name="visible"' . $visibleChecked . ' value="1"> Торрент виден на главной', 1);

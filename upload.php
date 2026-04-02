@@ -171,6 +171,14 @@ if (empty($tags)) {
 $tagsHtml .= '</div>';
 tr("Тэги", $tagsHtml, 1);
 
+if (get_user_class() >= UC_UPLOADER) {
+    tr(
+        'Релиз-группа',
+        tracker_release_group_select_html((int)$CURUSER['id']) . '<br><small>Можно выбрать одну из релиз-групп, в которых вы состоите.</small>',
+        1
+    );
+}
+
 /* скидка (free) */
 $prc = "<select name=\"free\">";
 for ($i = 0; $i <= 10; $i++) {

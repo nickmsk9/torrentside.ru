@@ -1,6 +1,7 @@
 <?php
 
 require_once("include/bittorrent.php");
+require_once("include/multitracker.php");
 dbconn();
 header ("Content-Type: text/html; charset=" . $tracker_lang['language_charset']);
 header ("Cache-control: no-store");
@@ -152,28 +153,70 @@ function ajax_torrent_row(int $torrentId): array
 {
     global $CURUSER;
 
-    $canRateSql = '';
-    if (!empty($CURUSER['id'])) {
-        $canRateSql = ", (SELECT COUNT(*) FROM karma WHERE type='torrent' AND value = torrents.id AND user = " . (int)$CURUSER['id'] . ") AS canrate";
+    $cacheKey = tracker_cache_key('torrent-tab', 'row', 't' . $torrentId);
+    $row = tracker_cache_remember($cacheKey, 60, static function () use ($torrentId): array {
+        $res = sql_query(
+            "SELECT
+                torrents.seeders,
+                torrents.modded,
+                torrents.modby,
+                torrents.modname,
+                torrents.karma,
+                torrents.leechers,
+                torrents.info_hash,
+                torrents.free,
+                torrents.filename,
+                UNIX_TIMESTAMP() - UNIX_TIMESTAMP(torrents.last_action) AS lastseed,
+                torrents.name,
+                torrents.owner,
+                torrents.release_group_id,
+                torrents.save_as,
+                torrents.descr,
+                torrents.visible,
+                torrents.size,
+                torrents.added,
+                torrents.views,
+                torrents.hits,
+                torrents.times_completed,
+                torrents.id,
+                torrents.type,
+                torrents.tags,
+                torrents.numfiles,
+                torrents.image1,
+                torrents.image2,
+                torrents.image3,
+                torrents.image4,
+                torrents.image5,
+                COALESCE(mts.external_completed, 0) AS external_completed,
+                rg.name AS release_group_name,
+                rg.image AS release_group_image,
+                categories.name AS cat_name,
+                categories.id AS cat_id,
+                users.username
+            FROM torrents
+            LEFT JOIN categories ON torrents.category = categories.id
+            LEFT JOIN users ON torrents.owner = users.id
+            LEFT JOIN release_groups AS rg ON rg.id = torrents.release_group_id
+            " . multitracker_stats_summary_sql('torrents') . "
+            WHERE torrents.id = {$torrentId}
+            LIMIT 1"
+        ) or sqlerr(__FILE__, __LINE__);
+
+        return mysqli_fetch_assoc($res) ?: [];
+    });
+
+    if (!is_array($row) || !$row) {
+        return [];
     }
 
-    $res = sql_query(
-        "SELECT torrents.seeders, torrents.modded, torrents.modby, torrents.modname, torrents.karma,
-                torrents.leechers, torrents.info_hash, torrents.free, torrents.filename,
-                UNIX_TIMESTAMP() - UNIX_TIMESTAMP(torrents.last_action) AS lastseed,
-                torrents.name, torrents.owner, torrents.save_as, torrents.descr, torrents.visible,
-                torrents.size, torrents.added, torrents.views, torrents.hits, torrents.times_completed,
-                torrents.id, torrents.type, torrents.tags, torrents.numfiles, torrents.image1,
-                torrents.image2, torrents.image3, torrents.image4, torrents.image5,
-                categories.name AS cat_name, categories.id AS cat_id, users.username
-                {$canRateSql}
-         FROM torrents
-         LEFT JOIN categories ON torrents.category = categories.id
-         LEFT JOIN users ON torrents.owner = users.id
-         WHERE torrents.id = {$torrentId}"
-    ) or sqlerr(__FILE__, __LINE__);
+    $row['canrate'] = 0;
+    if (!empty($CURUSER['id'])) {
+        $res = sql_query("SELECT COUNT(*) AS cnt FROM karma WHERE type='torrent' AND value = " . (int)$torrentId . " AND user = " . (int)$CURUSER['id']);
+        $canrateRow = $res ? mysqli_fetch_assoc($res) : null;
+        $row['canrate'] = (int)($canrateRow['cnt'] ?? 0);
+    }
 
-    return mysqli_fetch_assoc($res) ?: [];
+    return $row;
 }
 
 $row = ajax_torrent_row($id);
@@ -193,73 +236,106 @@ $op = format_comment((string)$row["descr"]);
 		
 if ($act == "info")
 {
+    $size = mksize((float)$row["size"]) . " (" . number_format((float)$row["size"]) . " " . $tracker_lang['bytes'] . ")";
+    $uprow = isset($row["username"])
+        ? ("<a href=\"userdetails.php?id=" . (int)$row["owner"] . "\">" . htmlspecialchars((string)$row["username"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</a>")
+        : "<i>Аноним</i>";
+    $lastseed = mkprettytime((int)$row["lastseed"]);
+    $catname = isset($row["cat_name"]) ? htmlspecialchars((string)$row["cat_name"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : $tracker_lang['no_choose'];
+    $hash = htmlspecialchars((string)$row["info_hash"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $meta = tracker_torrent_extract_meta((string)($row['descr'] ?? ''));
+    $downloadsCount = (int)($row['times_completed'] ?? 0) + (int)($row['external_completed'] ?? 0);
 
-                ?>
-                    <script language="JavaScript" type="text/javascript">
-                    /*<![CDATA[*/
-                        function karma(id, type, act) {
-                        jQuery.post("karma.php",{"id":id,"act":act,"type":type},function (response) {
-                            jQuery("#karma" + id).empty();
-                            jQuery("#karma" + id).append(response);
-                        });
-                        }
-                    /*]]>*/
-                    </script>
-<script type="text/javascript" src="js/ajax.js"></script>
-                <?php 
-$size = mksize($row["size"]) . " (" . number_format($row["size"]) . " ".$tracker_lang['bytes'].") ";
-$uprow = (isset($row["username"]) ? ("<a href=userdetails.php?id=" . $row["owner"] . ">" . htmlspecialchars($row["username"]) . "</a>") : "<i>Аноним</i>");
-$lastseed = mkprettytime($row["lastseed"]);
-if (isset($row["cat_name"])){$catname = $row["cat_name"];}else{$catname = $tracker_lang['no_choose'];}
-$hash = $row["info_hash"];
-?>
-<center>
-<table width="100%" cellspacing="0" cellpadding="5">
-<tr>
-<?php                 if (!$CURUSER || $row["canrate"] > 0 || $CURUSER['id'] == $row['owner'])
-                    print("<td></td><td colspan=\"1\" class=\"lol\"  align=\"center\"><img src=\"pic/minus-dis.png\" title=\"Вы не можете голосовать\" alt=\"\" /> " . karma($row["karma"]) . " <img src=\"pic/plus-dis.png\" title=\"Вы не можете голосовать\" alt=\"\" /></td>");
-                else
-                    print("<td></td><td colspan=\"1\" class=\"lol\" align=\"center\" id=\"karma$id\"><img src=\"pic/minus.png\" style=\"cursor:pointer;\" title=\"Уменьшить карму\" alt=\"\" onclick=\"javascript: karma('$id', 'torrent', 'minus');\" /> " . karma($row["karma"]) . " <img src=\"pic/plus.png\" style=\"cursor:pointer;\" onclick=\"javascript: karma('$id', 'torrent', 'plus');\" title=\"Увеличить карму\" alt=\"\" /></td>\n");
-?>
-</tr>
-<tr><td class="lol" width="33%">
-<?php 
-if (get_user_class() >= UC_MODERATOR)
-    print("<div id=\"moderated\"><b>Проверен:</b> ".($row["modded"] == "no" ? "<a href=\"#\" onclick=\"javascript: check(".$row["id"].")\">Нет</a>" : "<a href=\"userdetails.php?id=".$row["modby"]."\"> ".$row["modname"]." </a>")."</div>");
+    $genreHtml = $meta['genre'] !== '' ? tracker_render_browse_search_links($meta['genre']) : 'Не указано';
+    $yearHtml = $meta['year'] !== '' ? tracker_render_browse_search_links($meta['year'], 1) : 'Не указано';
+    $releasedHtml = $meta['released'] !== '' ? tracker_render_browse_search_links($meta['released']) : 'Не указано';
+    $directorHtml = $meta['director'] !== '' ? tracker_render_browse_search_links($meta['director']) : 'Не указан';
+    $rolesHtml = $meta['roles'] !== '' ? tracker_render_browse_search_links($meta['roles'], 30) : 'Не указаны';
 
-?><div id="loading-layer" style="display:none;font-family: Verdana;font-size: 11px;width:200px;height:50px;background:#FFF;padding:10px;text-align:center;border:1px solid #000">
-     <div style="font-weight:bold" id="loading-layer-text">Загрузка. Пожалуйста, подождите...</div><br />
-     <img src="pic/loading.gif" border="0" />
-</div>
-</td><td class="lol" width="33%"><b>Размер: </b> <?php print("$size");?></td><td class="lol" width="33%"><b>Раздал: </b><?php print("$uprow");?></td></tr>
-<tr><td class="lol" width="33%"><b>Активность: </b>Последний раз <?php print("$lastseed");?> назад</td><td class="lol" width="33%"><b>Категория: </b> <?php print("$catname");?></td><td class="lol" width="33%"><b>Хэш раздачи: </b> <?php print("$hash");?></td></tr>
-<tr>
-<?php
-$tags = '';
+    $tags = [];
+    if (!empty($row["tags"])) {
+        foreach (explode(",", (string)$row["tags"]) as $tag) {
+            $tag = trim($tag);
+            if ($tag === '') {
+                continue;
+            }
 
-if (!empty($row["tags"])) {
-    foreach (explode(",", $row["tags"]) as $tag) {
-        $tag = htmlspecialchars(trim($tag));
-        if ($tag !== '') {
-            $tags .= "<a style=\"font-weight:normal;\" href=\"browse.php?tag=" . urlencode($tag) . "\">" . $tag . "</a>, ";
+            $tagEsc = htmlspecialchars($tag, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $tags[] = "<a style=\"font-weight:normal;\" href=\"browse.php?tag=" . urlencode($tag) . "&amp;incldead=1\">" . $tagEsc . "</a>";
         }
     }
-    if ($tags !== '') {
-        $tags = rtrim($tags, ', ');
+    $tagsHtml = $tags ? implode(', ', $tags) : 'Нет тегов';
+    $releaseGroupHtml = ((int)($row['release_group_id'] ?? 0) > 0)
+        ? tracker_release_group_badge_html([
+            'id' => (int)$row['release_group_id'],
+            'name' => (string)($row['release_group_name'] ?? ''),
+            'image' => (string)($row['release_group_image'] ?? ''),
+        ])
+        : 'Не указана';
+
+    $canVoteTorrent = $CURUSER && (int)($row["canrate"] ?? 0) <= 0 && (int)($CURUSER['id'] ?? 0) !== (int)$row['owner'];
+    $karmaValueHtml = karma((int)($row["karma"] ?? 0));
+    $karmaHtml = '<span id="torrent-karma-' . (int)$id . '" style="display:inline-flex;align-items:center;gap:8px;">';
+    if ($canVoteTorrent) {
+        $karmaHtml .= '<button type="button" class="torrent-karma-btn" data-id="' . (int)$id . '" data-type="torrent" data-act="minus" style="border:1px solid #d5dce5;border-radius:999px;background:#fff;padding:2px 8px;cursor:pointer;">−</button>'
+            . $karmaValueHtml
+            . '<button type="button" class="torrent-karma-btn" data-id="' . (int)$id . '" data-type="torrent" data-act="plus" style="border:1px solid #d5dce5;border-radius:999px;background:#fff;padding:2px 8px;cursor:pointer;">+</button>';
+    } else {
+        $karmaHtml .= '<button type="button" disabled style="border:1px solid #e3e7ee;border-radius:999px;background:#f8fafc;padding:2px 8px;color:#9aa6b2;">−</button>'
+            . $karmaValueHtml
+            . '<button type="button" disabled style="border:1px solid #e3e7ee;border-radius:999px;background:#f8fafc;padding:2px 8px;color:#9aa6b2;">+</button>';
     }
-    echo "<tr><td colspan=\"3\" class=\"lol\" align=\"left\"><b>Тэги:</b> $tags</td></tr>\n";
-} else {
-    echo "<tr><td colspan=\"3\" class=\"lol\" align=\"left\"><b>Тэги:</b> Нет тэгов</td></tr>\n";
-}
-?>
+    $karmaHtml .= '</span>';
 
+    $moderatedHtml = '';
+    if (get_user_class() >= UC_MODERATOR) {
+        $moderatedHtml = '<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #d7dee6;border-radius:12px;background:#fbfdff;">'
+            . '<b>Проверен:</b> '
+            . ($row["modded"] == "no"
+                ? '<a href="#" onclick="javascript: check(' . (int)$row["id"] . '); return false;">Нет</a>'
+                : '<a href="userdetails.php?id=' . (int)$row["modby"] . '">' . htmlspecialchars((string)$row["modname"], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</a>')
+            . '</div>';
+    }
 
+    echo '<div class="torrent-info-tab" style="padding:4px 2px 8px;">';
+    echo $moderatedHtml;
+    echo '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;">';
+    echo '<div style="flex:1 1 240px;min-width:240px;padding:12px 14px;border:1px solid #d7dee6;border-radius:14px;background:#fbfdff;">';
+    echo '<div style="font-size:12px;color:#6b7d92;margin-bottom:6px;">Карма раздачи</div>';
+    echo '<div style="font-size:14px;line-height:1.5;">' . $karmaHtml . '</div>';
+    echo '<div style="margin-top:8px;color:#6b7d92;font-size:12px;">Скачали ' . $downloadsCount . ' раз</div>';
+    echo '</div>';
 
-                        
+    echo '<div style="flex:3 1 520px;min-width:280px;">';
+    echo '<table width="100%" cellspacing="0" cellpadding="6" style="border-collapse:separate;border-spacing:0;">';
 
+    $rows = [
+        ['Размер', $size],
+        ['Раздал', $uprow],
+        ['Категория', $catname],
+        ['Релиз-группа', $releaseGroupHtml],
+        ['Активность', 'Последний раз ' . $lastseed . ' назад'],
+        ['Скачали', (string)$downloadsCount],
+        ['Хэш раздачи', '<span style="font-family:monospace;font-size:12px;word-break:break-all;">' . $hash . '</span>'],
+        ['Жанр', $genreHtml],
+        ['Выпущено', $releasedHtml],
+        ['Режиссер', $directorHtml],
+        ['В ролях', $rolesHtml],
+        ['Год', $yearHtml],
+        ['Тэги', $tagsHtml],
+    ];
 
-</table><br><br><br>
-<?php 
+    foreach ($rows as [$label, $value]) {
+        echo '<tr>'
+            . '<td class="lol" style="width:180px;font-weight:700;vertical-align:top;">' . $label . ':</td>'
+            . '<td class="lol" style="vertical-align:top;">' . $value . '</td>'
+            . '</tr>';
+    }
+
+    echo '</table>';
+    echo '</div>';
+    echo '</div>';
+    echo '</div>';
 }
 
 
@@ -360,10 +436,7 @@ if ($act == "downed") {
 
 
 if ($act === "screen") {
-    // ВНИМАНИЕ: подключение glightbox.css/js делаем на основной странице, не здесь.
-
-    $galleryId = 'torrent-' . (int)($row['id'] ?? 0);
-    $gTitle    = htmlspecialchars((string)($row['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $gTitle = htmlspecialchars((string)($row['name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
     $thumbs = [];
     for ($i = 2; $i <= 5; $i++) {
@@ -371,33 +444,16 @@ if ($act === "screen") {
         if (!empty($row[$key])) {
             $src = htmlspecialchars((string)$row[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $thumbs[] =
-                '<a href="' . $src . '" class="js-torrent-lightbox" data-gallery="' . $galleryId . '" data-title="' . $gTitle . '">
-                   <img border="0" width="172" height="69" src="' . $src . '" alt="Скрин ' . $i . '" loading="lazy" decoding="async">
-                 </a>';
+                '<a href="' . $src . '" class="js-torrent-gallery" data-pswp-width="1280" data-pswp-height="720" data-title="' . $gTitle . '" style="display:block;border:1px solid #d8e0e8;border-radius:12px;overflow:hidden;background:#fff;text-decoration:none;">'
+                   . '<img border="0" width="100%" height="160" src="' . $src . '" alt="Скрин ' . $i . '" loading="lazy" decoding="async" style="display:block;width:100%;height:160px;object-fit:cover;">'
+                 . '</a>';
         }
     }
 
     if ($thumbs) {
-        echo '<div align="center" id="screenshots" style="gap:8px">' . implode('', $thumbs) . '</div>';
-
-        // ⬇️ ДОБАВКА: переинициализируем GLightbox сразу после вставки фрагмента
-        echo '<script>
-          (function () {
-            // если есть наш хук — используем его
-            if (window.tsRefreshLightbox) { window.tsRefreshLightbox(); return; }
-            // иначе — безопасно переинициализируем тут
-            if (window.GLightbox) {
-              if (window.tsLightbox && window.tsLightbox.destroy) {
-                try { window.tsLightbox.destroy(); } catch(e) {}
-              }
-              window.tsLightbox = GLightbox({
-                selector: ".js-torrent-lightbox",
-                touchNavigation: true,
-                loop: true
-              });
-            }
-          })();
-        </script>';
+        echo '<div id="screenshots" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;">' . implode('', $thumbs) . '</div>';
+    } else {
+        echo '<div style="padding:18px 12px;border:1px dashed #d6dee7;border-radius:12px;background:#fbfdff;color:#66788f;">Скриншоты не добавлены.</div>';
     }
 }
 if ($act == "skill")

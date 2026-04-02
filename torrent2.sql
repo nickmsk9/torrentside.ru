@@ -720,7 +720,8 @@ INSERT INTO `mybonus` (`id`, `bonus_position`, `bonus_title`, `bonus_description
 (3, 3, '5GB Траффика', 'Обменять бонусы на траффик.', '4700.0', 'traffic', 5368709120),
 (4, 4, '3 Приглашения', 'Обменять бонусы на Приглашения.', '250.0', 'invite', 3),
 (5, 4, '10GB Траффика', 'Обменять бонусы на траффик.', '7200.0', 'traffic', 10737418240),
-(6, 4, '20GB Траффика', 'Обменять бонусы на траффик.', '9999.9', 'traffic', 21474836480);
+(6, 4, '20GB Траффика', 'Обменять бонусы на траффик.', '9999.9', 'traffic', 21474836480),
+(7, 5, 'Рейтинг профиля +25', 'Добавляет 25 очков к рейтингу профиля. Не влияет на системный ratio и ограничения скачивания.', '300.0', 'profile_rating', 25);
 
 -- --------------------------------------------------------
 
@@ -1372,6 +1373,7 @@ CREATE TABLE `users` (
   `bot_pos` enum('yes','no') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'yes',
   `rangclass` int UNSIGNED NOT NULL DEFAULT '0',
   `bonus` decimal(10,2) NOT NULL DEFAULT '100.00',
+  `profile_rating_bonus` int UNSIGNED NOT NULL DEFAULT '0',
   `groups` enum('yes','no') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'no',
   `karma` int DEFAULT '0',
   `moderated` int NOT NULL DEFAULT '0',
@@ -1972,7 +1974,7 @@ ALTER TABLE `messages`
 -- AUTO_INCREMENT для таблицы `mybonus`
 --
 ALTER TABLE `mybonus`
-  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` int UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT для таблицы `news`

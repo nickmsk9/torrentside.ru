@@ -149,6 +149,7 @@ if ($action === 'edituser') {
     $deluser   = !empty($_POST['deluser']);
     $class     = (int)($_POST['class'] ?? 0);
     $classProfileId = (int)($_POST['class_profile_id'] ?? 0);
+    $hasClassProfileIdColumn = class_permissions_column_exists('users', 'class_profile_id');
 
     if (!is_valid_id($userid) || !is_valid_user_class($class)) {
         stderr($tracker_lang['error'], "Неверный идентификатор пользователя или класса.");
@@ -361,7 +362,9 @@ $updateset[] = "privacy = " . sqlesc($privacy);
 $updateset[] = "acceptpms = " . sqlesc($acceptpms);
 $updateset[] = "info = " . sqlesc($info);
 $updateset[] = $birthdaySql;
-$updateset[] = "class_profile_id = " . max(0, $classProfileId);
+if ($hasClassProfileIdColumn) {
+    $updateset[] = "class_profile_id = " . max(0, $classProfileId);
+}
 
     if ($curRangclass !== $rangclass) {
         $oldRank = $curRangclass > 0 ? class_permissions_get_trophy($curRangclass) : null;

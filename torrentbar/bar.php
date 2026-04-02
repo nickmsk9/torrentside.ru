@@ -69,7 +69,7 @@ function userbar_trim_username(string $username, int $limit = 20): string
 {
     $username = trim($username);
     if ($username === '') {
-        return 'Unknown user';
+        return 'Пользователь';
     }
 
     if (function_exists('mb_strwidth') && function_exists('mb_strimwidth')) {
@@ -94,7 +94,7 @@ function userbar_render_svg(string $username, float $uploaded, float $downloaded
     header('X-Content-Type-Options: nosniff');
 
     echo <<<SVG
-<svg xmlns="http://www.w3.org/2000/svg" width="350" height="60" viewBox="0 0 350 60" role="img" aria-label="Userbar">
+<svg xmlns="http://www.w3.org/2000/svg" width="350" height="60" viewBox="0 0 350 60" role="img" aria-label="Юзербар">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#f7fbff" />
@@ -108,14 +108,14 @@ function userbar_render_svg(string $username, float $uploaded, float $downloaded
   <rect width="350" height="60" rx="10" fill="url(#bg)" />
   <rect x="1" y="1" width="348" height="58" rx="9" fill="none" stroke="#b8d1e3" />
   <rect x="10" y="10" width="104" height="40" rx="8" fill="url(#accent)" />
-  <text x="22" y="25" fill="#cfeeff" font-family="{$fontStack}" font-size="8" letter-spacing="1.4">USERBAR</text>
+  <text x="20" y="25" fill="#cfeeff" font-family="{$fontStack}" font-size="7.5" letter-spacing="1.1">ЮЗЕРБАР</text>
   <text x="22" y="42" fill="#ffffff" font-family="{$fontStack}" font-size="15" font-weight="700">{$displayName}</text>
-  <text x="132" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="8" letter-spacing="1">RATIO</text>
+  <text x="132" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="7.5" letter-spacing="0.7">РЕЙТИНГ</text>
   <text x="132" y="40" fill="{$ratio['color']}" font-family="{$fontStack}" font-size="18" font-weight="700">{$ratio['text']}</text>
-  <text x="210" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="8" letter-spacing="1">UP</text>
-  <text x="210" y="40" fill="#224e6f" font-family="{$fontStack}" font-size="12" font-weight="600">{$upText}</text>
-  <text x="285" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="8" letter-spacing="1">DL</text>
-  <text x="285" y="40" fill="#224e6f" font-family="{$fontStack}" font-size="12" font-weight="600">{$downText}</text>
+  <text x="210" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="7.5" letter-spacing="0.6">РАЗДАЛ</text>
+  <text x="210" y="40" fill="#224e6f" font-family="{$fontStack}" font-size="11.5" font-weight="600">{$upText}</text>
+  <text x="282" y="22" fill="#6b859a" font-family="{$fontStack}" font-size="7.5" letter-spacing="0.5">СКАЧАЛ</text>
+  <text x="282" y="40" fill="#224e6f" font-family="{$fontStack}" font-size="11.5" font-weight="600">{$downText}</text>
 </svg>
 SVG;
 }
@@ -128,18 +128,18 @@ function userbar_render_error(string $message, int $statusCode = 200): void
 
 $userId = userbar_get_user_id();
 if ($userId <= 0) {
-    userbar_render_error('Invalid user', 400);
+    userbar_render_error('Неверный ID', 400);
     exit;
 }
 
 if (!($mysqli instanceof mysqli)) {
-    userbar_render_error('DB unavailable', 503);
+    userbar_render_error('База недоступна', 503);
     exit;
 }
 
 $stmt = $mysqli->prepare('SELECT username, uploaded, downloaded FROM users WHERE id = ? LIMIT 1');
 if (!$stmt) {
-    userbar_render_error('Query error', 500);
+    userbar_render_error('Ошибка запроса', 500);
     exit;
 }
 
@@ -150,7 +150,7 @@ $found = $stmt->fetch();
 $stmt->close();
 
 if (!$found) {
-    userbar_render_error('User not found', 404);
+    userbar_render_error('Пользователь не найден', 404);
     exit;
 }
 

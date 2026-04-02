@@ -18,8 +18,9 @@ function h(?string $s): string {
 }
 
 $currentAvatarUrl = tracker_avatar_url((string)($CURUSER['avatar'] ?? ''), '/pic/default_avatar.gif');
-$profileUrl = rtrim((string)$DEFAULTBASEURL, '/') . '/userdetails.php?id=' . (int)$CURUSER['id'];
-$userbarImageUrl = rtrim((string)$DEFAULTBASEURL, '/') . '/torrentbar/bar.php?id=' . (int)$CURUSER['id'];
+$publicBaseUrl = rtrim((string)tracker_public_base_url(), '/');
+$profileUrl = ($publicBaseUrl !== '' ? $publicBaseUrl : '') . '/userdetails.php?id=' . (int)$CURUSER['id'];
+$userbarImageUrl = ($publicBaseUrl !== '' ? $publicBaseUrl : '') . '/torrentbar/bar.php?id=' . (int)$CURUSER['id'];
 $userbarBbCode = "[url={$profileUrl}][img]{$userbarImageUrl}[/img][/url]";
 $userbarImageCode = "[img]{$userbarImageUrl}[/img]";
 $avatarLimitWidth = max(40, (int)($avatar_max_width ?? 120));
@@ -110,7 +111,10 @@ $avatarEditor = ''
     .   '</div>'
     .   '<div style="flex:1 1 320px;min-width:260px">'
     .     '<input name="avatar" size="50" value="' . h($CURUSER["avatar"] ?? "") . '" placeholder="https://... или pic/avatars/..." style="width:98%"><br>'
-    .     '<div style="margin-top:8px"><input type="file" name="avatar_file" accept=".png,.jpg,.jpeg,.gif"></div>'
+    .     '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    .       '<input type="file" name="avatar_file" accept=".png,.jpg,.jpeg,.gif">'
+    .       '<button type="submit" name="avatar_upload_submit" value="1" style="padding:4px 12px;cursor:pointer">Загрузить</button>'
+    .     '</div>'
     .     '<label style="display:inline-block;margin-top:8px"><input type="checkbox" name="avatar_clear" value="1"> убрать аватар и вернуть стандартный</label>'
     .     '<div style="margin-top:8px;color:#66758c;font-size:11px;line-height:1.45">'
     .       'Можно указать прямую ссылку на картинку или загрузить файл. Загруженные аватары сохраняются в <b>pic/avatars</b> и автоматически приводятся к размеру до <b>' . $avatarLimitWidth . 'x' . $avatarLimitHeight . '</b>.'
@@ -147,7 +151,12 @@ tr("Сохранять отправленные ЛС", "<input type='checkbox' n
 $notifsRaw = (string)($CURUSER['notifs'] ?? '');
 $pmChecked = (strpos($notifsRaw, '[pm]') !== false) ? " checked" : "";
 $emChecked = (strpos($notifsRaw, '[email]') !== false) ? " checked" : "";
-tr("Уведомление о ЛС", "<input type='checkbox' name='pmnotif' value='yes'{$pmChecked}> Включить", 1);
+tr(
+    "Уведомление о ЛС",
+    "<label><input type='checkbox' name='pmnotif' value='yes'{$pmChecked}> Показывать заметное уведомление о новых личных сообщениях</label>"
+    . "<div style='margin-top:4px;color:#66758c;font-size:11px;line-height:1.45'>Это относится к уведомлению внутри сайта. Письма на email включаются отдельной строкой ниже.</div>",
+    1
+);
 tr("Email-уведомления", "<input type='checkbox' name='emailnotif' value='yes'{$emChecked}> Включить", 1);
 
 /* -------- Приватность -------- */
@@ -218,7 +227,12 @@ tr(
 );
 
 /* -------- Отображение -------- */
-tr("Показывать аватары", "<input type='checkbox' name='avatars' value='yes'" . (($CURUSER["avatars"] ?? 'yes') === "yes" ? " checked" : "") . ">", 1);
+tr(
+    "Показывать аватары",
+    "<label><input type='checkbox' name='avatars' value='yes'" . (($CURUSER["avatars"] ?? 'yes') === "yes" ? " checked" : "") . "> Показывать мини-аватары</label>"
+    . "<div style='margin-top:4px;color:#66758c;font-size:11px;line-height:1.45'>Влияет на список друзей и на вкладку друзей в профиле.</div>",
+    1
+);
 $botPos = (string)($CURUSER['bot_pos'] ?? 'yes');
 tr(
     "Показывать в онлайн-блоке",
@@ -229,7 +243,12 @@ tr(
 
 /* -------- Email / пароли -------- */
 tr("Email", "<input type=\"text\" name=\"email\" size=\"50\" value=\"" . h($CURUSER["email"] ?? "") . "\" />", 1);
-tr("Сменить пасскей", "<input type=\"checkbox\" name=\"resetpasskey\" value=\"1\" /> (после этого нужно перекачать активные торренты)", 1);
+$currentPasskey = h((string)($CURUSER['passkey'] ?? ''));
+$passkeyEditor = '<input type="text" value="' . $currentPasskey . '" readonly style="width:100%;max-width:380px;box-sizing:border-box;font-family:monospace" onclick="this.select()">'
+    . '<div style="margin-top:4px;color:#66758c;font-size:11px;line-height:1.45">Текущий пасскей. Поле только для просмотра и быстрого копирования.</div>'
+    . '<label style="display:inline-block;margin-top:8px"><input type="checkbox" name="resetpasskey" value="1" /> Сгенерировать новый пасскей</label>'
+    . '<div style="margin-top:4px;color:#66758c;font-size:11px;line-height:1.45">После смены нужно перекачать активные торрент-файлы, иначе старые раздачи перестанут анонсироваться.</div>';
+tr("Сменить пасскей", $passkeyEditor, 1);
 tr("Старый пароль", "<input type=\"password\" name=\"oldpassword\" size=\"50\" />", 1);
 tr("Новый пароль", "<input type=\"password\" name=\"chpassword\" size=\"50\" />", 1);
 tr("Пароль ещё раз", "<input type=\"password\" name=\"passagain\" size=\"50\" />", 1);
@@ -239,7 +258,7 @@ tr(
     $tracker_lang['my_userbar'] ?? "Мой юзербар",
     '<div style="display:grid;grid-template-columns:minmax(0,350px) minmax(260px,1fr);gap:14px;align-items:start">'
     . '<div style="max-width:100%">'
-    .   '<img src="' . h($userbarImageUrl) . '" alt="Userbar" width="350" height="60" style="display:block;width:100%;max-width:350px;height:auto;border:1px solid #d7dfe8;border-radius:10px;background:#f4f8fb">'
+    .   '<img src="' . h($userbarImageUrl) . '" alt="Юзербар" width="350" height="60" style="display:block;width:100%;max-width:350px;height:auto;border:1px solid #d7dfe8;border-radius:10px;background:#f4f8fb">'
     . '</div>'
     . '<div style="min-width:0">'
     . ($tracker_lang['my_userbar_descr'] ?? "Скопируйте и вставьте этот код") . ":<br>"

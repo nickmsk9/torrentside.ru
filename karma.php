@@ -74,6 +74,24 @@ $map = [
     'user'    => 'users',
 ];
 $table = $map[$type];
+$commentTorrentId = 0;
+
+if ($type === 'comment') {
+    $commentMetaSql = "SELECT torrent FROM comments WHERE id = $id LIMIT 1";
+    $commentMetaRes = $mysqli->query($commentMetaSql);
+    if ($commentMetaRes instanceof mysqli_result) {
+        $commentMeta = $commentMetaRes->fetch_assoc() ?: [];
+        $commentTorrentId = (int)($commentMeta['torrent'] ?? 0);
+        $commentMetaRes->free();
+    } else {
+        karma_log('warn', 'Comment cache target lookup failed', [
+            'sql' => $commentMetaSql,
+            'comment_id' => $id,
+            'errno' => $mysqli->errno,
+            'error' => $mysqli->error,
+        ]);
+    }
+}
 
 /* ===================== ПРОВЕРКА ДУБЛЯ ГОЛОСА ===================== */
 $canrate = get_row_count(
@@ -112,6 +130,15 @@ if (!$ins_ok) {
 
 if ($ok) {
     $mysqli->commit();
+
+    if ($type === 'torrent') {
+        tracker_invalidate_torrent_cache($id);
+    } elseif ($type === 'comment' && $commentTorrentId > 0) {
+        tracker_cache_bump_namespace(tracker_comment_cache_namespace($commentTorrentId));
+    } elseif ($type === 'user') {
+        tracker_invalidate_user_auth_cache($id);
+    }
+
     karma_log('info', 'Vote committed', compact('type','id','user','delta'));
 } else {
     $mysqli->rollback();

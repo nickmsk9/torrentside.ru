@@ -349,6 +349,71 @@ function karma(int|float $karma): string
     return '<span style="color:' . $color . ';vertical-align:top;font-size:13px;"><b>' . $labelEsc . '</b></span>';
 }
 
+if (!function_exists('tracker_user_rating_data')) {
+    function tracker_user_rating_data(array $stats): array
+    {
+        $uploaded = max(0.0, (float)($stats['uploaded'] ?? 0));
+        $downloaded = max(0.0, (float)($stats['downloaded'] ?? 0));
+        $torrentsCount = max(0, (int)($stats['torrents_cnt'] ?? $stats['torrents_count'] ?? 0));
+        $completedCount = max(0, (int)($stats['completed_total'] ?? $stats['completed_count'] ?? 0));
+        $karmaValue = (int)($stats['karma'] ?? 0);
+        $profileRatingBonus = max(0, (int)($stats['profile_rating_bonus'] ?? $stats['rating_bonus'] ?? 0));
+
+        $ratio = null;
+        $ratioText = '0';
+        if ($downloaded > 0.0) {
+            $ratio = $uploaded / $downloaded;
+            $ratioText = rtrim(rtrim(number_format($ratio, 3, '.', ''), '0'), '.');
+        } elseif ($uploaded > 0.0) {
+            $ratioText = 'Inf.';
+        }
+
+        if ($downloaded > 0.0) {
+            $ratioScore = (int)round(min(120, log(1 + min($ratio ?? 0.0, 32.0), 2) * 24));
+        } elseif ($uploaded > 0.0) {
+            $ratioScore = 28;
+        } else {
+            $ratioScore = 0;
+        }
+
+        $uploadedGiB = $uploaded / 1073741824;
+        $volumeScore = (int)round(min(140, log(1 + $uploadedGiB, 2) * 20));
+        $uploadsScore = min(120, (int)round(sqrt((float)$torrentsCount) * 18));
+        $completedScore = min(90, (int)round(sqrt((float)$completedCount) * 9));
+        $karmaScore = max(-40, min(80, $karmaValue * 4));
+        $profileBonusScore = $profileRatingBonus;
+
+        $score = max(0, $ratioScore + $volumeScore + $uploadsScore + $completedScore + $karmaScore + $profileBonusScore);
+        $level = intdiv($score, 100);
+        $step = $score % 100;
+        $progress = ($score > 0 && $step === 0) ? 100 : $step;
+        $toNext = ($score > 0 && $step === 0) ? 0 : (100 - $step);
+        $karmaText = ($karmaValue > 0 ? '+' : '') . (string)$karmaValue;
+
+        return [
+            'score' => $score,
+            'level' => $level,
+            'progress' => max(0, min(100, $progress)),
+            'to_next' => max(0, $toNext),
+            'ratio' => $ratio,
+            'ratio_text' => $ratioText,
+            'torrents_count' => $torrentsCount,
+            'completed_count' => $completedCount,
+            'karma' => $karmaValue,
+            'karma_text' => $karmaText,
+            'profile_rating_bonus' => $profileRatingBonus,
+            'parts' => [
+                'ratio' => $ratioScore,
+                'volume' => $volumeScore,
+                'uploads' => $uploadsScore,
+                'completed' => $completedScore,
+                'karma' => $karmaScore,
+                'profile_bonus' => $profileBonusScore,
+            ],
+        ];
+    }
+}
+
 function pager($rpp, $count, $href, $opts = array())
 {
     $rpp    = max(1, (int)$rpp);
@@ -1125,6 +1190,7 @@ function userlogin(bool $lightmode = false): void {
             'bot_pos',
             'rangclass',
             'bonus',
+            'profile_rating_bonus',
             '`groups`',
             'karma',
             'moderated',
@@ -1745,11 +1811,119 @@ function mksizeint($bytes) {
 				return floor($bytes / 1099511627776) . " TB";
 }
 
-if (!function_exists('tracker_normalize_public_url')) {
-    function tracker_normalize_public_url(string $raw, string $fallback = ''): string
+if (!function_exists('tracker_current_request_base_url')) {
+    function tracker_current_request_base_url(): string
+    {
+        $https =
+            (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443)
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string)$_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+
+        $scheme = $https ? 'https' : 'http';
+        $rawHost = (string)($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '');
+        $host = preg_replace('/[^A-Za-z0-9\.\-\:\[\]]/', '', $rawHost);
+        if ($host === '') {
+            return '';
+        }
+
+        if (strpos($host, ':') === false) {
+            $port = (int)($_SERVER['SERVER_PORT'] ?? 0);
+            if (($https && $port && $port !== 443) || (!$https && $port && $port !== 80)) {
+                $host .= ':' . $port;
+            }
+        }
+
+        return $scheme . '://' . $host;
+    }
+}
+
+if (!function_exists('tracker_host_is_local')) {
+    function tracker_host_is_local(string $host): bool
+    {
+        $host = trim(strtolower($host));
+        if ($host === '') {
+            return false;
+        }
+
+        if (preg_match('/^\[([^\]]+)\](?::\d+)?$/', $host, $m)) {
+            $host = $m[1];
+        } elseif (substr_count($host, ':') === 1 && preg_match('/:\d+$/', $host)) {
+            $host = (string)substr($host, 0, strrpos($host, ':'));
+        }
+
+        if ($host === 'localhost' || $host === '::1') {
+            return true;
+        }
+
+        if (!filter_var($host, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+
+        return filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+    }
+}
+
+if (!function_exists('tracker_public_base_url')) {
+    function tracker_public_base_url(): string
     {
         global $DEFAULTBASEURL;
 
+        $configuredBase = rtrim((string)($DEFAULTBASEURL ?? ''), '/');
+        $currentBase = rtrim(tracker_current_request_base_url(), '/');
+        $chosenBase = $configuredBase !== '' ? $configuredBase : $currentBase;
+
+        $host = (string)(parse_url($chosenBase, PHP_URL_HOST) ?? '');
+        if ($host !== '' && tracker_host_is_local($host) && $currentBase !== '') {
+            return $currentBase;
+        }
+
+        return $chosenBase;
+    }
+}
+
+if (!function_exists('tracker_rebind_local_urls')) {
+    function tracker_rebind_local_urls(string $text): string
+    {
+        $base = rtrim(tracker_public_base_url(), '/');
+        if ($text === '' || $base === '') {
+            return $text;
+        }
+
+        $rewritten = preg_replace_callback(
+            '~https?://[^\s\[\]<>"\']+~iu',
+            static function (array $m) use ($base): string {
+                $url = html_entity_decode((string)$m[0], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $parts = parse_url($url);
+                if (!is_array($parts)) {
+                    return (string)$m[0];
+                }
+
+                $host = (string)($parts['host'] ?? '');
+                $path = (string)($parts['path'] ?? '');
+                if ($host === '' || $path === '' || !tracker_host_is_local($host)) {
+                    return (string)$m[0];
+                }
+
+                $rebuilt = $base . $path;
+                if (isset($parts['query']) && $parts['query'] !== '') {
+                    $rebuilt .= '?' . $parts['query'];
+                }
+                if (isset($parts['fragment']) && $parts['fragment'] !== '') {
+                    $rebuilt .= '#' . $parts['fragment'];
+                }
+
+                return $rebuilt;
+            },
+            $text
+        );
+
+        return is_string($rewritten) ? $rewritten : $text;
+    }
+}
+
+if (!function_exists('tracker_normalize_public_url')) {
+    function tracker_normalize_public_url(string $raw, string $fallback = ''): string
+    {
         $raw = trim($raw);
         if ($raw === '') {
             $raw = $fallback;
@@ -1767,7 +1941,7 @@ if (!function_exists('tracker_normalize_public_url')) {
             $raw = '/' . ltrim($raw, '/');
         }
 
-        $base = rtrim((string)($DEFAULTBASEURL ?? ''), '/');
+        $base = rtrim(tracker_public_base_url(), '/');
         return $base !== '' ? ($base . $raw) : $raw;
     }
 }
@@ -2637,7 +2811,7 @@ if (!function_exists('e')) {
 
 function commenttable(array $rows, string $redaktor = "comment"): void
 {
-    global $CURUSER, $avatar_max_width, $DEFAULTBASEURL;
+    global $CURUSER, $avatar_max_width;
 
     // Безопасный эскейпер
     $esc = static function ($value, bool $double_encode = true): string {
@@ -2656,22 +2830,9 @@ function commenttable(array $rows, string $redaktor = "comment"): void
         return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', $double_encode);
     };
 
-    // Нормализация URL аватара с дефолтом и базовым URL
-    $avatarUrlNormalize = static function (string $raw) use ($DEFAULTBASEURL): string {
-        $raw = trim($raw);
-        if ($raw === '') {
-            $raw = '/pic/default_avatar.gif';               // дефолтный
-        }
-        // Абсолютные/протокольные/inline — оставляем
-        if (preg_match('~^(https?://|//|data:image/)~i', $raw)) {
-            return $raw;
-        }
-        // Локальный путь: гарантируем ведущий слэш
-        if ($raw[0] !== '/') {
-            $raw = '/' . $raw;
-        }
-        $base = rtrim((string)($DEFAULTBASEURL ?? ''), '/');
-        return $base !== '' ? ($base . $raw) : $raw;        // если базовый не задан — оставим корневой путь
+    // Нормализация URL аватара с дефолтом и публичным базовым URL
+    $avatarUrlNormalize = static function (string $raw): string {
+        return tracker_avatar_url($raw, '/pic/default_avatar.gif');
     };
 
     // Фолбэк-картинка (абсолютный URL)
@@ -2725,6 +2886,19 @@ function commenttable(array $rows, string $redaktor = "comment"): void
         $addedRaw    = (string)($row['added'] ?? '');
         $editedByRaw = (string)($row['editedbyname'] ?? '');
         $editedAtRaw = (string)($row['editedat'] ?? '');
+        $commentUserRating = tracker_user_rating_data([
+            'uploaded' => (float)($row['uploaded'] ?? 0),
+            'downloaded' => (float)($row['downloaded'] ?? 0),
+            'torrents_count' => (int)($row['torrents_count'] ?? 0),
+            'completed_count' => (int)($row['completed_count'] ?? 0),
+            'karma' => (int)($row['user_karma'] ?? 0),
+            'profile_rating_bonus' => (int)($row['profile_rating_bonus'] ?? 0),
+        ]);
+        $commentUserRatingScore = (int)($commentUserRating['score'] ?? 0);
+        $commentUserRatingTitle = 'Рейтинг: ' . $commentUserRatingScore
+            . ' · ratio ' . (string)($commentUserRating['ratio_text'] ?? '0')
+            . ' · раздач ' . (int)($commentUserRating['torrents_count'] ?? 0)
+            . ' · скачали ' . (int)($commentUserRating['completed_count'] ?? 0);
 
         // Текст комментария (уже HTML от format_comment — НЕ экранируем)
         $comment_html = (string)format_comment((string)($row['text'] ?? ''));
@@ -2768,6 +2942,11 @@ function commenttable(array $rows, string $redaktor = "comment"): void
                             style="--avatar-max: <?= $avatarW ?>px;"
                             onerror="this.onerror=null;this.src='<?= $esc($fallbackAvatarUrl) ?>';"
                         >
+                        <div
+                            class="comment-user-rating"
+                            title="<?= $esc($commentUserRatingTitle) ?>"
+                            style="margin-top:6px;display:inline-block;padding:2px 8px;border:1px solid #d8e1ea;border-radius:999px;background:#f7fafc;color:#63788f;font-size:11px;line-height:1.3;white-space:nowrap;"
+                        >Рейтинг <?= $commentUserRatingScore ?></div>
                     </td>
                     <td width="100%" class="text"><?= $comment_text ?></td>
                 </tr>

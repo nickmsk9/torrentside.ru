@@ -149,12 +149,21 @@ function render_comments_block_html(int $torrentid): string {
             u.donor,
             u.downloaded,
             u.uploaded,
+            u.karma AS user_karma,
+            u.profile_rating_bonus,
             u.gender,
             u.last_access,
+            COALESCE(uts.torrents_count, 0)  AS torrents_count,
+            COALESCE(uts.completed_count, 0) AS completed_count,
             e.username AS editedbyname
             {$canrateCol}
         FROM comments AS c
         LEFT JOIN users AS u ON c.user = u.id
+        LEFT JOIN (
+            SELECT owner, COUNT(*) AS torrents_count, COALESCE(SUM(times_completed), 0) AS completed_count
+            FROM torrents
+            GROUP BY owner
+        ) AS uts ON uts.owner = u.id
         LEFT JOIN users AS e ON c.editedby = e.id
         WHERE c.torrent = $torrentid
         ORDER BY " . ($hasThreads ? "CASE WHEN c.parent_id = 0 THEN c.id ELSE c.parent_id END, c.parent_id, c.id" : "c.id") . " $limit

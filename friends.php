@@ -3,19 +3,6 @@
 
 require "include/bittorrent.php";
 
-// ---- Аватары: как в твоём рабочем примере ----
-const DEFAULT_AVATAR = 'pic/default_avatar.png'; // <- проверь расширение! (png/gif)
-
-function avatar_url(?string $raw): string {
-    $raw = trim((string)$raw);
-    if ($raw === '') return htmlspecialchars(DEFAULT_AVATAR, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    // если в базе встречаются &amp; и т.п., раскомментируй следующую строку:
-    // $raw = html_entity_decode($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    return htmlspecialchars($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
-
-
-
 // ---------- Базовая инициализация ----------
 dbconn(false);
 loggedinorreturn();
@@ -220,37 +207,23 @@ $titleSafe  = htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $coloredName = get_user_class_color($class, $nameRaw);
         $icons       = get_user_icons($friend);
 
-        // ---- Аватар: нормализация + onerror fallback (не подменяем, пока есть реальный URL)
-$avatarAllow = (($CURUSER['avatars'] ?? 'yes') === 'yes');
-$rawAvatar   = $avatarAllow ? trim((string)($friend['avatar'] ?? '')) : '';
-if ($rawAvatar === '') {
-    $rawAvatar = '/pic/default_avatar.gif'; // только если совсем пусто
-}
-
-$base = rtrim((string)($DEFAULTBASEURL ?? ''), '/');
-
-// Уберём HTML-сущности из базы (иногда сохраняют с &amp; и т.п.)
-$rawAvatar = html_entity_decode($rawAvatar, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
-// Если уже абсолютный, протокол-независимый, или data: — оставляем как есть
-if (preg_match('~^(https?://|//|data:image/)~i', $rawAvatar)) {
-    $avatarUrl = $rawAvatar;
-} else {
-    // Относительный путь → делаем абсолютным (подклеиваем / и базу)
-    if ($rawAvatar[0] !== '/') {
-        $rawAvatar = '/' . $rawAvatar;
-    }
-    // Если $base пуст, браузер всё равно отдаст от текущего хоста: /pic/...
-    $avatarUrl = ($base !== '') ? ($base . $rawAvatar) : $rawAvatar;
-}
-
-// Аватар — без префиксов, как есть (с фолбэком на onerror)
-$avatarSafe = avatar_url($friend['avatar'] ?? '');
-$fallback   = htmlspecialchars(DEFAULT_AVATAR, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $avatarAllow = (($CURUSER['avatars'] ?? 'yes') === 'yes');
+        $avatarSafe = htmlspecialchars(
+            tracker_avatar_url((string)($friend['avatar'] ?? ''), '/pic/default_avatar.gif'),
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        );
+        $fallback = htmlspecialchars(
+            tracker_avatar_url('', '/pic/default_avatar.gif'),
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        );
 
         echo '<div class="friend-card">';
           echo '<div class="friend-head">';
-echo '<div class="friend-avatar"><img src="'.$avatarSafe.'" alt="'.$nameSafe.'" width="64" height="64" loading="lazy" decoding="async" style="object-fit:cover" onerror="this.onerror=null;this.src=\''.$fallback.'\';"></div>';
+            if ($avatarAllow) {
+                echo '<div class="friend-avatar"><img src="'.$avatarSafe.'" alt="'.$nameSafe.'" width="64" height="64" loading="lazy" decoding="async" style="object-fit:cover" onerror="this.onerror=null;this.src=\''.$fallback.'\';"></div>';
+            }
             echo '<div class="friend-info">';
               echo '<div class="friend-name"><a href="userdetails.php?id='.$id.'"><b>'.$coloredName.'</b></a> '.$icons.'</div>';
               echo '<div class="friend-title"><span class="status-badge">'.$titleSafe.'</span></div>';

@@ -40,6 +40,48 @@ function pick_unit_from_bytes(int $bytes): array {
     if ($bytes % $gb === 0) return [1, (int)($bytes / $gb)];
     return [0, (int)max(1, round($bytes / $mb))];
 }
+function mybonus_art_from_flag(int $flag): string {
+    return match ($flag) {
+        1 => 'invite',
+        2 => 'profile_rating',
+        default => 'traffic',
+    };
+}
+function mybonus_art_to_flag(string $art): int {
+    return match ($art) {
+        'invite' => 1,
+        'profile_rating' => 2,
+        default => 0,
+    };
+}
+function mybonus_reward_from_form(string $art, int $amount, int $unit): int {
+    if ($art === 'invite' || $art === 'profile_rating') {
+        return max(1, $amount);
+    }
+
+    $mult = match ($unit) {
+        0 => 1024 * 1024,
+        1 => 1024 * 1024 * 1024,
+        2 => 1024 * 1024 * 1024 * 1024,
+        default => 1,
+    };
+
+    return max(1, $amount * $mult);
+}
+function mybonus_reward_hint(string $art, int $amount): string {
+    return match ($art) {
+        'invite' => $amount . ' инвайт(ов)',
+        'profile_rating' => $amount . ' очков рейтинга профиля',
+        default => format_bytes($amount) . ' аплоада',
+    };
+}
+function mybonus_success_art(string $art): string {
+    return match ($art) {
+        'invite' => 'инвайты',
+        'profile_rating' => 'рейтинг профиля',
+        default => 'трафик',
+    };
+}
 
 // ============ state ============
 $userid        = (int)($CURUSER['id'] ?? 0);
@@ -71,13 +113,8 @@ if ($action === 'elegor') {
         $nbyt            = (int)($_POST['nbyt'] ?? 0);
         $bonus_menge_in  = (int)($_POST['bonus_menge'] ?? 0);
 
-        $bonus_art = $bonus_art_flag === 1 ? 'invite' : 'traffic';
-        if ($bonus_art === 'invite') {
-            $bonus_menge = max(1, (int)$bonus_menge_in);
-        } else {
-            $mult = match ($nbyt) { 0 => 1024*1024, 1 => 1024*1024*1024, 2 => 1024*1024*1024*1024, default => 1 };
-            $bonus_menge = max(1, $bonus_menge_in * $mult);
-        }
+        $bonus_art = mybonus_art_from_flag($bonus_art_flag);
+        $bonus_menge = mybonus_reward_from_form($bonus_art, $bonus_menge_in, $nbyt);
 
         $errs = [];
         if ($bonus_title === '') $errs[] = 'Не указано название';
@@ -117,13 +154,8 @@ if ($action === 'elegor') {
                 $nbyt           = (int)($_POST["nbyt_$id"] ?? 0);
                 $menge_in       = (int)($_POST["menge_$id"] ?? 0);
 
-                $bonus_art = $art_flag === 1 ? 'invite' : 'traffic';
-                if ($bonus_art === 'invite') {
-                    $bonus_menge = max(1, (int)$menge_in);
-                } else {
-                    $mult = match ($nbyt) { 0 => 1024*1024, 1 => 1024*1024*1024, 2 => 1024*1024*1024*1024, default => 1 };
-                    $bonus_menge = max(1, $menge_in * $mult);
-                }
+                $bonus_art = mybonus_art_from_flag($art_flag);
+                $bonus_menge = mybonus_reward_from_form($bonus_art, $menge_in, $nbyt);
 
                 $stmt->bind_param('issisii', $bonus_position, $bonus_title, $bonus_desc, $bonus_points, $bonus_art, $bonus_menge, $id);
                 $stmt->execute();
@@ -213,9 +245,9 @@ if ($action === 'elegor') {
                   $title = (string)$r['bonus_title'];
                   $desc  = (string)$r['bonus_description'];
                   $pts   = (int)$r['bonus_points'];
-                  $art   = ($r['bonus_art'] === 'invite') ? 'invite' : 'traffic';
+                  $art   = in_array((string)$r['bonus_art'], ['invite', 'profile_rating'], true) ? (string)$r['bonus_art'] : 'traffic';
                   $menge = (int)$r['bonus_menge'];
-                  $nbyt = 0; $val = $menge;
+                  $nbyt = 3; $val = $menge;
                   if ($art === 'traffic') { [$nbyt, $val] = pick_unit_from_bytes($menge); }
           ?>
             <tr>
@@ -227,6 +259,7 @@ if ($action === 'elegor') {
                 <select name="bonus_art_<?= $id ?>">
                   <option value="0" <?= $art==='traffic'?'selected':'' ?>>Трафик</option>
                   <option value="1" <?= $art==='invite'?'selected':'' ?>>Инвайт</option>
+                  <option value="2" <?= $art==='profile_rating'?'selected':'' ?>>Рейтинг профиля</option>
                 </select>
               </td>
               <td>
@@ -236,6 +269,7 @@ if ($action === 'elegor') {
                     <option value="0" <?= $nbyt===0?'selected':'' ?>>MB</option>
                     <option value="1" <?= $nbyt===1?'selected':'' ?>>GB</option>
                     <option value="2" <?= $nbyt===2?'selected':'' ?>>TB</option>
+                    <option value="3" <?= $nbyt===3?'selected':'' ?>>Ед.</option>
                   </select>
                 </div>
               </td>
@@ -257,6 +291,7 @@ if ($action === 'elegor') {
                     <select name="bonus_art" style="width:100%">
                       <option value="0" selected>Трафик</option>
                       <option value="1">Инвайт</option>
+                      <option value="2">Рейтинг профиля</option>
                     </select>
                   </div>
                   <div><label class="small">Величина</label><input type="number" name="bonus_menge" min="1" style="width:100%"></div>
@@ -265,6 +300,7 @@ if ($action === 'elegor') {
                       <option value="0">MB</option>
                       <option value="1" selected>GB</option>
                       <option value="2">TB</option>
+                      <option value="3">Ед.</option>
                     </select>
                   </div>
                 </div>
@@ -292,7 +328,7 @@ if ($exchange) {
     $bonus_menge = (int)($_POST['bonus_menge'] ?? 0); // инвайты: кол-во; трафик: байты
     $bonus_art   = (string)($_POST['bonus_art'] ?? '');
 
-    if ($take_points <= 0 || $bonus_menge <= 0 || !in_array($bonus_art, ['traffic','invite'], true)) {
+    if ($take_points <= 0 || $bonus_menge <= 0 || !in_array($bonus_art, ['traffic','invite','profile_rating'], true)) {
         stderr('Ошибка', 'Некорректные параметры обмена.');
     }
 
@@ -311,7 +347,7 @@ if ($exchange) {
             $CURUSER['bonus']    = (int)$CURUSER['bonus'] - $take_points;
             $CURUSER['uploaded'] = (int)$CURUSER['uploaded'] + $bonus_menge;
         };
-    } else {
+    } elseif ($bonus_art === 'invite') {
         $inv_add = max(1, (int)$bonus_menge);
         $sql = "UPDATE users
                    SET bonus = bonus - ?,
@@ -324,6 +360,19 @@ if ($exchange) {
             $CURUSER['bonus']   = (int)$CURUSER['bonus'] - $take_points;
             $CURUSER['invites'] = (int)($CURUSER['invites'] ?? 0) + $inv_add;
         };
+    } else {
+        $ratingAdd = max(1, (int)$bonus_menge);
+        $sql = "UPDATE users
+                   SET bonus = bonus - ?,
+                       profile_rating_bonus = profile_rating_bonus + ?,
+                       modcomment = CONCAT(?, modcomment)
+                 WHERE id = ? AND bonus >= ?";
+        $stmt = $mysqli->prepare($sql);
+        $stmt->bind_param('iisii', $take_points, $ratingAdd, $comment_line, $userid, $take_points);
+        $apply_session = static function() use (&$CURUSER, $take_points, $ratingAdd) {
+            $CURUSER['bonus'] = (int)$CURUSER['bonus'] - $take_points;
+            $CURUSER['profile_rating_bonus'] = (int)($CURUSER['profile_rating_bonus'] ?? 0) + $ratingAdd;
+        };
     }
 
     $stmt->execute(); $ok = ($stmt->affected_rows === 1); $stmt->close();
@@ -332,11 +381,16 @@ if ($exchange) {
     // sync session + cache
     $apply_session();
     if (session_status() === PHP_SESSION_ACTIVE) $_SESSION['CURUSER'] = $CURUSER;
+    tracker_invalidate_user_auth_cache($userid);
     if (function_exists('mc_delete')) { @mc_delete("user_{$userid}"); @mc_delete("userstats_{$userid}"); }
     elseif (function_exists('cache')) { try { cache()->delete("user_{$userid}"); cache()->delete("userstats_{$userid}"); } catch (Throwable) {} }
 
     // редирект с подтверждением
-    $amt = ($bonus_art === 'traffic') ? urlencode(format_bytes($bonus_menge)) : urlencode((string)$bonus_menge);
+    $amt = match ($bonus_art) {
+        'traffic' => urlencode(format_bytes($bonus_menge)),
+        'invite' => urlencode((string)$bonus_menge),
+        default => urlencode($bonus_menge . ' очков'),
+    };
     header('Location: mybonus.php?ok=1&art=' . urlencode($bonus_art) . '&points=' . $take_points . '&amount=' . $amt, true, 302);
     exit;
 }
@@ -404,7 +458,7 @@ td.desc { word-break: break-word; }
 
 <div class="wrap">
   <?php if (isset($_GET['ok'])):
-      $art = ($_GET['art'] ?? '') === 'traffic' ? 'трафик' : 'инвайты';
+      $art = mybonus_success_art((string)($_GET['art'] ?? ''));
       $pts = (int)($_GET['points'] ?? 0);
       $amt = h((string)($_GET['amount'] ?? ''));
   ?>
@@ -454,9 +508,9 @@ td.desc { word-break: break-word; }
           $title=h($row['bonus_title']);
           $desc=nl2br(h($row['bonus_description']));
           $points=(int)$row['bonus_points'];
-          $art=($row['bonus_art']==='invite')?'invite':'traffic';
+          $art = in_array((string)$row['bonus_art'], ['invite', 'profile_rating'], true) ? (string)$row['bonus_art'] : 'traffic';
           $menge=(int)$row['bonus_menge'];
-          $reward_hint = ($art==='invite') ? ($menge.' инвайт(ов)') : (format_bytes($menge).' аплоада');
+          $reward_hint = mybonus_reward_hint($art, $menge);
           $canBuy = ($user_bonus >= $points);
       ?>
         <tr>

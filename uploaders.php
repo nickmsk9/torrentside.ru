@@ -26,12 +26,15 @@ $sql = "
     SELECT
         u.id, u.username, u.added,
         u.uploaded, u.downloaded,
+        u.karma,
+        u.profile_rating_bonus,
         u.donor, u.warned,
         COALESCE(t.cnt, 0)      AS torrents_cnt,
+        COALESCE(t.completed_total, 0) AS completed_total,
         t.last_added            AS last_added
     FROM users AS u
     LEFT JOIN (
-        SELECT owner, COUNT(*) AS cnt, MAX(added) AS last_added
+        SELECT owner, COUNT(*) AS cnt, COALESCE(SUM(times_completed), 0) AS completed_total, MAX(added) AS last_added
         FROM torrents
         GROUP BY owner
     ) AS t ON t.owner = u.id
@@ -116,17 +119,19 @@ $num = count($uploaders);
           $tcount     = (int)$u['torrents_cnt'];
           $lastAdded  = $u['last_added'] ?? null;
 
-          // ratio
-          if ($download_b > 0) {
-              $ratioVal = $uploaded_b / $download_b;
-              $ratioFmt = number_format($ratioVal, 3);
-              $color    = get_ratio_color($ratioVal);
-              $ratio    = '<span class="badge badge-ratio" style="color:' . h((string)$color) . '">' . h($ratioFmt) . '</span>';
-          } elseif ($uploaded_b > 0) {
-              $ratio    = '<span class="badge badge-inf">Inf.</span>';
-          } else {
-              $ratio    = '<span class="badge">—</span>';
-          }
+          $ratingData = tracker_user_rating_data([
+              'uploaded' => $uploaded_b,
+              'downloaded' => $download_b,
+              'torrents_count' => $tcount,
+              'completed_count' => (int)($u['completed_total'] ?? 0),
+              'karma' => (int)($u['karma'] ?? 0),
+              'profile_rating_bonus' => (int)($u['profile_rating_bonus'] ?? 0),
+          ]);
+          $ratioHint = 'ratio ' . $ratingData['ratio_text']
+              . ' · раздач ' . $ratingData['torrents_count']
+              . ' · скачали ' . $ratingData['completed_count']
+              . ' · карма ' . $ratingData['karma_text'];
+          $ratio = '<span class="badge badge-ratio" title="' . h($ratioHint) . '">' . (int)$ratingData['score'] . '</span>';
 
           // flags
           $flags = '';

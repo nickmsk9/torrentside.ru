@@ -143,7 +143,7 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
         if (empty($user['info']))
             print("<div class=\"tab_error\">Пользователь не сообщил эту информацию.</div>\n");
         else
-            print(format_comment($user['info']));
+            print(format_comment(tracker_rebind_local_urls((string)$user['info'])));
         die();
     }
     elseif ($act == "friends")
@@ -178,18 +178,24 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
         $out[] = '<div id="friends">';
         foreach ($friends_list as $row)
         {
-            $avatar = empty($row['avatar']) ? "pic/default_avatar.gif" : htmlspecialchars($row['avatar'], ENT_QUOTES, 'UTF-8');
-
             // сравниваем timestamp один раз
             $online_since = get_date_time(gmtime() - 300);
             $status = ($row['last_access'] > $online_since) ? '<font color="#008000">Онлайн</font>' : '<font color="#FF0000">Оффлайн</font>';
             $genderIcon = ($row['gender'] == "1") ? '<img src="pic/male.gif" alt="Парень" title="Парень" />' : '<img src="pic/female.gif" alt="Девушка" title="Девушка" />';
+            $showAvatars = (($CURUSER['avatars'] ?? 'yes') === 'yes');
+            $avatarUrl = htmlspecialchars(
+                tracker_avatar_url((string)($row['avatar'] ?? ''), '/pic/default_avatar.gif'),
+                ENT_QUOTES | ENT_SUBSTITUTE,
+                'UTF-8'
+            );
 
             $username_link = get_user_class_color((int)$row['class'], $row['name']); // эта функция уже форматирует имя
             $uid = (int)$row['id'];
 
             $out[] = '<div class="friend">';
-            $out[] = "<div class=\"avatar\"><a href=\"userdetails.php?id={$uid}\"><img src=\"{$avatar}\" width=\"100\" height=\"100\" alt=\"\" /></a></div>";
+            if ($showAvatars) {
+                $out[] = "<div class=\"avatar\"><a href=\"userdetails.php?id={$uid}\"><img src=\"{$avatarUrl}\" width=\"100\" height=\"100\" alt=\"\" /></a></div>";
+            }
             $out[] = '<div class="finfo">';
             $out[] = "<p><b>Имя:</b>&nbsp;<a href=\"userdetails.php?id={$uid}\">{$username_link}</a></p>";
             $out[] = "<p><b>Пол:</b>&nbsp;{$genderIcon}</p>";
@@ -501,13 +507,18 @@ if($isAjaxRequest && ($_SERVER["REQUEST_METHOD"] ?? '') == 'POST')
             print("</select></td></tr>\n");
         }
 
-        $profiles = class_permissions_get_profiles();
-        print("<tr><td class=\"rowhead\">Профиль доступа</td><td colspan=\"2\" align=\"left\"><select name=\"class_profile_id\"><option value=\"0\">Без профиля (наследовать базовый класс)</option>");
-        foreach ($profiles as $profile) {
-            $selected = ((int)($user['class_profile_id'] ?? 0) === (int)$profile['id']) ? ' selected' : '';
-            print("<option value=\"" . (int)$profile['id'] . "\"{$selected}>" . htmlspecialchars((string)$profile['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</option>");
+        if (class_permissions_column_exists('users', 'class_profile_id')) {
+            $profiles = class_permissions_get_profiles();
+            print("<tr><td class=\"rowhead\">Профиль доступа</td><td colspan=\"2\" align=\"left\"><select name=\"class_profile_id\"><option value=\"0\">Без профиля (наследовать базовый класс)</option>");
+            foreach ($profiles as $profile) {
+                $selected = ((int)($user['class_profile_id'] ?? 0) === (int)$profile['id']) ? ' selected' : '';
+                print("<option value=\"" . (int)$profile['id'] . "\"{$selected}>" . htmlspecialchars((string)$profile['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</option>");
+            }
+            print("</select><br><small>Профиль задает отдельные возможности выбранного класса.</small></td></tr>\n");
+        } else {
+            print("<input type=\"hidden\" name=\"class_profile_id\" value=\"0\">\n");
+            print("<tr><td class=\"rowhead\">Профиль доступа</td><td colspan=\"2\" align=\"left\"><span style=\"color:#64748b\">Недоступно в этой схеме БД: колонка class_profile_id ещё не создана.</span></td></tr>\n");
         }
-        print("</select><br><small>Профиль задает отдельные возможности выбранного класса.</small></td></tr>\n");
 
         $modcomment = htmlspecialchars((string)($user['modcomment'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $supportfor = htmlspecialchars((string)($user['supportfor'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

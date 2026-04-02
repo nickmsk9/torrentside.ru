@@ -56,7 +56,19 @@ if ($type === 'new') {
     $rel = sql_query("SELECT COUNT(*) FROM users WHERE invitedby = $id") or sqlerr(__FILE__, __LINE__);
     [$number] = mysqli_fetch_row($rel);
 
-    $ret = sql_query("SELECT id, username, class, email, uploaded, downloaded, status, warned, enabled, donor FROM users WHERE invitedby = $id") or sqlerr(__FILE__, __LINE__);
+    $ret = sql_query("
+        SELECT
+            u.id, u.username, u.class, u.email, u.uploaded, u.downloaded, u.status, u.warned, u.enabled, u.donor, u.karma, u.profile_rating_bonus,
+            COALESCE(ts.torrents_count, 0) AS torrents_count,
+            COALESCE(ts.completed_count, 0) AS completed_count
+        FROM users AS u
+        LEFT JOIN (
+            SELECT owner, COUNT(*) AS torrents_count, COALESCE(SUM(times_completed), 0) AS completed_count
+            FROM torrents
+            GROUP BY owner
+        ) AS ts ON ts.owner = u.id
+        WHERE u.invitedby = $id
+    ") or sqlerr(__FILE__, __LINE__);
     $num = mysqli_num_rows($ret);
 
     print("<form method='post' action='takeconfirm.php?id=$id'><table border='1' width='100%' cellspacing='0' cellpadding='5'>");
@@ -80,12 +92,23 @@ if ($type === 'new') {
                     ($arr["donor"] === "yes" ? "&nbsp;<img src='pic/star.gif' border='0' alt='Donor'>" : "") . "</td>";
             }
 
-            if ($arr["downloaded"] > 0) {
-                $ratio = number_format($arr["uploaded"] / $arr["downloaded"], 3);
-                $ratio = "<font color='" . get_ratio_color($ratio) . "'>$ratio</font>";
-            } else {
-                $ratio = $arr["uploaded"] > 0 ? "Inf." : "---";
-            }
+            $ratingData = tracker_user_rating_data([
+                'uploaded' => (int)$arr['uploaded'],
+                'downloaded' => (int)$arr['downloaded'],
+                'torrents_count' => (int)($arr['torrents_count'] ?? 0),
+                'completed_count' => (int)($arr['completed_count'] ?? 0),
+                'karma' => (int)($arr['karma'] ?? 0),
+                'profile_rating_bonus' => (int)($arr['profile_rating_bonus'] ?? 0),
+            ]);
+            $ratioTitle = htmlspecialchars(
+                'ratio ' . $ratingData['ratio_text']
+                . ' · раздач ' . $ratingData['torrents_count']
+                . ' · скачали ' . $ratingData['completed_count']
+                . ' · карма ' . $ratingData['karma_text'],
+                ENT_QUOTES | ENT_SUBSTITUTE,
+                'UTF-8'
+            );
+            $ratio = "<span title='{$ratioTitle}'>{$ratingData['score']}</span>";
 
             $status = ($arr["status"] === 'confirmed')
                 ? "<a href='userdetails.php?id={$arr['id']}'><font color='green'>Подтвержден</font></a>"

@@ -15,6 +15,7 @@ visitorsHistorie($id);
 
 // Текущий пользователь
 $uid = (int)$CURUSER['id'];
+$viewerClass = (int)(get_user_class() ?? 0);
 
 // Одна быстрая выборка: профиль + страна + количество комментариев + метка возможности кармы
 $sql = "
@@ -23,6 +24,8 @@ $sql = "
         c.name     AS country_name,
         c.flagpic  AS country_flag,
         COALESCE(cc.cnt, 0) AS comment_count,
+        COALESCE(ts.torrents_count, 0) AS torrents_count,
+        COALESCE(ts.completed_count, 0) AS completed_count,
         CASE WHEN k.user IS NULL THEN 0 ELSE 1 END AS canrate
     FROM users u
     LEFT JOIN countries c        ON c.id = u.country
@@ -31,6 +34,11 @@ $sql = "
         FROM comments
         GROUP BY `user`
     ) cc                          ON cc.`user` = u.id
+    LEFT JOIN (
+        SELECT owner, COUNT(*) AS torrents_count, COALESCE(SUM(times_completed), 0) AS completed_count
+        FROM torrents
+        GROUP BY owner
+    ) ts                          ON ts.owner = u.id
     LEFT JOIN karma k             ON k.type = 'user' 
                                  AND k.value = u.id 
                                  AND k.`user` = {$uid}
@@ -54,14 +62,14 @@ $safeAdded       = htmlspecialchars($user['added'] ?? '');
 $safeLastAccess  = htmlspecialchars($user['last_access'] ?? '');
 $safeCountryName = htmlspecialchars($user['country_name'] ?? '');
 $safeFlag        = htmlspecialchars($user['country_flag'] ?? '');
+$profileUserId   = (int)($user['id'] ?? 0);
+$isOwnProfile    = $profileUserId === $uid;
+$canModerateView = $viewerClass >= UC_MODERATOR;
 
-// IP-адрес (только для модераторов или владельца)
+// IP-адрес: модераторам и владельцу профиля
 $ipPlain = '';
-$addr = '';
-if (!empty($user['ip']) && (get_user_class() >= UC_MODERATOR || (int)$user['id'] === $uid)) {
-    $ipPlain = (string)$user['ip'];
-    $dom = @gethostbyaddr($ipPlain);
-    $addr = ($dom === $ipPlain || @gethostbyname($dom) !== $ipPlain) ? $ipPlain : "{$ipPlain} (" . strtoupper($dom) . ")";
+if (!empty($user['ip']) && ($canModerateView || $isOwnProfile)) {
+    $ipPlain = trim((string)$user['ip']);
 }
 
 // Дата регистрации
@@ -73,6 +81,39 @@ $joindate = ($user['added'] === '0000-00-00 00:00:00')
 $lastseen = ($user['last_access'] === '0000-00-00 00:00:00')
     ? $tracker_lang['never']
     : "{$safeLastAccess} (" . get_elapsed_time(sql_timestamp_to_unix_timestamp($user['last_access'])) . " назад)";
+
+// Приватность профиля
+$privacyMode = (string)($user['privacy'] ?? 'normal');
+if (!in_array($privacyMode, ['strong', 'normal', 'low'], true)) {
+    $privacyMode = 'normal';
+}
+
+$privacyLabels = [
+    'low' => 'Низкая',
+    'normal' => 'Обычная',
+    'strong' => 'Сильная',
+];
+$privacyDescriptions = [
+    'low' => 'Профиль открыт: видна активность и список посетителей.',
+    'normal' => 'Скрыты текущая страница и список посетителей от других пользователей.',
+    'strong' => 'Дополнительно скрыто последнее посещение от других пользователей.',
+];
+
+$canBypassPrivacy = $isOwnProfile || $canModerateView;
+$showLastSeen = true;
+$showCurrentPage = true;
+$showVisitors = true;
+
+if (!$canBypassPrivacy) {
+    if ($privacyMode === 'normal') {
+        $showCurrentPage = false;
+        $showVisitors = false;
+    } elseif ($privacyMode === 'strong') {
+        $showLastSeen = false;
+        $showCurrentPage = false;
+        $showVisitors = false;
+    }
+}
 
 // Количество комментариев
 $torrentcomments = (int)$user['comment_count'];
@@ -190,6 +231,16 @@ $status = ($status !== '')
   .profile-caption-meta .profile-country-flag{height:15px !important;width:auto !important;max-width:none !important;object-fit:contain}
   .profile-transition-item{display:flex;align-items:flex-start;gap:8px;padding:4px 0}
   .profile-transition-item small{color:#666;line-height:1.35}
+  .profile-meta-note{color:#6b7a8c;font-size:12px;line-height:1.4}
+  .profile-inline-links{display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
+  .profile-inline-links a{white-space:nowrap}
+  .profile-rating-vk{display:block;max-width:310px}
+  .profile-rating-vk-bar{position:relative;height:31px;overflow:hidden;border:1px solid #d9ca87;background:linear-gradient(180deg,#fbf3c8 0%,#f6e7a4 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.78)}
+  .profile-rating-vk-fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(180deg,#ecdfa4 0%,#ddc97d 100%);border-right:1px solid rgba(168,144,65,.28)}
+  .profile-rating-vk-value{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;height:100%;padding:0 10px;font-size:12px;line-height:1;font-weight:400;color:#8b7a43;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .profile-rating-vk-meta{margin-top:6px;font-size:11px;color:#6b7a8c;line-height:1.35}
+  .profile-telegram-link{display:inline-flex;align-items:center;gap:6px}
+  .profile-telegram-link img{width:16px;height:16px}
   .category .profile-caption-meta, .tit .profile-caption-meta{font-size:12px;font-weight:600}
   .tit h1, .category{line-height:1.2;word-break:break-word}
 
@@ -306,14 +357,17 @@ echo '<tr><td class="lol" align="center" colspan="2" id="karma">';
 
 $karma_value   = karma((int)$user['karma']); // как у тебя
 $isOwnProfile  = isset($CURUSER['id']) && (int)$CURUSER['id'] === (int)$user['id'];
-$canRate       = isset($CURUSER['id']) && !$isOwnProfile && (int)($user['canrate'] ?? 0) > 0;
-$uid           = (int)($CURUSER['id'] ?? 0);
+$alreadyRated  = (int)($user['canrate'] ?? 0) > 0;
+$canRate       = isset($CURUSER['id']) && !$isOwnProfile && !$alreadyRated;
+$cannotRateMsg = $isOwnProfile
+    ? 'Нельзя голосовать за свой профиль'
+    : ($alreadyRated ? 'Вы уже голосовали за этот профиль' : 'Вы не можете голосовать');
 $profileIdSafe = (int)$id;
 
 if (!$canRate) {
-    echo '<img src="pic/minus-dis.png" title="Вы не можете голосовать" /> '
+    echo '<img src="pic/minus-dis.png" title="' . htmlspecialchars($cannotRateMsg, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" /> '
        . $karma_value
-       . ' <img src="pic/plus-dis.png" title="Вы не можете голосовать" />';
+       . ' <img src="pic/plus-dis.png" title="' . htmlspecialchars($cannotRateMsg, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" />';
 } else {
     echo '<img src="pic/minus.png" style="cursor:pointer;" title="Уменьшить карму" onclick="karma(\'' . $profileIdSafe . '\',\'user\',\'minus\');" /> '
        . $karma_value
@@ -351,23 +405,41 @@ if (($user['hiderating'] ?? 'no') !== 'yes') {
 <tr><td class="rowhead">Скачано <img src="pic/arrowdown.gif" alt=""></td><td class="lol" align="left">{$down_all} {$down_per_day}</td></tr>
 HTML;
 
-    if ($downloaded > 0) {
-        $sr = $uploaded / $downloaded;
-        $face = match (true) {
-            $sr >= 4    => 'w00t',
-            $sr >= 2    => 'grin',
-            $sr >= 1    => 'smile1',
-            $sr >= 0.5  => 'noexpression',
-            $sr >= 0.25 => 'sad',
-            default     => 'cry',
-        };
-        $sr_fmt   = number_format($sr, 3, '.', '');
-        $sr_color = get_ratio_color($sr);
-        $sr_output = '<table><tr><td class="embedded"><span style="color:'.$sr_color.'">'.$sr_fmt.'</span></td><td>'
-            . tracker_smiley_html('', $face . '.gif', ['class' => 'smiley-emoji--picker', 'title' => 'Рейтинг'])
-            . '</td></tr></table>';
+    $ratingData = tracker_user_rating_data([
+        'uploaded' => $uploaded,
+        'downloaded' => $downloaded,
+        'torrents_count' => (int)($user['torrents_count'] ?? 0),
+        'completed_count' => (int)($user['completed_count'] ?? 0),
+        'karma' => (int)($user['karma'] ?? 0),
+        'profile_rating_bonus' => (int)($user['profile_rating_bonus'] ?? 0),
+    ]);
+    $ratingScore = (int)$ratingData['score'];
+    $ratingProgress = (int)$ratingData['progress'];
+    $ratingMeta = 'До следующего: ' . (int)$ratingData['to_next']
+        . ' · ratio ' . (string)$ratingData['ratio_text']
+        . ' · раздач ' . (int)$ratingData['torrents_count']
+        . ' · скачали ' . (int)$ratingData['completed_count']
+        . ' · карма ' . (string)$ratingData['karma_text'];
+    if ((int)($ratingData['profile_rating_bonus'] ?? 0) > 0) {
+        $ratingMeta .= ' · магазин +' . (int)$ratingData['profile_rating_bonus'];
+    }
+
+    if ($downloaded > 0 || $uploaded > 0 || $ratingScore > 0) {
+        $sr_output = '<div class="profile-rating-vk">'
+            . '<div class="profile-rating-vk-bar">'
+            . '<div class="profile-rating-vk-fill" style="width:' . $ratingProgress . '%" aria-hidden="true"></div>'
+            . '<div class="profile-rating-vk-value">' . $ratingScore . '</div>'
+            . '</div>'
+            . '<div class="profile-rating-vk-meta">' . htmlspecialchars($ratingMeta, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</div>'
+            . '</div>';
     } else {
-        $sr_output = 'Нет';
+        $sr_output = '<div class="profile-rating-vk">'
+            . '<div class="profile-rating-vk-bar">'
+            . '<div class="profile-rating-vk-fill" style="width:0%" aria-hidden="true"></div>'
+            . '<div class="profile-rating-vk-value">0</div>'
+            . '</div>'
+            . '<div class="profile-rating-vk-meta">До следующего: 100 · ratio 0 · раздач 0 · скачали 0 · карма 0</div>'
+            . '</div>';
     }
 
     echo '<tr><td class="rowhead">Рейтинг <img src="pic/rating.gif" alt=""></td><td class="lol" align="left">'.$sr_output.'</td></tr>';
@@ -488,31 +560,43 @@ echo '</div></td></tr>';
 <div class="profile-right">
 <table class="mainp" cellpadding="4" cellspacing="0">
 <tr><td class="rowhead">Зарегистрирован</td><td class="lol" align="left"><?= $joindate ?></td></tr>
+<?php if ($showLastSeen): ?>
 <tr><td class="rowhead">Был на трекере</td><td class="lol" align="left"><?= $lastseen ?></td></tr>
+<?php elseif (!$canBypassPrivacy): ?>
+<tr><td class="rowhead">Был на трекере</td><td class="lol" align="left"><span class="profile-meta-note">Скрыто настройкой приватности пользователя</span></td></tr>
+<?php endif; ?>
 
 <?php
 // --- Контакты модераторам ---
-if (get_user_class() >= UC_MODERATOR) {
+if ($canModerateView) {
     $emailSafe = htmlspecialchars((string)($user['email'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     if ($emailSafe !== '') {
         echo '<tr><td class="rowhead">Email</td><td class="lol" align="left"><a href="mailto:' . $emailSafe . '">' . $emailSafe . '</a></td></tr>' . "\n";
     }
 }
 
-// --- IP (2ip/WHOIS) ---
-if (!empty($addr)) {
-    $addrSafe = htmlspecialchars($addr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+// --- IP ---
+if ($ipPlain !== '') {
     $lookupIp = (string)$ipPlain;
-    $infoUrl  = 'https://2ip.ru/lookup/?ip=' . rawurlencode($lookupIp);
-    $whoisUrl = 'https://2ip.ru/whois/?query=' . rawurlencode($lookupIp);
-    $isLocal = filter_var($lookupIp, FILTER_VALIDATE_IP)
-        && (filter_var($lookupIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
-    $badge = $isLocal ? ' <span title="Частный/локальный диапазон">[локальный]</span>' : '';
-    echo '<tr><td class="rowhead">IP</td><td class="lol" align="left">'
-       . $addrSafe . $badge
-       . ' [<a href="' . htmlspecialchars($infoUrl, ENT_QUOTES) . '" target="_blank" rel="noopener noreferrer">2IP: Инфо</a>]'
-       . ' [<a href="' . htmlspecialchars($whoisUrl, ENT_QUOTES) . '" target="_blank" rel="noopener noreferrer">WHOIS</a>]'
-       . '</td></tr>' . "\n";
+    $ipSafe = htmlspecialchars($lookupIp, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $isLocal = function_exists('is_local_peer')
+        ? is_local_peer($lookupIp)
+        : (filter_var($lookupIp, FILTER_VALIDATE_IP)
+            && filter_var($lookupIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
+
+    $parts = ['<span>' . $ipSafe . '</span>'];
+    if ($isLocal) {
+        $parts[] = '<span class="profile-meta-note">локальный адрес</span>';
+    } else {
+        $infoUrl  = 'https://2ip.ru/lookup/?ip=' . rawurlencode($lookupIp);
+        $whoisUrl = 'https://2ip.ru/whois/?query=' . rawurlencode($lookupIp);
+        $parts[] = '<span class="profile-inline-links">'
+            . '<a href="' . htmlspecialchars($infoUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer">2IP</a>'
+            . '<a href="' . htmlspecialchars($whoisUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer">WHOIS</a>'
+            . '</span>';
+    }
+
+    echo '<tr><td class="rowhead">IP</td><td class="lol" align="left">' . implode(' <span class="profile-meta-note">·</span> ', $parts) . '</td></tr>' . "\n";
 }
 
 // --- Пол ---
@@ -588,6 +672,32 @@ if ($siteUrlRaw !== '') {
 }
 echo "</td></tr>\n";
 
+echo '<tr><td class="rowhead">Telegram</td><td class="lol">';
+$telegramRaw = trim((string)($user['telegram'] ?? ''));
+if ($telegramRaw !== '') {
+    $telegramHandle = ltrim($telegramRaw, '@');
+    if (preg_match('~^[A-Za-z0-9_]{5,32}$~', $telegramHandle)) {
+        $telegramUrl = 'https://t.me/' . rawurlencode($telegramHandle);
+        $telegramLabel = '@' . htmlspecialchars($telegramHandle, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        echo '<a class="profile-telegram-link" href="' . htmlspecialchars($telegramUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer ugc nofollow">'
+            . '<img src="pic/telegram.png" alt="Telegram">'
+            . '<span>' . $telegramLabel . '</span></a>';
+    } else {
+        echo htmlspecialchars($telegramRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+} else {
+    echo 'Не указан';
+}
+echo "</td></tr>\n";
+
+if ($canBypassPrivacy) {
+    echo '<tr><td class="rowhead">Приватность</td><td class="lol" align="left"><b>'
+        . htmlspecialchars((string)$privacyLabels[$privacyMode], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+        . '</b><br><span class="profile-meta-note">'
+        . htmlspecialchars((string)$privacyDescriptions[$privacyMode], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+        . '</span></td></tr>' . "\n";
+}
+
 /* =================== ПОСЛЕДНЯЯ ПОСЕЩЁННАЯ СТРАНИЦА =================== */
 $uidLocal = (int)($user['id'] ?? 0);
 $lastUrl = null;
@@ -621,9 +731,11 @@ if ($uidLocal > 0) {
         $cacheSet($cacheKey, $lastUrl, 60);
     }
 }
-if (!empty($lastUrl)) {
+if ($showCurrentPage && !empty($lastUrl)) {
     $urlSafe = htmlspecialchars($lastUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     echo '<tr><td class="rowhead">Сейчас на</td><td class="lol"><a href="' . $urlSafe . '">' . $urlSafe . '</a></td></tr>' . "\n";
+} elseif (!$showCurrentPage && !$canBypassPrivacy) {
+    echo '<tr><td class="rowhead">Сейчас на</td><td class="lol"><span class="profile-meta-note">Скрыто настройкой приватности пользователя</span></td></tr>' . "\n";
 }
 
 /* =================== ВИЗИТЁРЫ СТРАНИЦЫ =================== */
@@ -645,31 +757,36 @@ $statusId = "visitors-status-$wid";
 $endpoint = '/updateVisitors.php';
 
 // Рендер через visitorsList — как у тебя (строки ТАБЛИЦЫ корректно внутри этой таблицы)
-echo visitorsList('
-  <tr><td class="lol" colspan="12"></td></tr>
-  <tr>
-    <td class="colhead" colspan="12" style="text-align:center">
-      Кто был на этой странице за последние ' . $visTimeout . ' мин
-      <a href="#" id="' . $btnId . '" class="altlink" style="margin-left:6px">[обновить]</a>
-      <span id="' . $statusId . '" class="small" style="margin-left:8px;opacity:.7"></span>
-    </td>
-  </tr>
-  <tr>
-    <td class="rowhead" colspan="12" style="text-align:left">
-      <div id="' . $boxId . '"
-           data-url="' . $visUrl . '"
-           data-timeout-min="' . $visTimeout . '"
-           data-csrf="' . $csrfAttr . '"
-           data-endpoint="' . htmlspecialchars($endpoint, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">[VISITORS]</div>
-    </td>
-  </tr>
-', $VISITORS);
+if ($showVisitors) {
+    echo visitorsList('
+      <tr><td class="lol" colspan="12"></td></tr>
+      <tr>
+        <td class="colhead" colspan="12" style="text-align:center">
+          Кто был на этой странице за последние ' . $visTimeout . ' мин
+          <a href="#" id="' . $btnId . '" class="altlink" style="margin-left:6px">[обновить]</a>
+          <span id="' . $statusId . '" class="small" style="margin-left:8px;opacity:.7"></span>
+        </td>
+      </tr>
+      <tr>
+        <td class="rowhead" colspan="12" style="text-align:left">
+          <div id="' . $boxId . '"
+               data-url="' . $visUrl . '"
+               data-timeout-min="' . $visTimeout . '"
+               data-csrf="' . $csrfAttr . '"
+               data-endpoint="' . htmlspecialchars($endpoint, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">[VISITORS]</div>
+        </td>
+      </tr>
+    ', $VISITORS);
+} elseif (!$canBypassPrivacy) {
+    echo '<tr><td class="rowhead" colspan="12" style="text-align:left"><span class="profile-meta-note">Список посетителей скрыт настройкой приватности пользователя.</span></td></tr>';
+}
 
 // Закрываем правую таблицу прямо здесь:
 echo "</table>\n</div>\n</div>\n";
 ?>
 
 <!-- Стили ДЛЯ БЛОКА ВИЗИТОРОВ — оставлены как у тебя, но вынесены ВНЕ таблицы -->
+<?php if ($showVisitors): ?>
 <style>
   /* аккуратный вывод списка */
   #<?= $boxId ?> { text-align:left; display:inline-flex; flex-wrap:wrap; gap:6px; align-items:center; }
@@ -737,6 +854,7 @@ echo "</table>\n</div>\n</div>\n";
     : loadVisitors();
 })();
 </script>
+<?php endif; ?>
 
 <?php
 /* =================== НИЖНИЕ ССЫЛКИ ДЕЙСТВИЙ =================== */
@@ -988,7 +1106,7 @@ echo '<script src="js/user.js" type="text/javascript" defer></script>' . "\n";
         if (empty($user['info'])) {
             echo '<div class="tab_error">Пользователь не сообщил эту информацию.</div>';
         } else {
-            echo (string)format_comment((string)$user['info']);
+            echo (string)format_comment(tracker_rebind_local_urls((string)$user['info']));
         }
         ?>
     </div>

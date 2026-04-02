@@ -105,6 +105,14 @@ CSS;
         $downloaded = (float)$a['downloaded'];
         $upspeed    = max(0.0, (float)$a['upspeed']);
         $downspeed  = max(0.0, (float)$a['downspeed']);
+        $ratingData = tracker_user_rating_data([
+            'uploaded' => $uploaded,
+            'downloaded' => $downloaded,
+            'torrents_count' => (int)($a['torrents_count'] ?? 0),
+            'completed_count' => (int)($a['completed_count'] ?? 0),
+            'karma' => (int)($a['karma'] ?? 0),
+            'profile_rating_bonus' => (int)($a['profile_rating_bonus'] ?? 0),
+        ]);
 
         // Ratio
         if ($downloaded > 0.0) {
@@ -146,7 +154,7 @@ CSS;
               <div class='name'>
                 <a class='name-link' href='userdetails.php?id={$a["userid"]}'>{$usernameColor}</a>
               </div>
-              <div class='meta'>Рейтинг: {$ratio_txt}" . ($added_fmt ? " · с нами с {$added_fmt}" : "") . "</div>
+              <div class='meta'>Рейтинг: {$ratingData['score']} · ratio: {$ratio_txt}" . ($added_fmt ? " · с нами с {$added_fmt}" : "") . "</div>
             </div>
             <div class='metric'>
               <div class='k'>{$metricLabel}</div>
@@ -227,10 +235,19 @@ if ($type === 1 && get_user_class() >= UC_ADMINISTRATOR) {
                         added,
                         uploaded,
                         downloaded,
+                        karma,
+                        profile_rating_bonus,
 						class,
+                        COALESCE(ts.torrents_count, 0) AS torrents_count,
+                        COALESCE(ts.completed_count, 0) AS completed_count,
                         uploaded   / ( {$nowSql} - UNIX_TIMESTAMP(added) ) AS upspeed,
                         downloaded / ( {$nowSql} - UNIX_TIMESTAMP(added) ) AS downspeed
                     FROM users
+                    LEFT JOIN (
+                        SELECT owner, COUNT(*) AS torrents_count, COALESCE(SUM(times_completed), 0) AS completed_count
+                        FROM torrents
+                        GROUP BY owner
+                    ) AS ts ON ts.owner = users.id
                     WHERE enabled = 'yes' {$extra}
                     ORDER BY {$order}
                     LIMIT {$limit}";
@@ -246,7 +263,11 @@ if ($type === 1 && get_user_class() >= UC_ADMINISTRATOR) {
                             'added'      => (string)$row['added'],
                             'uploaded'   => (float)$row['uploaded'],
                             'downloaded' => (float)$row['downloaded'],
+                            'karma'      => (int)($row['karma'] ?? 0),
+                            'profile_rating_bonus' => (int)($row['profile_rating_bonus'] ?? 0),
 							'class'      => (int)($row['class'] ?? 0),
+                            'torrents_count' => (int)($row['torrents_count'] ?? 0),
+                            'completed_count' => (int)($row['completed_count'] ?? 0),
                             'upspeed'    => is_null($row['upspeed']) ? 0.0 : (float)$row['upspeed'],
                             'downspeed'  => is_null($row['downspeed']) ? 0.0 : (float)$row['downspeed'],
                         ];

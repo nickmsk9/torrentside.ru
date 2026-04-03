@@ -2278,7 +2278,7 @@ ALTER TABLE `torrents`
   ADD KEY `idx_torrents_cleanup` (`visible`,`last_action`,`visible_lock`),
   ADD KEY `idx_torrents_vis_mod_id` (`visible`,`moderated`,`id`),
   ADD KEY `idx_release_group_id` (`release_group_id`);
-ALTER TABLE `torrents` ADD FULLTEXT KEY `ft_name_descr` (`name`,`descr`,`tags`);
+ALTER TABLE `torrents` ADD FULLTEXT KEY `ft_ai_search` (`name`,`search_text`,`descr`,`tags`);
 
 --
 -- Индексы таблицы `torrent_bookmarks`

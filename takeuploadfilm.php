@@ -6,6 +6,7 @@ declare(strict_types=1);
 require_once __DIR__ . "/include/benc.php";
 require_once __DIR__ . "/include/bittorrent.php";
 require_once __DIR__ . "/include/multitracker.php";
+require_once __DIR__ . "/include/upload_ai.php";
 
 global $mysqli, $mysqli_charset, $announce_urls, $DEFAULTBASEURL, $SITENAME, $torrent_dir;
 
@@ -59,7 +60,7 @@ if (empty($_POST['csrf_token']) || empty($_SESSION['csrf_token']) || !hash_equal
 // unset($_SESSION['csrf_token']);
 
 // --- обязательные поля
-foreach (['descr', 'type', 'name'] as $v) {
+foreach (['type', 'name'] as $v) {
     if (!isset($_POST[$v]) || trim((string)$_POST[$v]) === '') {
         bark("Отсутствует поле формы: $v");
     }
@@ -215,37 +216,175 @@ if ($dup && mysqli_fetch_assoc($dup)) {
     bark("Такой торрент уже существует!");
 }
 
+// --- AI-анализ: заполняем пробелы по названию, .torrent и MediaInfo/NFO
+$fileEntries = array_map(
+    static fn(array $file): array => ['path' => (string)$file[0], 'size' => (int)$file[1]],
+    $filelist
+);
+$allowRemoteAutofill =
+    trim((string)($_POST['descr'] ?? '')) === '' ||
+    trim((string)($_POST['origname'] ?? '')) === '' ||
+    trim((string)($_POST['year'] ?? '')) === '' ||
+    trim((string)($_POST['image0'] ?? '')) === '' ||
+    trim((string)($_POST['janr'] ?? '')) === '' ||
+    trim((string)($_POST['kachestvo'] ?? '')) === '' ||
+    trim((string)($_POST['resolution'] ?? '')) === '';
+
+$aiSuggestion = tracker_upload_ai_generate_suggestions([
+    'context' => 'film',
+    'title' => (string)$torrent,
+    'alt_title' => trim((string)($_POST['origname'] ?? '')),
+    'torrent_name' => (string)$dname,
+    'existing_descr' => trim((string)unesc($_POST['descr'] ?? '')),
+    'mediainfo' => trim((string)unesc($_POST['ai_mediainfo'] ?? '')),
+    'nfo' => trim((string)unesc($_POST['ai_nfo'] ?? '')),
+    'file_entries' => $fileEntries,
+    'total_size' => (int)$totallen,
+    'allow_remote' => $allowRemoteAutofill,
+]);
+
+if (!empty($aiSuggestion['release']['display_title'])) {
+    $torrent = (string)$aiSuggestion['release']['display_title'];
+}
+
+if (!empty($aiSuggestion['tags'])) {
+    $tagArr = array_values(array_unique(array_merge(
+        $tagArr,
+        array_map(
+            static fn(string $tag): string => mb_substr(trim(mb_strtolower($tag, 'UTF-8')), 0, 32, 'UTF-8'),
+            (array)$aiSuggestion['tags']
+        )
+    )));
+    $tagArr = array_slice(array_filter($tagArr, static fn(string $tag): bool => $tag !== ''), 0, 20);
+    $tagsCsv = implode(",", $tagArr);
+}
+
+$originalTitle = trim((string)($_POST['origname'] ?? ''));
+if ($originalTitle === '') {
+    $originalTitle = trim((string)($aiSuggestion['release']['original_title'] ?? ''));
+}
+
+$year = trim((string)($_POST['year'] ?? ''));
+if ($year === '') {
+    $year = trim((string)($aiSuggestion['release']['year'] ?? ''));
+}
+
+$genre = trim((string)($_POST['janr'] ?? ''));
+if ($genre === '' && !empty($aiSuggestion['genres'])) {
+    $genre = implode(', ', (array)$aiSuggestion['genres']);
+}
+
+$director = trim((string)($_POST['director'] ?? ''));
+$roles = trim((string)($_POST['roles'] ?? ''));
+$translation = trim((string)($_POST['perevod'] ?? ''));
+if ($translation === '') {
+    $translation = tracker_upload_ai_translation_label(trim((string)($aiSuggestion['release']['translation'] ?? '')), 'film');
+}
+
+$story = trim((string)unesc($_POST['descr'] ?? ''));
+if ($story === '') {
+    $story = trim((string)($aiSuggestion['plain_summary'] ?? ''));
+}
+
+$runtime = trim((string)($_POST['time'] ?? ''));
+if ($runtime === '') {
+    $runtime = trim((string)($aiSuggestion['release']['runtime'] ?? ''));
+}
+
+$publisher = trim((string)($_POST['publisher'] ?? ''));
+$quality = trim((string)($_POST['kachestvo'] ?? ''));
+if ($quality === '') {
+    $quality = trim((string)($aiSuggestion['release']['quality'] ?? ''));
+}
+
+$format = trim((string)($_POST['format'] ?? ''));
+if ($format === '') {
+    $format = trim((string)($aiSuggestion['release']['format'] ?? ''));
+}
+
+$resolution = trim((string)($_POST['resolution'] ?? ''));
+if ($resolution === '') {
+    $resolution = trim((string)($aiSuggestion['release']['resolution'] ?? ''));
+}
+
+$videoCodec = trim((string)($_POST['videocodec'] ?? ''));
+if ($videoCodec === '') {
+    $videoCodec = trim((string)($aiSuggestion['release']['video_codec'] ?? ''));
+}
+
+$videoBitrate = trim((string)($_POST['videobitrate'] ?? ''));
+$audioCodec = trim((string)($_POST['audiocodec'] ?? ''));
+if ($audioCodec === '') {
+    $audioCodec = trim((string)($aiSuggestion['release']['audio_codec'] ?? ''));
+}
+
+$audioBitrate = trim((string)($_POST['audiobitrate'] ?? ''));
+if ($audioBitrate === '') {
+    $audioBitrate = trim((string)($aiSuggestion['release']['audio_bitrate'] ?? ''));
+}
+
 // --- описание (BB-код)
 $torrentDisp = htmlspecialchars(str_replace("_", " ", $torrent), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $descr  = "[b]Название:[/b] $torrentDisp\n";
 $fields = [
-    ['Оригинальное название', 'origname'],
-    ['Год выхода', 'year'],
-    ['Жанр', 'janr'],
-    ['Режиссер', 'director'],
-    ['В ролях', 'roles'],
-    ['Перевод', 'perevod'],
+    ['Оригинальное название', $originalTitle],
+    ['Год выхода', $year],
+    ['Жанр', $genre],
+    ['Режиссер', $director],
+    ['В ролях', $roles],
+    ['Перевод', $translation],
 ];
-foreach ($fields as [$label, $key]) {
-    if (!empty($_POST[$key])) $descr .= "[b]$label:[/b] " . trim((string)$_POST[$key]) . "\n";
+foreach ($fields as [$label, $value]) {
+    if ($value !== '') {
+        $descr .= "[b]$label:[/b] " . trim((string)$value) . "\n";
+    }
 }
-if (!empty($_POST['descr'])) {
-    $descr .= "[b]О фильме:[/b]\n" . trim((string)$_POST['descr']) . "\n\n";
+if ($story !== '') {
+    $descr .= "[b]О фильме:[/b]\n" . $story . "\n\n";
 }
-if (!empty($_POST['time']))         $descr .= "[b]Продолжительность:[/b] " . trim((string)$_POST['time']) . "\n";
-if (!empty($_POST['publisher']))    $descr .= "[b]Издатель:[/b] " . trim((string)$_POST['publisher']) . "\n\n";
-if (!empty($_POST['kachestvo']))    $descr .= "[b]Качество:[/b] " . trim((string)$_POST['kachestvo']) . "\n";
-if (!empty($_POST['format']))       $descr .= "[b]Формат:[/b] " . trim((string)$_POST['format']) . "\n";
+if ($runtime !== '') {
+    $descr .= "[b]Продолжительность:[/b] " . $runtime . "\n";
+}
+if ($publisher !== '') {
+    $descr .= "[b]Издатель:[/b] " . $publisher . "\n\n";
+}
+if ($quality !== '') {
+    $descr .= "[b]Качество:[/b] " . $quality . "\n";
+}
+if ($format !== '') {
+    $descr .= "[b]Формат:[/b] " . $format . "\n";
+}
 
-if (!empty($_POST['resolution']) && !empty($_POST['videocodec']) && !empty($_POST['videobitrate'])) {
-    $descr .= "[b]Видео:[/b] " . trim((string)$_POST['resolution']) . ", " . trim((string)$_POST['videocodec']) . ", " . trim((string)$_POST['videobitrate']) . "\n";
+$videoParts = array_values(array_filter([$resolution, $videoCodec, $videoBitrate], static fn(string $value): bool => trim($value) !== ''));
+if ($videoParts) {
+    $descr .= "[b]Видео:[/b] " . implode(", ", $videoParts) . "\n";
 }
-if (!empty($_POST['audiocodec']) && !empty($_POST['audiobitrate'])) {
-    $descr .= "[b]Аудио:[/b] " . trim((string)$_POST['audiocodec']) . ", " . trim((string)$_POST['audiobitrate']) . "\n\n";
+
+$audioParts = array_values(array_filter([$audioCodec, $audioBitrate], static fn(string $value): bool => trim($value) !== ''));
+if ($audioParts) {
+    $descr .= "[b]Аудио:[/b] " . implode(", ", $audioParts) . "\n\n";
 }
+
+$audit = tracker_upload_ai_audit_description($descr, [
+    'category_id' => $catid,
+    'family_key' => (string)($aiSuggestion['family_probabilities'][0]['key'] ?? 'movie'),
+    'quality' => $quality,
+    'translation' => $translation,
+]);
+$criticalMessages = tracker_upload_ai_critical_messages($audit);
+if ($criticalMessages) {
+    bark(
+        'AI-модератор обнаружил проблемы в описании:<br>' .
+        implode('<br>', array_map(static fn(string $message): string => htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), $criticalMessages))
+    );
+}
+$descr = (string)($audit['normalized_text'] ?? $descr);
 
 // --- изображения
 $image1 = trim((string)($_POST['image0'] ?? ''));
+if ($image1 === '' && !empty($aiSuggestion['poster_url'])) {
+    $image1 = (string)$aiSuggestion['poster_url'];
+}
 $image2 = trim((string)($_POST['image1'] ?? ''));
 $image3 = trim((string)($_POST['image2'] ?? ''));
 $image4 = trim((string)($_POST['image3'] ?? ''));
@@ -330,6 +469,7 @@ foreach ($toInsert as $tag) {
 }
 
 tracker_recount_tags_for_categories((int)$catid);
+tracker_refresh_torrent_search_index($id);
 tracker_invalidate_torrent_cache($id, true);
 if ($releaseGroupId > 0) {
     tracker_invalidate_release_group_cache($releaseGroupId);

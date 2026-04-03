@@ -1817,7 +1817,7 @@ ALTER TABLE `torrents`
   ADD KEY `idx_torrents_vis_mod_id` (`visible`,`moderated`,`id`),
   ADD KEY `idx_torrents_feed` (`visible`,`moderated`,`category`,`id`),
   ADD KEY `idx_torrents_cleanup` (`visible`,`last_action`,`visible_lock`);
-ALTER TABLE `torrents` ADD FULLTEXT KEY `ft_name_descr` (`name`,`descr`,`tags`);
+ALTER TABLE `torrents` ADD FULLTEXT KEY `ft_ai_search` (`name`,`search_text`,`descr`,`tags`);
 
 --
 -- Индексы таблицы `users`

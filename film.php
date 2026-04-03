@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once 'include/bittorrent.php';
+require_once 'include/upload_ai.php';
 
 dbconn(false);
 loggedinorreturn();
@@ -113,6 +114,7 @@ tr(
 );
 tr('Русское название', '<input type="text" name="name" size="80" /><br>(например - <b>Матрица</b>)', 1);
 tr('Оригинальное название', '<input type="text" name="origname" size="80" /><br>(например - <b>Matrix</b>)', 1);
+echo "<tr><td class='lol' colspan='2' style='padding:16px'>" . tracker_upload_ai_render_panel('film') . "</td></tr>";
 tr($tracker_lang['images'], '<input type="text" name="image0" size="80"><br><b>Укажите URL-адрес картинки</b><br>Если не знаете, куда загрузить — используйте <a href="http://radikal.ru/">Radikal</a> или <a href="http://ipicture.ru">iPicture</a>', 1);
 tr('Год выхода', '<input type="text" name="year" size="4" />', 1);
 tr('Жанр', '<input type="text" name="janr" size="40" />', 1);
@@ -133,7 +135,7 @@ $pr .= '</select>';
 tr('Перевод', $pr, 1);
 
 /* Описание */
-echo "</td></tr><tr><td class='rowhead' style='padding: 10px'>Сюжет фильма:</td><td class='lol'>";
+echo "</td></tr><tr><td class='rowhead' style='padding: 10px'>Сюжет фильма:</td><td class='lol'><div style='margin-bottom:8px;color:#5f5b53'>Можно оставить поле пустым и доверить черновик AI-помощнику: он подставит краткое описание по названию и найденной справке.</div>";
 textbbcode('upload', 'descr');
 echo '</td></tr>';
 
@@ -146,7 +148,7 @@ tr('Кем выпущено', '<input type="text" name="publisher" size="40" />'
 tr('Продолжительность', '<input type="text" name="time" size="40" />', 1);
 
 /* Качество */
-$kach = ['DVDRip','DVD5','DVD9','HDTV','TVRip','SATRip','TeleCine','TeleSync','CAMRip','VHSRip','DVDScreener','BDRip'];
+$kach = ['WEB-DL','WEBRip','BluRay','BDRip','Remux','DVDRip','DVD5','DVD9','HDTV','TVRip','SATRip','TeleCine','TeleSync','CAMRip','VHSRip','DVDScreener'];
 $k = '<select name="kachestvo"><option value="0">(Выбрать)</option>';
 foreach ($kach as $val) {
     $k .= '<option value="' . h($val) . '">' . h($val) . '</option>';

@@ -325,6 +325,7 @@ switch ($do) {
                 $upd_res = sql_query($upd_sql) or sqlerr(__FILE__, __LINE__);
 
                 if ($upd_res) {
+                    tracker_refresh_torrent_search_index($torrentid);
                     tracker_invalidate_torrent_cache($torrentid, false);
                     $res = sql_query("SELECT text FROM comments WHERE id = $commentid AND torrent = $torrentid LIMIT 1") or sqlerr(__FILE__, __LINE__);
                     if ($res && mysqli_num_rows($res) > 0) {
@@ -444,6 +445,7 @@ case 'add_comment':
         $ok2 = sql_query("UPDATE torrents SET comments = comments + 1 WHERE id = $torrentid");
 
         if ($ok1 && $ok2) {
+            tracker_refresh_torrent_search_index($torrentid);
             tracker_invalidate_torrent_cache($torrentid, true);
             app_log('info', 'Comment added', ['tid' => $torrentid, 'parent_id' => $parentId]);
             echo render_comments_block_html($torrentid);
@@ -490,6 +492,7 @@ case 'add_comment':
 
                 $deletedCount = count($deleteIds);
                 sql_query("UPDATE torrents SET comments = GREATEST(comments - $deletedCount, 0) WHERE id = $torrentid");
+                tracker_refresh_torrent_search_index($torrentid);
                 tracker_invalidate_torrent_cache($torrentid, true);
                 app_log('info', 'Comment deleted', ['cid' => $commentid, 'tid' => $torrentid, 'deleted_count' => $deletedCount]);
                 echo render_comments_block_html($torrentid);
@@ -542,6 +545,7 @@ case 'add_comment':
 
                 $ok = sql_query("UPDATE comments SET text = " . sqlesc((string)$row['ori_text']) . " WHERE id = $commentid AND torrent = $torrentid");
                 if ($ok) {
+                    tracker_refresh_torrent_search_index($torrentid);
                     tracker_invalidate_torrent_cache($torrentid, false);
                     echo format_comment((string)$row['ori_text']);
                     app_log('info', 'Original recovered', ['cid' => $commentid, 'tid' => $torrentid]);

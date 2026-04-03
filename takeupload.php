@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . "/include/benc.php";
 require_once __DIR__ . "/include/bittorrent.php";
 require_once __DIR__ . "/include/multitracker.php";
+require_once __DIR__ . "/include/upload_ai.php";
 
 global $mysqli, $mysqli_charset, $announce_urls, $DEFAULTBASEURL, $SITENAME, $torrent_dir, $max_torrent_size, $tracker_lang, $CURUSER;
 
@@ -38,7 +39,7 @@ if (empty($_POST['csrf_token']) || empty($_SESSION['csrf_token']) || !hash_equal
 // unset($_SESSION['csrf_token']);
 
 // --- Обязательные поля
-foreach (['descr','type','name'] as $v) {
+foreach (['type','name'] as $v) {
     if (!isset($_POST[$v]) || trim((string)$_POST[$v]) === '') {
         bark("Отсутствует поле формы: $v");
     }
@@ -167,12 +168,69 @@ if ($dup && mysqli_fetch_assoc($dup)) {
     bark("Такой торрент уже был загружен!");
 }
 
-// --- Описание (берём готовое из формы, но чуть-чуть страхуем)
+// --- AI-анализ: нормализация названия, тегов и черновика описания
+$fileEntries = array_map(
+    static fn(array $file): array => ['path' => (string)$file[0], 'size' => (int)$file[1]],
+    $filelist
+);
+$allowRemoteAutofill = trim((string)($_POST['descr'] ?? '')) === '' || $tagsCsv === '' || trim((string)($_POST['image0'] ?? '')) === '';
+$aiSuggestion = tracker_upload_ai_generate_suggestions([
+    'context' => 'generic',
+    'title' => (string)$torrentName,
+    'torrent_name' => (string)$dname,
+    'existing_descr' => trim((string)unesc($_POST['descr'] ?? '')),
+    'mediainfo' => trim((string)unesc($_POST['ai_mediainfo'] ?? '')),
+    'nfo' => trim((string)unesc($_POST['ai_nfo'] ?? '')),
+    'file_entries' => $fileEntries,
+    'total_size' => (int)$totallen,
+    'allow_remote' => $allowRemoteAutofill,
+]);
+
+if (!empty($aiSuggestion['release']['release_name'])) {
+    $torrentName = (string)$aiSuggestion['release']['release_name'];
+}
+
+if (!empty($aiSuggestion['tags'])) {
+    $tagArr = array_values(array_unique(array_merge(
+        $tagArr,
+        array_map(
+            static fn(string $tag): string => mb_substr(trim(mb_strtolower($tag, 'UTF-8')), 0, 32, 'UTF-8'),
+            (array)$aiSuggestion['tags']
+        )
+    )));
+    $tagArr = array_slice(array_filter($tagArr, static fn(string $tag): bool => $tag !== ''), 0, 20);
+    $tagsCsv = implode(",", $tagArr);
+}
+
+// --- Описание: можно оставить пустым, тогда AI соберёт черновик автоматически
 $descr = trim((string)unesc($_POST['descr'] ?? ''));
-if ($descr === '') bark("Вы должны ввести описание!");
+if ($descr === '') {
+    $descr = trim((string)($aiSuggestion['description_template'] ?? $aiSuggestion['plain_summary'] ?? ''));
+}
+if ($descr === '') {
+    bark("AI-помощник не смог собрать описание. Введите его вручную.");
+}
+
+$audit = tracker_upload_ai_audit_description($descr, [
+    'category_id' => $catid,
+    'family_key' => (string)($aiSuggestion['family_probabilities'][0]['key'] ?? 'other'),
+    'quality' => (string)($aiSuggestion['release']['quality'] ?? ''),
+    'translation' => (string)($aiSuggestion['release']['translation'] ?? ''),
+]);
+$criticalMessages = tracker_upload_ai_critical_messages($audit);
+if ($criticalMessages) {
+    bark(
+        'AI-модератор обнаружил проблемы в описании:<br>' .
+        implode('<br>', array_map(static fn(string $message): string => htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), $criticalMessages))
+    );
+}
+$descr = (string)($audit['normalized_text'] ?? $descr);
 
 // --- Картинки
 $image1 = trim((string)($_POST['image0'] ?? ''));
+if ($image1 === '' && !empty($aiSuggestion['poster_url'])) {
+    $image1 = (string)$aiSuggestion['poster_url'];
+}
 $image2 = trim((string)($_POST['image1'] ?? ''));
 $image3 = trim((string)($_POST['image2'] ?? ''));
 $image4 = trim((string)($_POST['image3'] ?? ''));
@@ -253,6 +311,7 @@ foreach ($toInsert as $tag) {
 }
 
 tracker_recount_tags_for_categories((int)$catid);
+tracker_refresh_torrent_search_index($id);
 tracker_invalidate_torrent_cache($id, true);
 if ($releaseGroupId > 0) {
     tracker_invalidate_release_group_cache($releaseGroupId);

@@ -265,6 +265,7 @@ foreach ($toInsert as $tag) {
 }
 
 tracker_recount_tags_for_categories((int)$catid);
+tracker_refresh_torrent_search_index($id);
 tracker_invalidate_torrent_cache($id, true);
 if ($releaseGroupId > 0) {
     tracker_invalidate_release_group_cache($releaseGroupId);

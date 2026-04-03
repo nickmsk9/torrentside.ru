@@ -299,6 +299,7 @@ sql_query("UPDATE torrents SET " . implode(", ", $updateset) . " WHERE id = " . 
 sql_query("COMMIT");
 
 tracker_recount_tags_for_categories(...$affectedTagCategories);
+tracker_refresh_torrent_search_index($id);
 tracker_invalidate_torrent_cache($id, true);
 tracker_invalidate_release_group_cache($oldReleaseGroupId, $releaseGroupId);
 

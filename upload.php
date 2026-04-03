@@ -2,10 +2,15 @@
 declare(strict_types=1);
 
 require_once 'include/bittorrent.php';
+require_once 'include/upload_ai.php';
 
 dbconn(false);
 loggedinorreturn();
 parked();
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 stdhead($tracker_lang['upload_torrent']);
 begin_frame('Загрузить торрент на TorrentSide');
@@ -81,11 +86,13 @@ if ($type === 0) {
 }
 
 /* ---------- форма загрузки ---------- */
+$csrf = h((string)$_SESSION['csrf_token']);
 echo <<<HTML
 <div align="center">
 <p><span style="color: green; font-weight: bold;">После загрузки торрента, вам нужно будет скачать торрент и поставить качаться в папку где лежат оригиналы файлов.</span></p>
 
 <form name="upload" enctype="multipart/form-data" action="takeupload.php" id="upload" method="post" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{$csrf}" />
     <input type="hidden" name="MAX_FILE_SIZE" value="{$max_torrent_size}" />
     <table border="1" cellspacing="0" cellpadding="5">
         <tr><td class="colhead" colspan="2">{$tracker_lang['upload_torrent']}</td></tr>
@@ -100,11 +107,12 @@ tr(
     1
 );
 tr($tracker_lang['torrent_name'], "<input type='text' name='name' size='80' maxlength='255' required /><br />(" . h($tracker_lang['taken_from_torrent']) . ")", 1);
+print("<tr><td class='lol' colspan='2' style='padding:16px'>" . tracker_upload_ai_render_panel('generic') . "</td></tr>\n");
 tr($tracker_lang['images'], "<input type='url' name='image0' size='80' placeholder='https://...' pattern='https?://.+'><br/><b>Укажите URL-адрес картинки</b><br/>Если вы не знаете, куда загрузить картинку, воспользуйтесь бесплатными хостингами: <a href='http://radikal.ru/'>Radikal</a>, <a href='http://ipicture.ru'>iPicture</a>", 1);
 print("</td></tr>\n");
 
 /* описание */
-print("<tr><td class='rowhead' style='padding: 10px'>" . h($tracker_lang['description']) . "</td><td class='lol'>");
+print("<tr><td class='rowhead' style='padding: 10px'>" . h($tracker_lang['description']) . "</td><td class='lol'><div style='margin-bottom:8px;color:#5f5b53'>Описание можно оставить пустым: AI-помощник соберёт черновик по названию, .torrent и данным MediaInfo/NFO.</div>");
 textbbcode("upload", "descr");
 print("</td></tr>\n");
 

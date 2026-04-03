@@ -425,6 +425,265 @@ if (!function_exists('tracker_strip_bbcode_tags')) {
     }
 }
 
+if (!function_exists('tracker_search_normalize_text')) {
+    function tracker_search_normalize_text(string $text): string
+    {
+        $text = tracker_strip_bbcode_tags($text);
+        $text = preg_replace('~https?://\S+~iu', ' ', $text) ?? $text;
+        $text = str_replace(['/', '\\', '|'], ' ', $text);
+        $text = mb_strtolower($text, 'UTF-8');
+        $text = preg_replace('~[^\p{L}\p{N}\s._-]+~u', ' ', $text) ?? $text;
+        $text = trim(preg_replace('~\s+~u', ' ', $text) ?? $text);
+        return $text;
+    }
+}
+
+if (!function_exists('tracker_search_transliterate_ru_to_lat')) {
+    function tracker_search_transliterate_ru_to_lat(string $text): string
+    {
+        $map = [
+            'а' => 'a',  'б' => 'b',   'в' => 'v',   'г' => 'g',   'д' => 'd',
+            'е' => 'e',  'ё' => 'yo',  'ж' => 'zh',  'з' => 'z',   'и' => 'i',
+            'й' => 'y',  'к' => 'k',   'л' => 'l',   'м' => 'm',   'н' => 'n',
+            'о' => 'o',  'п' => 'p',   'р' => 'r',   'с' => 's',   'т' => 't',
+            'у' => 'u',  'ф' => 'f',   'х' => 'h',   'ц' => 'ts',  'ч' => 'ch',
+            'ш' => 'sh', 'щ' => 'sch', 'ъ' => '',    'ы' => 'y',   'ь' => '',
+            'э' => 'e',  'ю' => 'yu',  'я' => 'ya',
+        ];
+
+        $text = tracker_search_normalize_text($text);
+        if ($text === '') {
+            return '';
+        }
+
+        $text = strtr($text, $map);
+        $text = preg_replace('~[^a-z0-9\s._-]+~', ' ', $text) ?? $text;
+        $text = trim(preg_replace('~\s+~', ' ', $text) ?? $text);
+        return $text;
+    }
+}
+
+if (!function_exists('tracker_search_tokenize')) {
+    function tracker_search_tokenize(string $text): array
+    {
+        $text = tracker_search_normalize_text($text);
+        if ($text === '') {
+            return [];
+        }
+
+        $parts = preg_split('~[^\p{L}\p{N}]+~u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $tokens = [];
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part === '' || mb_strlen($part, 'UTF-8') <= 2) {
+                continue;
+            }
+            $tokens[$part] = $part;
+        }
+
+        return array_values($tokens);
+    }
+}
+
+if (!function_exists('tracker_search_stem_token')) {
+    function tracker_search_stem_token(string $text): string
+    {
+        $text = tracker_search_normalize_text($text);
+        if ($text === '') {
+            return '';
+        }
+
+        $tokens = preg_split('~[^\p{L}\p{N}]+~u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (!$tokens) {
+            return '';
+        }
+
+        $ruEndings = [
+            'иями', 'ями', 'ами', 'ого', 'ему', 'ому', 'ыми', 'ими', 'его',
+            'иях', 'иях', 'ах', 'ях', 'ий', 'ый', 'ой', 'ая', 'яя', 'ое', 'ее',
+            'ые', 'ие', 'ую', 'юю', 'ов', 'ев', 'ом', 'ем', 'ам', 'ям', 'ах',
+            'ях', 'ия', 'ья', 'а', 'я', 'у', 'ю', 'ы', 'и', 'е', 'о',
+        ];
+        $enEndings = ['ations', 'ation', 'ments', 'ment', 'ingly', 'edly', 'ing', 'ers', 'ies', 'ied', 'ed', 'es', 's'];
+        $stems = [];
+
+        foreach ($tokens as $token) {
+            $stem = $token;
+            $tokenLen = mb_strlen($token, 'UTF-8');
+            if ($tokenLen >= 5 && preg_match('~[А-Яа-яЁё]~u', $token)) {
+                foreach ($ruEndings as $ending) {
+                    $endingLen = mb_strlen($ending, 'UTF-8');
+                    if ($tokenLen <= $endingLen + 2) {
+                        continue;
+                    }
+                    if (mb_substr($token, -$endingLen, null, 'UTF-8') === $ending) {
+                        $stem = mb_substr($token, 0, $tokenLen - $endingLen, 'UTF-8');
+                        break;
+                    }
+                }
+            } elseif ($tokenLen >= 5 && preg_match('~[A-Za-z]~', $token)) {
+                foreach ($enEndings as $ending) {
+                    $endingLen = strlen($ending);
+                    if (strlen($token) <= $endingLen + 2) {
+                        continue;
+                    }
+                    if (substr($token, -$endingLen) === $ending) {
+                        $stem = substr($token, 0, strlen($token) - $endingLen);
+                        break;
+                    }
+                }
+            }
+
+            $stem = trim($stem);
+            if ($stem !== '') {
+                $stems[$stem] = $stem;
+            }
+        }
+
+        return implode(' ', array_values($stems));
+    }
+}
+
+if (!function_exists('tracker_search_text_matches_alias')) {
+    function tracker_search_text_matches_alias(string $text, string $alias): bool
+    {
+        $textNorm = tracker_search_normalize_text($text);
+        $aliasNorm = tracker_search_normalize_text($alias);
+        if ($textNorm === '' || $aliasNorm === '') {
+            return false;
+        }
+
+        if ($textNorm === $aliasNorm || str_contains($textNorm, $aliasNorm)) {
+            return true;
+        }
+
+        $textTokens = tracker_search_tokenize($textNorm);
+        $aliasTokens = tracker_search_tokenize($aliasNorm);
+        if (!$textTokens || !$aliasTokens) {
+            return false;
+        }
+
+        $textStems = [];
+        foreach ($textTokens as $token) {
+            $stem = tracker_search_stem_token($token);
+            if ($stem !== '') {
+                $textStems[$stem] = true;
+            }
+        }
+
+        foreach ($aliasTokens as $aliasToken) {
+            $aliasStem = tracker_search_stem_token($aliasToken);
+            if ($aliasStem === '') {
+                return false;
+            }
+
+            if (in_array($aliasToken, $textTokens, true) || isset($textStems[$aliasStem])) {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+}
+
+if (!function_exists('tracker_search_concept_catalog')) {
+    function tracker_search_concept_catalog(): array
+    {
+        static $catalog = null;
+        if ($catalog !== null) {
+            return $catalog;
+        }
+
+        $catalog = [
+            'weather' => [
+                'labels' => ['непогода', 'стихия', 'природная стихия', 'катастрофа', 'weather disaster'],
+                'aliases' => ['непогода', 'ненастье', 'погода', 'ураган', 'ураганы', 'торнадо', 'смерч', 'циклон', 'тайфун', 'шторм', 'штормы', 'буря', 'гроза', 'ливень', 'метель', 'storm', 'storms', 'hurricane', 'tornado', 'twister', 'cyclone', 'typhoon', 'blizzard'],
+            ],
+            'horror' => [
+                'labels' => ['ужасы', 'horror'],
+                'aliases' => ['ужасы', 'хоррор', 'страшный', 'страшилка', 'кошмар', 'horror', 'scary'],
+            ],
+            'action' => [
+                'labels' => ['боевик', 'action'],
+                'aliases' => ['боевик', 'экшен', 'action'],
+            ],
+            'drama' => [
+                'labels' => ['драма', 'drama'],
+                'aliases' => ['драма', 'драматический', 'drama'],
+            ],
+            'thriller' => [
+                'labels' => ['триллер', 'thriller'],
+                'aliases' => ['триллер', 'напряженный', 'thriller', 'suspense'],
+            ],
+            'comedy' => [
+                'labels' => ['комедия', 'comedy'],
+                'aliases' => ['комедия', 'смешной', 'юмор', 'comedy', 'funny'],
+            ],
+            'animation' => [
+                'labels' => ['мультфильм', 'animation'],
+                'aliases' => ['мульт', 'мультфильм', 'анимация', 'animation', 'animated'],
+            ],
+            'series' => [
+                'labels' => ['сериал', 'tv series'],
+                'aliases' => ['сериал', 'сериалы', 'series', 'tv', 'tv series'],
+            ],
+            'space' => [
+                'labels' => ['космос', 'space'],
+                'aliases' => ['космос', 'космический', 'space', 'spaceship', 'галактика', 'астронавт'],
+            ],
+            'disaster' => [
+                'labels' => ['бедствие', 'disaster'],
+                'aliases' => ['бедствие', 'катастрофа', 'апокалипсис', 'disaster', 'catastrophe'],
+            ],
+        ];
+
+        return $catalog;
+    }
+}
+
+if (!function_exists('tracker_search_collect_concepts')) {
+    function tracker_search_collect_concepts(string $text): array
+    {
+        $normalized = tracker_search_normalize_text($text);
+        if ($normalized === '') {
+            return [];
+        }
+
+        $tokens = tracker_search_tokenize($normalized);
+        $concepts = [];
+
+        foreach (tracker_search_concept_catalog() as $concept) {
+            $matched = false;
+            foreach (array_merge($concept['labels'] ?? [], $concept['aliases'] ?? []) as $alias) {
+                $aliasNorm = tracker_search_normalize_text((string)$alias);
+                if ($aliasNorm === '') {
+                    continue;
+                }
+
+                if (tracker_search_text_matches_alias($normalized, $aliasNorm)) {
+                    $matched = true;
+                    break;
+                }
+            }
+
+            if (!$matched) {
+                continue;
+            }
+
+            foreach ($concept['labels'] ?? [] as $label) {
+                $label = tracker_search_normalize_text((string)$label);
+                if ($label !== '') {
+                    $concepts[$label] = $label;
+                }
+            }
+        }
+
+        return array_values($concepts);
+    }
+}
+
 if (!function_exists('tracker_torrent_extract_meta')) {
     function tracker_torrent_extract_meta(string $descr): array
     {
@@ -500,6 +759,265 @@ if (!function_exists('tracker_torrent_extract_meta')) {
     }
 }
 
+if (!function_exists('tracker_search_title_variants')) {
+    function tracker_search_title_variants(string $title): array
+    {
+        $title = tracker_strip_bbcode_tags($title);
+        if (trim($title) === '') {
+            return [];
+        }
+
+        $variants = [];
+        $parts = preg_split('~[/|]+~u', $title, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+
+            $variants[$part] = $part;
+
+            $clean = preg_replace('~[\[(].*?[\])]\s*~u', ' ', $part) ?? $part;
+            $clean = trim(preg_replace('~\s+~u', ' ', $clean) ?? $clean);
+            if ($clean !== '' && $clean !== $part) {
+                $variants[$clean] = $clean;
+            }
+
+            $yearless = preg_replace('~\b(?:19|20)\d{2}\b~u', ' ', $clean) ?? $clean;
+            $yearless = trim(preg_replace('~\s+~u', ' ', $yearless) ?? $yearless);
+            if ($yearless !== '' && $yearless !== $clean) {
+                $variants[$yearless] = $yearless;
+            }
+        }
+
+        return array_values($variants);
+    }
+}
+
+if (!function_exists('tracker_search_append_chunks')) {
+    function tracker_search_append_chunks(array &$chunks, array $values, int $maxCharsPerChunk = 4000): void
+    {
+        foreach ($values as $value) {
+            $value = tracker_search_normalize_text((string)$value);
+            if ($value === '') {
+                continue;
+            }
+
+            if ($maxCharsPerChunk > 0 && mb_strlen($value, 'UTF-8') > $maxCharsPerChunk) {
+                $value = trim(mb_substr($value, 0, $maxCharsPerChunk, 'UTF-8'));
+            }
+
+            if ($value === '') {
+                continue;
+            }
+
+            $chunks[$value] = $value;
+
+            $latin = tracker_search_transliterate_ru_to_lat($value);
+            if ($latin !== '' && $latin !== $value) {
+                $chunks[$latin] = $latin;
+            }
+        }
+    }
+}
+
+if (!function_exists('tracker_torrent_build_search_text')) {
+    function tracker_torrent_build_search_text(array $row, array $files = [], array $comments = []): string
+    {
+        $descr = (string)($row['descr'] ?? '');
+        $meta = tracker_torrent_extract_meta($descr);
+        $chunks = [];
+        $conceptSource = implode("\n", array_filter([
+            (string)($row['name'] ?? ''),
+            (string)($row['tags'] ?? ''),
+            (string)($row['descr'] ?? ''),
+            (string)($row['ori_descr'] ?? ''),
+            (string)($meta['title'] ?? ''),
+            (string)($meta['original_title'] ?? ''),
+            (string)($meta['genre'] ?? ''),
+            (string)($meta['roles'] ?? ''),
+            (string)($meta['director'] ?? ''),
+        ], static fn(string $value): bool => trim($value) !== ''));
+
+        tracker_search_append_chunks($chunks, [
+            (string)($row['name'] ?? ''),
+            (string)($row['filename'] ?? ''),
+            (string)($row['save_as'] ?? ''),
+            (string)($row['tags'] ?? ''),
+            (string)($row['category_name'] ?? ''),
+            (string)($row['release_group_name'] ?? ''),
+        ], 1200);
+
+        tracker_search_append_chunks($chunks, [
+            (string)($meta['title'] ?? ''),
+            (string)($meta['original_title'] ?? ''),
+            (string)($meta['year'] ?? ''),
+            (string)($meta['genre'] ?? ''),
+            (string)($meta['released'] ?? ''),
+            (string)($meta['director'] ?? ''),
+            (string)($meta['roles'] ?? ''),
+            (string)($meta['translation'] ?? ''),
+            (string)($meta['quality'] ?? ''),
+            (string)($meta['format'] ?? ''),
+            (string)($meta['duration'] ?? ''),
+            (string)($meta['publisher'] ?? ''),
+        ], 2000);
+
+        tracker_search_append_chunks($chunks, tracker_search_title_variants((string)($row['name'] ?? '')), 400);
+        tracker_search_append_chunks($chunks, tracker_search_title_variants((string)($meta['title'] ?? '')), 400);
+        tracker_search_append_chunks($chunks, tracker_search_title_variants((string)($meta['original_title'] ?? '')), 400);
+
+        tracker_search_append_chunks($chunks, [
+            (string)($row['descr'] ?? ''),
+            (string)($row['ori_descr'] ?? ''),
+        ], 8000);
+
+        tracker_search_append_chunks($chunks, $files, 300);
+        tracker_search_append_chunks($chunks, $comments, 1200);
+        tracker_search_append_chunks($chunks, tracker_search_collect_concepts($conceptSource), 250);
+
+        $maxBytes = 65535;
+        $blob = '';
+        foreach ($chunks as $chunk) {
+            $prefix = $blob === '' ? '' : ' ';
+            if (strlen($blob) + strlen($prefix) + strlen($chunk) > $maxBytes) {
+                $remaining = $maxBytes - strlen($blob) - strlen($prefix);
+                if ($remaining <= 32) {
+                    break;
+                }
+
+                $chunk = trim(mb_strcut($chunk, 0, $remaining, 'UTF-8'));
+                if ($chunk === '') {
+                    break;
+                }
+            }
+
+            $blob .= $prefix . $chunk;
+        }
+
+        return trim($blob);
+    }
+}
+
+if (!function_exists('tracker_refresh_torrent_search_index')) {
+    function tracker_refresh_torrent_search_index(int $torrentId): void
+    {
+        $torrentId = max(0, $torrentId);
+        if ($torrentId <= 0) {
+            return;
+        }
+
+        $res = sql_query("
+            SELECT
+                t.id,
+                t.name,
+                t.filename,
+                t.save_as,
+                t.tags,
+                t.descr,
+                t.ori_descr,
+                c.name AS category_name,
+                rg.name AS release_group_name
+            FROM torrents AS t
+            LEFT JOIN categories AS c ON c.id = t.category
+            LEFT JOIN release_groups AS rg ON rg.id = t.release_group_id
+            WHERE t.id = {$torrentId}
+            LIMIT 1
+        ");
+
+        if (!$res) {
+            return;
+        }
+
+        $row = mysqli_fetch_assoc($res);
+        if (!$row) {
+            return;
+        }
+
+        $files = [];
+        $filesRes = sql_query("SELECT filename FROM files WHERE torrent = {$torrentId} ORDER BY id ASC LIMIT 250");
+        while ($filesRes && ($fileRow = mysqli_fetch_assoc($filesRes))) {
+            $filename = trim((string)($fileRow['filename'] ?? ''));
+            if ($filename !== '') {
+                $files[] = $filename;
+            }
+        }
+
+        $comments = [];
+        $commentChars = 0;
+        $maxCommentChars = 18000;
+        $commentsRes = sql_query("SELECT text, ori_text FROM comments WHERE torrent = {$torrentId} ORDER BY id DESC LIMIT 150");
+        while ($commentsRes && ($commentRow = mysqli_fetch_assoc($commentsRes))) {
+            foreach (['text', 'ori_text'] as $field) {
+                $text = tracker_search_normalize_text((string)($commentRow[$field] ?? ''));
+                if ($text === '') {
+                    continue;
+                }
+
+                $remaining = $maxCommentChars - $commentChars;
+                if ($remaining <= 0) {
+                    break 2;
+                }
+
+                if (mb_strlen($text, 'UTF-8') > $remaining) {
+                    $text = trim(mb_substr($text, 0, $remaining, 'UTF-8'));
+                }
+
+                if ($text === '') {
+                    continue;
+                }
+
+                $comments[] = $text;
+                $commentChars += mb_strlen($text, 'UTF-8');
+            }
+        }
+
+        $searchText = tracker_torrent_build_search_text($row, $files, $comments);
+        if ($searchText === '') {
+            $searchText = tracker_search_normalize_text((string)($row['name'] ?? ''));
+        }
+
+        sql_query("UPDATE torrents SET search_text = " . sqlesc($searchText) . " WHERE id = {$torrentId} LIMIT 1");
+    }
+}
+
+if (!function_exists('tracker_rebuild_torrent_search_indexes')) {
+    function tracker_rebuild_torrent_search_indexes(int $batchSize = 200, ?callable $progress = null): int
+    {
+        $batchSize = max(1, min($batchSize, 1000));
+        $lastId = 0;
+        $rebuilt = 0;
+
+        while (true) {
+            $ids = [];
+            $res = sql_query("SELECT id FROM torrents WHERE id > {$lastId} ORDER BY id ASC LIMIT {$batchSize}");
+            while ($res && ($row = mysqli_fetch_assoc($res))) {
+                $ids[] = (int)($row['id'] ?? 0);
+            }
+
+            if (!$ids) {
+                break;
+            }
+
+            foreach ($ids as $torrentId) {
+                if ($torrentId <= 0) {
+                    continue;
+                }
+
+                tracker_refresh_torrent_search_index($torrentId);
+                $rebuilt++;
+                $lastId = $torrentId;
+
+                if ($progress !== null) {
+                    $progress($torrentId, $rebuilt);
+                }
+            }
+        }
+
+        return $rebuilt;
+    }
+}
+
 if (!function_exists('tracker_browse_search_url')) {
     function tracker_browse_search_url(string $term, array $extra = []): string
     {
@@ -510,7 +1028,7 @@ if (!function_exists('tracker_browse_search_url')) {
 
         $query = array_merge([
             'search' => $term,
-            'where' => 'all',
+            'where' => 'ai',
             'incldead' => 1,
         ], $extra);
 

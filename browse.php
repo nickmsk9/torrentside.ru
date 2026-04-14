@@ -1314,29 +1314,13 @@ begin_frame("Список раздач");
 <style>
   /* компактная сетка и “стеклянные” кнопки */
   .browse-wrap{--pad:10px;--rad:12px;--gap:10px}
-  .browse-search-table{table-layout:auto}
-  .browse-search-table td{vertical-align:middle;border:0}
   .ai-hero-panel{
-    position:relative;overflow:hidden;
-    border:1px solid #dde5f0;border-radius:32px;padding:22px 24px 20px;
-    background:radial-gradient(circle at top,#edf4ff 0%,#f9fbff 38%,#ffffff 100%);
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 24px 44px rgba(15,23,42,.08);
-  }
-  .ai-hero-panel::before,
-  .ai-hero-panel::after{
-    content:"";position:absolute;border-radius:50%;pointer-events:none;
-  }
-  .ai-hero-panel::before{
-    width:280px;height:280px;left:-92px;top:-138px;
-    background:rgba(66,133,244,.14);filter:blur(6px);
-  }
-  .ai-hero-panel::after{
-    width:340px;height:340px;right:-120px;bottom:-210px;
-    background:rgba(52,168,83,.1);filter:blur(12px);
+    border:1px solid #dde5f0;border-radius:24px;padding:22px 24px 20px;
+    background:#f8fbff;
+    box-shadow:0 14px 32px rgba(15,23,42,.06);
   }
   .ai-search-shell{
-    position:relative;z-index:1;
-    max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:18px;
+    max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:16px;
   }
   .ai-search-bar{
     display:flex;align-items:center;gap:14px;
@@ -1388,17 +1372,17 @@ begin_frame("Список раздач");
   }
   .ai-filter-card{
     display:flex;flex-direction:column;gap:8px;
-    padding:14px 16px;border:1px solid #dde4ef;border-radius:18px;background:#fff;
-    box-shadow:0 1px 8px rgba(15,23,42,.04);
+    padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;
   }
   .ai-filter-card label{
     font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#667085;
   }
   .ai-filter-card .browse-select{
     width:100%;
-    border-radius:12px;
+    min-height:38px;
+    border-radius:10px;
     border:1px solid #d5dce8;
-    background:#fbfcff;
+    background:#fff;
   }
   .search-row{display:flex;flex-wrap:wrap;gap:var(--gap);align-items:center;justify-content:center}
   .search-row .search{min-width:260px;max-width:520px;padding:8px 10px;border:1px solid #bbb;border-radius:10px}
@@ -1485,58 +1469,48 @@ begin_frame("Список раздач");
           $cat_sel = isset($_GET['cat']) ? (int)$_GET['cat'] : 0;
         ?>
         <div class="ai-hero-panel">
-          <table class="embedded browse-search-table" width="100%" cellspacing="0" cellpadding="4">
-            <tr>
-              <td colspan="5">
-                <div class="ai-search-shell">
-                  <div class="ai-search-bar">
-                    <span class="ai-search-icon" aria-hidden="true"></span>
-                    <input class="search browse-query-input ai-query-input" id="searchinput" name="search" type="text" autocomplete="off"
-                           ondblclick="suggestDebounced(event.keyCode, this.value);"
-                           onkeyup="suggestDebounced(event.keyCode, this.value);"
-                           onkeypress="return noenter(event.keyCode);"
-                           placeholder="Например: фильм про непогоду, Бред Питт, цитата из описания"
-                           value="<?= $search_val ?>" />
-                    <input type="hidden" name="where" value="ai" />
-                    <input class="ai-search-submit" type="submit" value="Поиск" />
-                  </div>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td colspan="5">
-                <div class="ai-filter-grid">
-                  <div class="ai-filter-card">
-                    <label for="browse-cat">Раздел</label>
-                    <select class="browse-select" id="browse-cat" name="cat" aria-label="Категория">
-                      <option value="0">Все разделы</option>
-                      <?php foreach ($cats as $cat): ?>
-                        <?php $sel = ($cat_sel === (int)$cat['id']) ? ' selected="selected"' : ''; ?>
-                        <option value="<?= (int)$cat['id'] ?>"<?= $sel ?>><?= $h($cat['name']) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="ai-filter-card">
-                    <label for="browse-format">Формат</label>
-                    <select class="browse-select" id="browse-format" name="format" aria-label="Формат">
-                      <?php foreach ($formatOptions as $key => $label): ?>
-                        <option value="<?= $h($key) ?>"<?= $formatFilter === $key ? ' selected="selected"' : '' ?>><?= $h($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="ai-filter-card">
-                    <label for="browse-year">Год выхода</label>
-                    <select class="browse-select" id="browse-year" name="year" aria-label="Год выхода">
-                      <option value="0">Все года</option>
-                      <?php for ($y = (int)date('Y') + 1; $y >= 1950; $y--): ?>
-                        <option value="<?= $y ?>"<?= $yearFilter === $y ? ' selected="selected"' : '' ?>><?= $y ?></option>
-                      <?php endfor; ?>
-                    </select>
-                  </div>
-                </div>
-              </td>
-            </tr>
-          </table>
+          <div class="ai-search-shell">
+            <div class="ai-search-bar">
+              <span class="ai-search-icon" aria-hidden="true"></span>
+              <input class="search browse-query-input ai-query-input" id="searchinput" name="search" type="text" autocomplete="off"
+                     ondblclick="suggestDebounced(event.keyCode, this.value);"
+                     onkeyup="suggestDebounced(event.keyCode, this.value);"
+                     onkeypress="return noenter(event.keyCode);"
+                     placeholder="Поиск по названию, описанию или актёру"
+                     value="<?= $search_val ?>" />
+              <input type="hidden" name="where" value="ai" />
+              <input class="ai-search-submit" type="submit" value="Поиск" />
+            </div>
+            <div class="ai-filter-grid">
+              <div class="ai-filter-card">
+                <label for="browse-cat">Раздел</label>
+                <select class="browse-select" id="browse-cat" name="cat" aria-label="Категория">
+                  <option value="0">Все разделы</option>
+                  <?php foreach ($cats as $cat): ?>
+                    <?php $sel = ($cat_sel === (int)$cat['id']) ? ' selected="selected"' : ''; ?>
+                    <option value="<?= (int)$cat['id'] ?>"<?= $sel ?>><?= $h($cat['name']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="ai-filter-card">
+                <label for="browse-format">Формат</label>
+                <select class="browse-select" id="browse-format" name="format" aria-label="Формат">
+                  <?php foreach ($formatOptions as $key => $label): ?>
+                    <option value="<?= $h($key) ?>"<?= $formatFilter === $key ? ' selected="selected"' : '' ?>><?= $h($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="ai-filter-card">
+                <label for="browse-year">Год выхода</label>
+                <select class="browse-select" id="browse-year" name="year" aria-label="Год выхода">
+                  <option value="0">Все года</option>
+                  <?php for ($y = (int)date('Y') + 1; $y >= 1950; $y--): ?>
+                    <option value="<?= $y ?>"<?= $yearFilter === $y ? ' selected="selected"' : '' ?>><?= $y ?></option>
+                  <?php endfor; ?>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
       </td>
     </tr>
@@ -1663,7 +1637,7 @@ if (isset($cleansearchstr) || isset($cleantagstr)) {
 
 
 // Кеш-ключ и TTL
-$key = 'help_torrents:v2';
+$key = 'help_torrents:v3';
 $ttl = 300;
 
 // 1) Кеш
@@ -1671,21 +1645,30 @@ global $memcached;
 $res = $memcached->get($key);
 
 if ($res === false) {
+    $totalSeedersExpr = "(torrents.seeders + COALESCE(mts.external_seeders, 0))";
+    $totalLeechersExpr = "(torrents.leechers + COALESCE(mts.external_leechers, 0))";
     $sql = "
-        SELECT id, name, seeders, leechers
+        SELECT
+            torrents.id,
+            torrents.name,
+            torrents.seeders,
+            torrents.leechers,
+            COALESCE(mts.external_seeders, 0) AS external_seeders,
+            COALESCE(mts.external_leechers, 0) AS external_leechers
         FROM torrents
+        " . multitracker_stats_summary_sql('torrents') . "
         WHERE visible = 'yes'
           AND banned  = 'no'
           AND (
-                (seeders = 0 AND leechers = 0)                       -- показываем «мертвые» (0/0)
-             OR (seeders = 0 AND leechers > 0)                       -- есть качающие, но нет сидов
-             OR (seeders > 0 AND (leechers / NULLIF(seeders,0)) >= 4) -- перекос спрос/предложение
+                ({$totalSeedersExpr} = 0 AND {$totalLeechersExpr} = 0)                           -- показываем «мертвые» (0/0)
+             OR ({$totalSeedersExpr} = 0 AND {$totalLeechersExpr} > 0)                           -- есть качающие, но нет сидов
+             OR ({$totalSeedersExpr} > 0 AND ({$totalLeechersExpr} / NULLIF({$totalSeedersExpr},0)) >= 4) -- перекос спрос/предложение
           )
         ORDER BY
             -- сначала без сидов, затем по наибольшему перекосу, затем по числу качающих
-            (seeders = 0) DESC,
-            (leechers / NULLIF(seeders,1)) DESC,
-            leechers DESC
+            ({$totalSeedersExpr} = 0) DESC,
+            ({$totalLeechersExpr} / NULLIF({$totalSeedersExpr},1)) DESC,
+            {$totalLeechersExpr} DESC
         LIMIT 20
     ";
     $q = sql_query($sql) or sqlerr(__FILE__, __LINE__);
@@ -1731,8 +1714,12 @@ if (empty($res)) {
             ? (mb_substr($nameFull, 0, 55, 'UTF-8') . '…')
             : $nameFull;
 
-        $seed = (int)$arr['seeders'];
-        $leech = (int)$arr['leechers'];
+        $seedLocal = (int)($arr['seeders'] ?? 0);
+        $leechLocal = (int)($arr['leechers'] ?? 0);
+        $seedExternal = (int)($arr['external_seeders'] ?? 0);
+        $leechExternal = (int)($arr['external_leechers'] ?? 0);
+        $seed = $seedLocal + $seedExternal;
+        $leech = $leechLocal + $leechExternal;
 
         // определим "серьёзность" для бейджа/точки
         if ($seed === 0 && $leech === 0) {
@@ -1746,14 +1733,19 @@ if (empty($res)) {
         }
 
         $nameEsc = htmlspecialchars($nameFull, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $nameShortEsc = htmlspecialchars($nameShort, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $link = 'details.php?id='.(int)$arr['id'].'&hit=1';
 
         echo '<tr>';
-        echo '<td class="help-name"><a href="'.$link.'" title="'.$nameEsc.'">'.htmlspecialchars($nameShort, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8').'</a>'
-           . '<div class="help-meta" title="'.$nameEsc.'">'.htmlspecialchars($nameEsc, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8').'</div></td>';
+        echo '<td class="help-name"><a href="'.$link.'" title="'.$nameEsc.'">'.$nameShortEsc.'</a>'
+           . '<div class="help-meta" title="'.$nameEsc.'">'.$nameEsc.'</div></td>';
         echo '<td>'.$badge.'</td>';
         echo '<td><b>Раздают:</b> '.number_format($seed, 0, ',', ' ')
-           . ' &nbsp; <b>Качают:</b> '.number_format($leech, 0, ',', ' ').'</td>';
+           . ' <span class="help-meta">(лок. '.number_format($seedLocal, 0, ',', ' ')
+           . ' / внеш. '.number_format($seedExternal, 0, ',', ' ').')</span>'
+           . ' &nbsp; <b>Качают:</b> '.number_format($leech, 0, ',', ' ')
+           . ' <span class="help-meta">(лок. '.number_format($leechLocal, 0, ',', ' ')
+           . ' / внеш. '.number_format($leechExternal, 0, ',', ' ').')</span></td>';
         echo '</tr>';
     }
 }
